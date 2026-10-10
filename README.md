@@ -235,33 +235,40 @@ accidental data loss.
 
 ## Testing
 
-### Development tests
+### Automated tests (Node.js)
 
-There is no `test.js` file in this repository.  During development, 74 test cases
-were run interactively using `node -e "…"` against the pure functions extracted
-from `index.html`.  Those test cases covered:
+The `test/` directory contains a permanent automated test suite using Node.js 24's
+built-in `node:test` runner (no external dependencies).
 
-- Sleep step validation: accepted values (`6`, `6.5`, `7.5`, `24`) and rejected
-  values (`6.3`, `6.25`)
-- Water step validation: accepted values (`0`, `1.1`, `2.3`, `3`) and rejected
-  values (`1.15`, `2.25`)
-- Date validation: valid dates, impossible dates (`2025-02-30`), invalid month 13,
-  non-date strings, empty string
-- Duplicate date rejection
-- `isValidEntryShape` — 9 shape/type/range cases
-- `validateStoredEntries` — valid array, empty array, duplicate dates, malformed entry
-- `sortByDateDesc` — correct order, original array not mutated
-- `calcSummary` — correct averages, 7-entry window boundary, empty → `null`
-- Focus restoration index logic
-- Validation focus routing (error message → field mapping)
-- State mutation guards (filter and concat do not mutate the source array)
+```
+test/
+├── helpers.js        — vm extraction helper and in-memory localStorage stub
+├── pure.test.js      — 91 tests covering the seven pure functions
+└── storage.test.js   — 20 tests covering loadEntries and saveEntries
+```
 
-To create a reproducible test suite, copy the pure functions from `index.html`
-into a standalone `test.js` file alongside the test cases.  The functions that
-can be tested in Node.js without a DOM are: `localDateString`, `isValidStep`,
-`isValidEntryShape`, `validateStoredEntries`, `validateEntry`, `sortByDateDesc`,
-and `calcSummary`.  The storage functions (`loadEntries`, `saveEntries`) and all
-DOM rendering and event-handler code require a browser environment.
+**Run all tests:**
+
+```bash
+~/.nvm/versions/node/v24.21.0/bin/node --test test/pure.test.js test/storage.test.js
+```
+
+Expected output: **111 tests, 111 pass, 0 fail.**
+
+**How it works:**  `helpers.js` extracts the first `<script>` block from
+`index.html` using a regex, evaluates it in an isolated `vm` context (no
+`eval()`, no code copying), and returns the named functions.  This means
+the tests always exercise the exact code that runs in the browser.
+
+**Coverage:**
+
+| File | Functions tested |
+|------|-----------------|
+| `pure.test.js` | `localDateString`, `isValidStep`, `isValidEntryShape`, `validateStoredEntries`, `validateEntry`, `sortByDateDesc`, `calcSummary` |
+| `storage.test.js` | `loadEntries`, `saveEntries` (round-trip, corrupt data, write failure, read failure) |
+
+DOM rendering and event-handler code require a live browser and cannot be
+tested in Node.js; see Manual browser tests below.
 
 ### Manual browser tests
 
@@ -351,7 +358,7 @@ be found.  If you need to migrate data, do so before changing the key.
 
 ### Regression checklist after any change
 
-- [ ] All 74 development test cases pass (run interactively with `node -e "…"` or by creating a `test.js`)
+- [ ] All 111 automated tests pass (`node --test test/pure.test.js test/storage.test.js`)
 - [ ] Form submits a valid entry and it appears in the table
 - [ ] Summary averages recalculate correctly
 - [ ] Entry persists after page reload

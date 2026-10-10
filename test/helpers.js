@@ -1,0 +1,258 @@
+/**
+ * test/helpers.js
+ *
+ * Extracts the pure-functions <script> block from index.html and evaluates
+ * it in an isolated vm context so the test files can call the application
+ * functions directly without modifying index.html or duplicating code.
+ *
+ * NODE VERSION COMPATIBILITY
+ *   This file uses bare require() names ('fs', 'path', 'vm') which work on
+ *   all Node.js versions.  The 'node:' prefix requires Node 14.18+.
+ *   The built-in node:test runner requires Node 18+.  On older versions,
+ *   test files should use a simple hand-rolled assertion harness.
+ *
+ * WHY vm AND NOT eval()?
+ *   eval() runs in the current module's scope and can accidentally read or
+ *   write variables in this file.  vm.Script with runInNewContext() runs in
+ *   a completely separate object (the "sandbox"), so nothing leaks in either
+ *   direction.  The code being evaluated is trusted local project code; vm is
+ *   used here for scope isolation, not security.
+ *
+ * WHY NOT COPY THE FUNCTIONS?
+ *   Copying would create two sources of truth.  If a function in index.html
+ *   is changed, the tests would still use the old copy and might pass even
+ *   though the real application behaviour broke.  Extracting from the file
+ *   means the tests always exercise the code that actually runs in the browser.
+ *
+ * CROSS-REALM NOTE FOR TEST AUTHORS
+ *   Objects and arrays created inside the vm context belong to the vm's
+ *   JavaScript realm, not Node's outer realm.  This matters for a few checks:
+ *
+ *     × instanceof Array  ← FALSE for vm arrays (different Array constructor)
+ *     ✓ Array.isArray()   ← TRUE  (works across realms)
+ *     ✓ typeof value      ← works normally
+ *     ✓ deepStrictEqual   ← works normally (compares structure, not identity)
+ *
+ *   Always use Array.isArray() rather than instanceof Array in test files.
+ *
+ * EXPORTED API
+ *   loadContext(localStorageStub?)
+ *     Returns an object containing:
+ *       { localDateString, isValidStep, isValidEntryShape,
+ *         validateStoredEntries, validateEntry, sortByDateDesc,
+ *         calcSummary, loadEntries, saveEntries, storage }
+ *
+ *     localStorageStub (optional)
+ *       An object with getItem(key) and setItem(key, value) methods.
+ *       If omitted, a fresh in-memory stub is created automatically.
+ *       The same stub is returned as `storage` so tests can inspect it.
+ */
+
+'use strict';
+
+// Use bare module names (without the 'node:' prefix) for compatibility with
+// Node.js versions older than 14.18.  The 'node:' prefix is supported from
+// Node 14.18 / 16+ onwards.  Bare names work on all Node versions.
+const fs   = require('fs');
+const path = require('path');
+const vm   = require('vm');
+
+// ── Locate index.html relative to the project root ──────────────────────────
+//
+// __dirname is the test/ directory; the project root is one level up.
+// Using path.resolve keeps this correct regardless of the working directory
+// from which `node --test` is invoked.
+const INDEX_HTML = path.resolve(__dirname, '..', 'index.html');
+
+// ── Names of all functions that must be present after evaluation ─────────────
+const REQUIRED_FUNCTIONS = [
+  'localDateString',
+  'isValidStep',
+  'isValidEntryShape',
+  'validateStoredEntries',
+  'validateEntry',
+  'sortByDateDesc',
+  'calcSummary',
+  'loadEntries',
+  'saveEntries',
+];
+
+// ── Extract the first <script> block ────────────────────────────────────────
+//
+// The regex matches the content between the first bare <script> tag and its
+// closing </script>.  The 's' (dotAll) flag allows '.' to match newlines.
+//
+// Anchoring to the first <script> is intentional: the second block contains
+// event handlers that reference `document` and `window.confirm`, which are
+// not available in a vm context without a full DOM stub.
+const SCRIPT_PATTERN = /<script>([\s\S]*?)<\/script>/;
+
+/**
+ * extractFirstScript(html)
+ *
+ * Extracts the text content of the first inline <script> block.
+ * Throws a descriptive error if no block is found or if the extracted
+ * content does not contain STORAGE_KEY (a sentinel that confirms we have
+ * the right block and not an accidentally matched empty or unrelated tag).
+ *
+ * @param   {string} html  The full text of index.html.
+ * @returns {string}       The JavaScript source extracted from the block.
+ */
+function extractFirstScript(html) {
+  const match = html.match(SCRIPT_PATTERN);
+
+  if (!match) {
+    throw new Error(
+      'helpers.js: could not find a <script>…</script> block in index.html.\n' +
+      'Check that index.html is the correct file and has not been restructured.'
+    );
+  }
+
+  const source = match[1];
+
+  // Verify the sentinel: STORAGE_KEY must appear in the extracted block.
+  // This confirms we have the data/validation script, not some other tag.
+  if (!source.includes("const STORAGE_KEY = 'wellness-tracker-demo-v1'")) {
+    throw new Error(
+      'helpers.js: the first <script> block in index.html does not contain\n' +
+      "STORAGE_KEY = 'wellness-tracker-demo-v1'.\n" +
+      'The file structure may have changed.  Update the extraction logic in\n' +
+      'test/helpers.js to match the new structure.'
+    );
+  }
+
+  return source;
+}
+
+// ── Build a minimal in-memory localStorage stub ─────────────────────────────
+//
+// The real browser localStorage stores strings only and returns null for
+// absent keys.  This stub replicates those semantics using a Map.
+//
+// Tests that exercise loadEntries / saveEntries populate this stub directly
+// before calling the function under test.
+
+/**
+ * makeLocalStorageStub()
+ *
+ * Returns a minimal localStorage-compatible object backed by a Map.
+ * Includes a `_data` property so tests can inspect or preset stored values
+ * without going through the public API.
+ *
+ * @returns {{ getItem, setItem, removeItem, _data: Map }}
+ */
+function makeLocalStorageStub() {
+  const _data = new Map();
+
+  return {
+    _data,
+
+    getItem(key) {
+      // Return null (not undefined) for absent keys — matches browser behaviour.
+      return _data.has(key) ? _data.get(key) : null;
+    },
+
+    setItem(key, value) {
+      // localStorage only stores strings; coerce, as the browser does.
+      _data.set(key, String(value));
+    },
+
+    removeItem(key) {
+      _data.delete(key);
+    },
+  };
+}
+
+// ── Cached script source (read once, reused across loadContext calls) ────────
+let _cachedSource = null;
+
+function getScriptSource() {
+  if (_cachedSource === null) {
+    const html = fs.readFileSync(INDEX_HTML, 'utf8');
+    _cachedSource = extractFirstScript(html);
+  }
+  return _cachedSource;
+}
+
+// ── Public API ───────────────────────────────────────────────────────────────
+
+/**
+ * loadContext(localStorageStub?)
+ *
+ * Evaluates the first <script> block from index.html in a fresh vm context
+ * and returns the nine application functions plus the storage stub.
+ *
+ * A fresh context is created on every call, so each test (or describe block)
+ * gets its own isolated scope with no shared state between tests.
+ *
+ * @param  {object} [localStorageStub]
+ *         Optional localStorage-compatible object.  If omitted, a fresh
+ *         in-memory stub is created and returned as `storage`.
+ *
+ * @returns {{
+ *   localDateString:      function,
+ *   isValidStep:          function,
+ *   isValidEntryShape:    function,
+ *   validateStoredEntries:function,
+ *   validateEntry:        function,
+ *   sortByDateDesc:       function,
+ *   calcSummary:          function,
+ *   loadEntries:          function,
+ *   saveEntries:          function,
+ *   storage:              object,   ← the localStorage stub in use
+ * }}
+ */
+function loadContext(localStorageStub) {
+  const storage = localStorageStub || makeLocalStorageStub();
+
+  // The sandbox is the global object seen by the evaluated script.
+  // Only what is explicitly listed here is available inside the vm context;
+  // Node.js built-ins such as require() are intentionally absent.
+  const sandbox = {
+    localStorage: storage,
+    console:      console,  // pass through so existing console.error calls work
+  };
+
+  // vm.createContext() seals the sandbox object and makes it the global scope
+  // for any scripts run in this context.
+  vm.createContext(sandbox);
+
+  // vm.Script compiles once; runInContext() executes in the given sandbox.
+  // Using a filename in the options makes stack traces point at index.html
+  // rather than showing "[vm]", which is helpful when a test fails.
+  const script = new vm.Script(getScriptSource(), { filename: 'index.html' });
+  script.runInContext(sandbox);
+
+  // Verify that every expected function was actually defined by the script.
+  // This catches renames or deletions in index.html before they produce
+  // confusing "not a function" errors deep inside a test.
+  const missing = REQUIRED_FUNCTIONS.filter(
+    name => typeof sandbox[name] !== 'function'
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      'helpers.js: the following functions were not found after evaluating\n' +
+      'the <script> block from index.html:\n' +
+      '  ' + missing.join(', ') + '\n' +
+      'They may have been renamed or removed.  Update REQUIRED_FUNCTIONS in\n' +
+      'test/helpers.js if this was intentional.'
+    );
+  }
+
+  // Return only the named functions plus the storage reference.
+  // Callers receive a plain object; the full sandbox is not exposed.
+  return {
+    localDateString:       sandbox.localDateString,
+    isValidStep:           sandbox.isValidStep,
+    isValidEntryShape:     sandbox.isValidEntryShape,
+    validateStoredEntries: sandbox.validateStoredEntries,
+    validateEntry:         sandbox.validateEntry,
+    sortByDateDesc:        sandbox.sortByDateDesc,
+    calcSummary:           sandbox.calcSummary,
+    loadEntries:           sandbox.loadEntries,
+    saveEntries:           sandbox.saveEntries,
+    storage,
+  };
+}
+
+module.exports = { loadContext, makeLocalStorageStub };
