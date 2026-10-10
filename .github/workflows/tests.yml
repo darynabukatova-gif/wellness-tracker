@@ -1,0 +1,77 @@
+# .github/workflows/tests.yml
+#
+# Runs the Wellness Tracker automated test suite on every push to main and on
+# every pull request that targets main.
+#
+# The project has no npm dependencies, so no install step is needed.
+# All test code uses Node.js built-in modules only (node:test, node:assert,
+# node:fs, node:path, node:vm).
+
+name: Wellness Tracker Tests
+
+# ── Triggers ────────────────────────────────────────────────────────────────
+# The workflow fires in two situations:
+#   push: branches: [main]    — every commit that lands on main
+#   pull_request: branches: [main] — every PR whose base branch is main
+#     (this runs once when the PR is opened and again on each new commit)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# ── Repository permissions ───────────────────────────────────────────────────
+# Grant the GITHUB_TOKEN the minimum permissions required.
+# contents: read   — allows actions/checkout to clone the repository.
+# No write permissions are needed because this workflow only runs tests.
+
+permissions:
+  contents: read
+
+# ── Jobs ────────────────────────────────────────────────────────────────────
+# A workflow contains one or more jobs.  Jobs run in parallel by default;
+# here there is only one job so the order does not matter.
+
+jobs:
+  test:
+    # Human-readable name shown in the GitHub Actions UI
+    name: Run tests (Node.js 24)
+
+    # The type of virtual machine GitHub provides to run the job.
+    # ubuntu-latest is the recommended default: fast, free for public repos,
+    # and receives regular security updates from GitHub.
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Step 1: Check out the repository ──────────────────────────────────
+      # actions/checkout clones the repository into the runner's working
+      # directory so subsequent steps can read the project files.
+      # @v6 is the current stable major version.
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      # ── Step 2: Set up Node.js 24 ─────────────────────────────────────────
+      # actions/setup-node installs the requested Node.js version and adds it
+      # to PATH so the `node` command in the next step resolves to Node 24.
+      # @v7 is the current stable major version.
+      # No cache: is specified because there is no package.json and nothing
+      # to cache — the project has zero npm dependencies.
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      # ── Step 3: Run the test suite ────────────────────────────────────────
+      # node --test  is the built-in test runner introduced in Node.js 18 and
+      # stabilised in Node.js 20+.  It discovers and runs all files matching
+      # the glob test/*.test.js.
+      #
+      # The glob test/*.test.js expands to:
+      #   test/pure.test.js      — 91 tests, seven pure functions
+      #   test/storage.test.js   — 20 tests, loadEntries / saveEntries
+      #
+      # Exit code 0  → all tests passed  → the job succeeds (green check)
+      # Exit code 1  → one or more failed → the job fails  (red cross)
+      - name: Run tests
+        run: node --test test/*.test.js
