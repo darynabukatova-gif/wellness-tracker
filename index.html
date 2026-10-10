@@ -1,0 +1,1798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wellness Tracker</title>
+  <style>
+    /* ═══════════════════════════════════════════════════════════
+       1. Reset and box-sizing
+       ═══════════════════════════════════════════════════════════ */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       2. Design tokens (CSS custom properties)
+       ═══════════════════════════════════════════════════════════ */
+    :root {
+      /* Colours */
+      --colour-bg:           #f5f7fa;
+      --colour-surface:      #ffffff;
+      --colour-border:       #d1d9e0;
+      --colour-border-focus: #2563eb;
+      --colour-text:         #1a202c;
+      --colour-text-muted:   #4a5568;
+      --colour-accent:       #2563eb;
+      --colour-accent-dark:  #1d4ed8;
+      --colour-danger:       #b91c1c;
+      --colour-danger-dark:  #991b1b;
+      --colour-error-bg:     #fef2f2;
+      --colour-error-border: #fca5a5;
+      --colour-disclaimer-bg:     #fffbeb;
+      --colour-disclaimer-border: #fbbf24;
+      --colour-radio-selected-bg: #eff6ff;
+      --colour-radio-selected-border: #2563eb;
+      --colour-row-alt:      #f8fafc;
+
+      /* Typography */
+      --font-family: -apple-system, "Segoe UI", system-ui, Arial, sans-serif;
+      --font-size-base: 1rem;        /* 16 px */
+      --font-size-sm:   0.875rem;    /* 14 px */
+      --line-height:    1.6;
+
+      /* Spacing scale */
+      --space-1: 0.25rem;
+      --space-2: 0.5rem;
+      --space-3: 0.75rem;
+      --space-4: 1rem;
+      --space-5: 1.25rem;
+      --space-6: 1.5rem;
+      --space-8: 2rem;
+
+      /* Border radius */
+      --radius-sm: 4px;
+      --radius-md: 8px;
+
+      /* Layout */
+      --max-width: 760px;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       3. Base typography and body
+       ═══════════════════════════════════════════════════════════ */
+    body {
+      font-family: var(--font-family);
+      font-size: var(--font-size-base);
+      line-height: var(--line-height);
+      color: var(--colour-text);
+      background-color: var(--colour-bg);
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+
+    h2 {
+      font-size: 1.125rem;
+      font-weight: 600;
+      line-height: 1.4;
+      color: var(--colour-text);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       4. Page layout — centred single column
+       ═══════════════════════════════════════════════════════════ */
+    header, main, footer {
+      width: 100%;
+      max-width: var(--max-width);
+      margin-inline: auto;
+      padding-inline: var(--space-4);
+    }
+
+    header {
+      padding-block: var(--space-6);
+      border-bottom: 1px solid var(--colour-border);
+      margin-bottom: var(--space-6);
+    }
+
+    header h1 {
+      margin-bottom: var(--space-2);
+    }
+
+    main {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-8);
+      padding-bottom: var(--space-8);
+    }
+
+    footer {
+      border-top: 1px solid var(--colour-border);
+      padding-block: var(--space-4);
+      margin-top: var(--space-4);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       5. Disclaimer banner
+       ═══════════════════════════════════════════════════════════ */
+    .disclaimer {
+      display: inline-block;
+      background-color: var(--colour-disclaimer-bg);
+      border: 1px solid var(--colour-disclaimer-border);
+      border-radius: var(--radius-sm);
+      padding: var(--space-2) var(--space-3);
+      font-size: var(--font-size-sm);
+      color: var(--colour-text);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       6. Section cards
+       ═══════════════════════════════════════════════════════════ */
+    #entry-form-section,
+    #summary-section,
+    #entries-section {
+      background-color: var(--colour-surface);
+      border: 1px solid var(--colour-border);
+      border-radius: var(--radius-md);
+      padding: var(--space-6);
+    }
+
+    #entry-form-section h2,
+    #summary-section h2,
+    #entries-section h2 {
+      margin-bottom: var(--space-4);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       7. Form layout
+       ═══════════════════════════════════════════════════════════ */
+    #entry-form {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-5);
+    }
+
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-1);
+    }
+
+    .field-group label {
+      font-weight: 600;
+      font-size: var(--font-size-sm);
+      color: var(--colour-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    input[type="date"],
+    input[type="number"] {
+      width: 100%;
+      max-width: 18rem;
+      padding: var(--space-2) var(--space-3);
+      border: 1px solid var(--colour-border);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-family);
+      font-size: var(--font-size-base);
+      color: var(--colour-text);
+      background-color: var(--colour-surface);
+      appearance: none;
+      -webkit-appearance: none;
+    }
+
+    input[type="date"]:hover,
+    input[type="number"]:hover {
+      border-color: var(--colour-accent);
+    }
+
+    .input-with-unit {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
+    .input-with-unit input {
+      /* override the full-width default when inside the unit wrapper */
+      width: 8rem;
+    }
+
+    .unit-label {
+      font-size: var(--font-size-sm);
+      color: var(--colour-text-muted);
+      white-space: nowrap;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       8. Mood radio group
+       ═══════════════════════════════════════════════════════════ */
+    #mood-fieldset {
+      border: none;
+      padding: 0;
+    }
+
+    #mood-fieldset legend {
+      font-weight: 600;
+      font-size: var(--font-size-sm);
+      color: var(--colour-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: var(--space-2);
+    }
+
+    .radio-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+    }
+
+    .radio-label {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-1);
+      padding: var(--space-2) var(--space-3);
+      border: 2px solid var(--colour-border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      min-width: 4.5rem;
+      text-align: center;
+      transition: border-color 0.15s, background-color 0.15s;
+      /* position context so the hidden radio doesn't shift layout */
+      position: relative;
+    }
+
+    .radio-label:hover {
+      border-color: var(--colour-accent);
+      background-color: var(--colour-radio-selected-bg);
+    }
+
+    /* Hide the native radio visually but keep it in the tab/click flow */
+    .radio-label input[type="radio"] {
+      position: absolute;
+      opacity: 0;
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+      margin: 0;
+      cursor: pointer;
+    }
+
+    .radio-value {
+      font-size: 1.25rem;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--colour-text);
+    }
+
+    .radio-desc {
+      font-size: 0.75rem;
+      color: var(--colour-text-muted);
+      line-height: 1.2;
+    }
+
+    /* Selected state */
+    .radio-label:has(input:checked) {
+      border-color: var(--colour-radio-selected-border);
+      background-color: var(--colour-radio-selected-bg);
+    }
+
+    .radio-label:has(input:checked) .radio-value {
+      color: var(--colour-accent);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       9. Focus indicators
+       ═══════════════════════════════════════════════════════════ */
+    :focus-visible {
+      outline: 3px solid var(--colour-border-focus);
+      outline-offset: 2px;
+    }
+
+    /* For the hidden radio, show the focus ring on its parent label */
+    .radio-label:focus-within {
+      outline: 3px solid var(--colour-border-focus);
+      outline-offset: 2px;
+    }
+
+    /* Suppress the default outline on the hidden radio itself
+       because the parent label shows it instead */
+    .radio-label input[type="radio"]:focus-visible {
+      outline: none;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       10. Buttons
+       ═══════════════════════════════════════════════════════════ */
+    button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: var(--space-2) var(--space-5);
+      border: none;
+      border-radius: var(--radius-sm);
+      font-family: var(--font-family);
+      font-size: var(--font-size-base);
+      font-weight: 600;
+      cursor: pointer;
+      line-height: 1.4;
+      transition: background-color 0.15s;
+    }
+
+    /* Primary — Save entry */
+    button[type="submit"],
+    .btn-primary {
+      background-color: var(--colour-accent);
+      color: #ffffff;
+      align-self: flex-start;
+    }
+
+    button[type="submit"]:not(:disabled):hover,
+    .btn-primary:not(:disabled):hover {
+      background-color: var(--colour-accent-dark);
+    }
+
+    /* Danger — Erase all, Delete */
+    .btn-danger {
+      background-color: transparent;
+      color: var(--colour-danger);
+      border: 1px solid var(--colour-danger);
+    }
+
+    .btn-danger:not(:disabled):hover {
+      background-color: var(--colour-danger);
+      color: #ffffff;
+    }
+
+    /* Small delete button used inside table rows */
+    .btn-delete {
+      padding: var(--space-1) var(--space-2);
+      font-size: var(--font-size-sm);
+      background-color: transparent;
+      color: var(--colour-danger);
+      border: 1px solid var(--colour-danger);
+      border-radius: var(--radius-sm);
+      font-weight: 500;
+    }
+
+    .btn-delete:not(:disabled):hover {
+      background-color: var(--colour-danger);
+      color: #ffffff;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       11. Validation error message
+       ═══════════════════════════════════════════════════════════ */
+    .form-error {
+      /* Hidden when empty; visible once JS sets textContent */
+      min-height: 0;
+      font-size: var(--font-size-sm);
+      color: var(--colour-danger);
+      background-color: var(--colour-error-bg);
+      border: 1px solid var(--colour-error-border);
+      border-radius: var(--radius-sm);
+      padding: var(--space-2) var(--space-3);
+      /* Hide when there is no message */
+      display: none;
+    }
+
+    /* JS will toggle this class to show the error */
+    .form-error.is-visible {
+      display: block;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       12. Summary panel
+       ═══════════════════════════════════════════════════════════ */
+    .summary-note {
+      font-size: var(--font-size-sm);
+      color: var(--colour-text-muted);
+      margin-bottom: var(--space-4);
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: var(--space-3);
+    }
+
+    .summary-item {
+      background-color: var(--colour-bg);
+      border: 1px solid var(--colour-border);
+      border-radius: var(--radius-sm);
+      padding: var(--space-3) var(--space-4);
+      text-align: center;
+    }
+
+    .summary-item dt {
+      font-size: var(--font-size-sm);
+      color: var(--colour-text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: var(--space-1);
+    }
+
+    .summary-item dd {
+      font-size: 1.375rem;
+      font-weight: 700;
+      color: var(--colour-text);
+      line-height: 1.2;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       13. Entry history section header
+       ═══════════════════════════════════════════════════════════ */
+    .entries-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+      margin-bottom: var(--space-4);
+    }
+
+    .entries-header h2 {
+      margin-bottom: 0;
+    }
+
+    /* Table-level error message — shown for Delete / Erase all storage failures.
+       Placed between .entries-header and #entries-container in the HTML. */
+    .table-error {
+      font-size: var(--font-size-sm);
+      color: var(--colour-danger);
+      background-color: var(--colour-error-bg);
+      border: 1px solid var(--colour-error-border);
+      border-radius: var(--radius-sm);
+      padding: var(--space-2) var(--space-3);
+      margin-bottom: var(--space-3);
+      display: none;
+    }
+
+    .table-error.is-visible {
+      display: block;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       14. Entry table
+       ═══════════════════════════════════════════════════════════ */
+    #entries-container table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: var(--font-size-sm);
+    }
+
+    #entries-container th,
+    #entries-container td {
+      padding: var(--space-2) var(--space-3);
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    #entries-container th {
+      font-weight: 600;
+      color: var(--colour-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 0.75rem;
+      border-bottom: 2px solid var(--colour-border);
+      white-space: nowrap;
+    }
+
+    #entries-container tbody tr:nth-child(even) {
+      background-color: var(--colour-row-alt);
+    }
+
+    #entries-container tbody tr:hover {
+      background-color: #eef2ff;
+    }
+
+    #entries-container td:last-child {
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    #entries-container td,
+    #entries-container th {
+      border-bottom: 1px solid var(--colour-border);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       15. Empty state
+       ═══════════════════════════════════════════════════════════ */
+    .empty-state {
+      text-align: center;
+      padding: var(--space-8) var(--space-4);
+      color: var(--colour-text-muted);
+      font-size: var(--font-size-sm);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       15b. App-level error banner
+            Shown when localStorage cannot be read or is corrupted.
+            Sits above <main> and is injected by JS into #app-error.
+       ═══════════════════════════════════════════════════════════════ */
+    #app-error {
+      max-width: var(--max-width);
+      margin-inline: auto;
+      padding-inline: var(--space-4);
+      margin-bottom: var(--space-4);
+    }
+
+    .app-error-banner {
+      background-color: var(--colour-error-bg);
+      border: 1px solid var(--colour-error-border);
+      border-radius: var(--radius-sm);
+      padding: var(--space-3) var(--space-4);
+      font-size: var(--font-size-sm);
+      color: var(--colour-danger);
+    }
+
+    .app-error-banner strong {
+      display: block;
+      margin-bottom: var(--space-1);
+    }
+
+    /* Disabled state for Save / Erase-all buttons when app is locked */
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       16. Responsive — narrow viewports (≤ 600 px)
+       ═══════════════════════════════════════════════════════════ */
+    @media (max-width: 600px) {
+      header, main, footer {
+        padding-inline: var(--space-3);
+      }
+
+      #entry-form-section,
+      #summary-section,
+      #entries-section {
+        padding: var(--space-4);
+      }
+
+      /* Summary: 2 columns on narrow screens */
+      .summary-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      /* Mood radios: wrap naturally, full row on very small screens */
+      .radio-group {
+        gap: var(--space-1);
+      }
+
+      .radio-label {
+        min-width: 3.5rem;
+        padding: var(--space-2);
+      }
+
+      /* Scrollable table on narrow screens without causing page overflow */
+      #entries-section {
+        overflow: hidden; /* prevent section border from being clipped */
+      }
+
+      #entries-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        /* Ensure the container, not the page, scrolls horizontally */
+        max-width: 100%;
+      }
+
+      /* Entries header: stack vertically if needed */
+      .entries-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+    }
+  </style>
+
+  <script>
+    /* ═══════════════════════════════════════════════════════════════
+       STORAGE KEY
+       ═══════════════════════════════════════════════════════════════ */
+    const STORAGE_KEY = 'wellness-tracker-demo-v1';
+
+    /* ═══════════════════════════════════════════════════════════════
+       STORAGE OPERATIONS
+       (These are the only functions that touch localStorage.)
+       ═══════════════════════════════════════════════════════════════ */
+
+    /**
+     * loadEntries()
+     *
+     * Reads the raw JSON string from localStorage and parses it into
+     * an array of entry objects.
+     *
+     * Return values — three distinct cases:
+     *
+     *   []   (empty array)
+     *        The key is absent (first visit, or after a successful erase-all).
+     *        There is nothing wrong; the app should start fresh.
+     *
+     *   Array of entry objects
+     *        The key exists and its value is a valid JSON array.
+     *        The caller may use the array directly.
+     *
+     *   null
+     *        Something went wrong during reading or parsing:
+     *          • localStorage.getItem() threw (e.g. private-browsing quota)
+     *          • The stored string is not valid JSON (SyntaxError from JSON.parse)
+     *          • The parsed value exists but is not an array
+     *        In all these cases the raw stored value is left untouched.
+     *        null is the signal to the caller (Sub-Task 6 init) that it must
+     *        NOT overwrite storage and should show the user an error message.
+     *
+     * Why JSON.parse()?
+     *   localStorage stores everything as plain strings. JSON.parse()
+     *   converts "[{\"date\":\"2025-06-10\",\"mood\":4,...}]" back into
+     *   the JavaScript array we originally saved. If the string is not
+     *   valid JSON, JSON.parse() throws a SyntaxError — hence the try/catch.
+     *
+     * @returns {Array|null} Parsed array (possibly empty), or null on failure.
+     */
+    function loadEntries() {
+      let raw;
+
+      // Step 1 — read the raw string (can throw in some private-browsing modes)
+      try {
+        raw = localStorage.getItem(STORAGE_KEY);
+      } catch (readError) {
+        console.error('Wellness Tracker: could not read from localStorage.', readError);
+        return null;
+      }
+
+      // Step 2 — key was not set at all (first visit or after erase-all)
+      if (raw === null) {
+        return [];
+      }
+
+      // Step 3 — key exists; try to parse it
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (parseError) {
+        // The stored value is not valid JSON — report it, do NOT overwrite.
+        console.error(
+          'Wellness Tracker: stored data is corrupted and could not be parsed. ' +
+          'Raw value preserved in localStorage.',
+          parseError
+        );
+        return null;
+      }
+
+      // Step 4 — parsed successfully, but guard against non-array values
+      // (e.g. if someone manually set the key to a JSON object or number)
+      if (!Array.isArray(parsed)) {
+        console.error(
+          'Wellness Tracker: stored data is not an array. ' +
+          'Raw value preserved in localStorage.',
+          parsed
+        );
+        return null;
+      }
+
+      return parsed;
+    }
+
+    /**
+     * saveEntries(entries)
+     *
+     * Serialises the entries array to a JSON string and writes it to
+     * localStorage.
+     *
+     * Why JSON.stringify()?
+     *   localStorage only accepts strings. JSON.stringify() converts the
+     *   JavaScript array — e.g. [{date:"2025-06-10", mood:4, sleep:7.5,
+     *   water:2.1}] — into the text representation that can be stored and
+     *   later parsed back by loadEntries().
+     *
+     * Failures (e.g. storage quota exceeded, private-browsing restrictions)
+     * are caught and reported. The caller can check the return value to know
+     * whether the save succeeded.
+     *
+     * @param  {Array}   entries  The current array of entry objects.
+     * @returns {boolean}         true on success, false on failure.
+     */
+    function saveEntries(entries) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+        return true;
+      } catch (writeError) {
+        console.error('Wellness Tracker: could not save entries to localStorage.', writeError);
+        return false;
+      }
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PURE DATA-PROCESSING FUNCTIONS
+       (No localStorage access. No DOM access. Input → output only.)
+       ═══════════════════════════════════════════════════════════════ */
+
+    /**
+     * sortByDateDesc(entries)
+     *
+     * Returns a new array of entries sorted by date, newest first.
+     * The original array is not modified.
+     *
+     * How the sort works:
+     *   Dates are stored as ISO 8601 strings ("YYYY-MM-DD"). This format
+     *   sorts correctly as plain text: "2025-06-12" > "2025-06-10" because
+     *   string comparison works left-to-right and the year, month, and day
+     *   fields are all zero-padded to fixed widths. No Date objects are
+     *   needed.
+     *
+     *   Array.prototype.slice() creates a shallow copy first so the sort
+     *   does not mutate the caller's array. The comparator (b.date - a.date
+     *   in string terms) is written as b.date > a.date ? 1 : -1, which
+     *   places larger (newer) dates first.
+     *
+     * @param  {Array} entries
+     * @returns {Array} New sorted array.
+     */
+    function sortByDateDesc(entries) {
+      return entries.slice().sort(function (a, b) {
+        if (b.date > a.date) return  1;
+        if (b.date < a.date) return -1;
+        return 0;
+      });
+    }
+
+    /**
+     * calcSummary(entries)
+     *
+     * Calculates statistics for the seven most recent entries.
+     *
+     * Steps:
+     *   1. If the array is empty, return null — the UI will show
+     *      "No entries yet" rather than zeros.
+     *   2. Sort by date descending and take the first seven items.
+     *      Sorting here (not relying on insertion order) ensures the
+     *      window is always the seven newest dates regardless of the
+     *      order entries were added.
+     *   3. Compute the mean of mood, sleep, and water across the window.
+     *      Mean = sum of all values ÷ number of values.
+     *   4. Round each average to one decimal place using Math.round().
+     *      Multiplying by 10, rounding, then dividing by 10 avoids the
+     *      floating-point drift that can occur with toFixed() alone.
+     *
+     * @param  {Array}       entries  All stored entries (any order).
+     * @returns {Object|null}         { count, avgMood, avgSleep, avgWater }
+     *                                or null when entries is empty.
+     */
+    function calcSummary(entries) {
+      if (entries.length === 0) {
+        return null;
+      }
+
+      // Take the seven most recent entries (sorted, then sliced).
+      // Named recentEntries to avoid shadowing the browser global `window`.
+      const recentEntries = sortByDateDesc(entries).slice(0, 7);
+      const count         = recentEntries.length;
+
+      // Sum each field across the window
+      let totalMood  = 0;
+      let totalSleep = 0;
+      let totalWater = 0;
+
+      for (let i = 0; i < count; i++) {
+        totalMood  += recentEntries[i].mood;
+        totalSleep += recentEntries[i].sleep;
+        totalWater += recentEntries[i].water;
+      }
+
+      // Round to one decimal place:
+      //   Math.round(value * 10) / 10  is more reliable than toFixed(1)
+      //   because it avoids representing the result as a string and sidesteps
+      //   cases like (1.005).toFixed(2) === "1.00" in some JS engines.
+      return {
+        count:    count,
+        avgMood:  Math.round((totalMood  / count) * 10) / 10,
+        avgSleep: Math.round((totalSleep / count) * 10) / 10,
+        avgWater: Math.round((totalWater / count) * 10) / 10,
+      };
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       DATE HELPER
+       ═══════════════════════════════════════════════════════════════ */
+
+    /**
+     * localDateString(d)
+     *
+     * Formats a Date object as "YYYY-MM-DD" using the browser's local
+     * calendar, not UTC.
+     *
+     * Why not d.toISOString().slice(0, 10)?
+     *   toISOString() always returns the UTC representation. In a timezone
+     *   east of UTC, local midnight on any date is already the previous day
+     *   in UTC, so toISOString() would return yesterday's date string for a
+     *   Date constructed with 'T00:00:00'. Using local getFullYear /
+     *   getMonth / getDate avoids that shift entirely.
+     *
+     * @param  {Date}   d
+     * @returns {string} "YYYY-MM-DD"
+     */
+    function localDateString(d) {
+      const y   = d.getFullYear();
+      const m   = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return y + '-' + m + '-' + day;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       STEP HELPER
+       ═══════════════════════════════════════════════════════════════ */
+
+    /**
+     * isValidStep(value, step)
+     *
+     * Returns true when value is an exact multiple of step, within a
+     * floating-point tolerance of 1e-9.
+     *
+     * Why not (value % step === 0)?
+     *   0.5 and 0.1 have no exact binary representation in IEEE 754.
+     *   Direct modulo gives results like (1.1 % 0.1) === 0.09999…, which
+     *   would wrongly reject valid inputs.
+     *
+     * The approach used here:
+     *   Divide value by step to find "how many steps does value represent?"
+     *   If value is a valid multiple, that quotient is very close to an
+     *   integer. Math.abs(scaled - Math.round(scaled)) measures the
+     *   distance from the nearest integer; if it is smaller than 1e-9
+     *   the value is considered valid.
+     *
+     *   1e-9 is tight enough to reject 1.15/0.1 = 11.499999… (distance ≈ 0.5)
+     *   while accepting 1.1/0.1 = 10.999999… (distance ≈ 1e-15).
+     *
+     * @param  {number}  value
+     * @param  {number}  step   e.g. 0.5 or 0.1
+     * @returns {boolean}
+     */
+    function isValidStep(value, step) {
+      const scaled = value / step;
+      return Math.abs(scaled - Math.round(scaled)) < 1e-9;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       STORED-DATA INTEGRITY HELPERS
+       ═══════════════════════════════════════════════════════════════ */
+
+    /**
+     * isValidEntryShape(entry)
+     *
+     * Checks that a single value has the expected shape and that all fields
+     * are within their valid ranges, including a date round-trip check to
+     * reject impossible calendar dates such as 2025-02-30.
+     *
+     * Also checks that sleep is a multiple of 0.5 h and water is a multiple
+     * of 0.1 L using isValidStep(), since entries failing these constraints
+     * could never have been saved through the form.
+     *
+     * Does NOT check duplicate dates — that rule applies only to new form
+     * submissions, not to data already accepted and stored.
+     *
+     * @param  {*}       entry
+     * @returns {boolean}
+     */
+    function isValidEntryShape(entry) {
+      if (entry === null || typeof entry !== 'object') return false;
+      if (typeof entry.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) return false;
+      const d = new Date(entry.date + 'T00:00:00');
+      if (isNaN(d.getTime()) || localDateString(d) !== entry.date) return false;
+      if (typeof entry.mood  !== 'number' || !Number.isInteger(entry.mood)
+          || entry.mood < 1 || entry.mood > 5) return false;
+      if (typeof entry.sleep !== 'number' || !isFinite(entry.sleep)
+          || entry.sleep < 0 || entry.sleep > 24
+          || !isValidStep(entry.sleep, 0.5)) return false;
+      if (typeof entry.water !== 'number' || !isFinite(entry.water)
+          || entry.water < 0 || entry.water > 3
+          || !isValidStep(entry.water, 0.1)) return false;
+      return true;
+    }
+
+    /**
+     * validateStoredEntries(arr)
+     *
+     * Validates the entire array that was loaded from localStorage.
+     * Returns null when the array is clean, or an error string describing
+     * the first problem found.
+     *
+     * Two checks are run:
+     *   1. Every element must pass isValidEntryShape().
+     *   2. No two elements may share the same date.
+     *
+     * A non-null return tells the caller (Sub-Task 6 init) that the stored
+     * data is corrupt.  The caller must NOT overwrite storage and should
+     * show the user an error message so they can investigate.
+     *
+     * @param  {Array}        arr
+     * @returns {string|null} Error message, or null when valid.
+     */
+    function validateStoredEntries(arr) {
+      for (let i = 0; i < arr.length; i++) {
+        if (!isValidEntryShape(arr[i])) {
+          return 'Stored entry at position ' + (i + 1) + ' is malformed. ' +
+                 'The saved data may be corrupted.';
+        }
+      }
+      const seen = {};
+      for (let j = 0; j < arr.length; j++) {
+        const date = arr[j].date;
+        if (seen[date]) {
+          return 'Duplicate date found in stored data: ' + date + '. ' +
+                 'The saved data may be corrupted.';
+        }
+        seen[date] = true;
+      }
+      return null;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       VALIDATION
+       (Pure function — no DOM access, no localStorage access.)
+       ═══════════════════════════════════════════════════════════════ */
+
+    /**
+     * validateEntry(date, mood, sleep, water, existingEntries)
+     *
+     * Validates the raw values read from the form before a new entry is saved.
+     *
+     * Rules checked in order:
+     *   1. All fields present (non-empty string / finite number / selected radio)
+     *   2. Date is a real calendar date in YYYY-MM-DD format
+     *   3. Mood is an integer in [1, 5]
+     *   4. Sleep is a finite number in [0, 24] and a valid 0.5-hour increment
+     *   5. Water is a finite number in [0, 3] and a valid 0.1-litre increment
+     *   6. The date does not already exist in existingEntries
+     *
+     * Step checking uses isValidStep() rather than modulo arithmetic because
+     * 0.5 and 0.1 cannot be represented exactly in IEEE 754 binary floating
+     * point — see isValidStep() for a full explanation.
+     *
+     * Date calendar validity uses localDateString() for the round-trip
+     * comparison rather than toISOString() — see localDateString() for why.
+     *
+     * @param  {string} date            YYYY-MM-DD string from the date input.
+     * @param  {*}      mood            Value of the checked radio button (string "1"–"5").
+     * @param  {*}      sleep           Value of the sleep input (may be string or number).
+     * @param  {*}      water           Value of the water input (may be string or number).
+     * @param  {Array}  existingEntries The current entries array (not modified).
+     * @returns {string|null}           Error message string, or null when valid.
+     */
+    function validateEntry(date, mood, sleep, water, existingEntries) {
+
+      // ── 1. Required fields ────────────────────────────────────────
+      if (!date || String(date).trim() === '') {
+        return 'Please select a date.';
+      }
+      if (mood === null || mood === undefined || mood === '') {
+        return 'Please select a mood (1–5).';
+      }
+      if (sleep === null || sleep === undefined || String(sleep).trim() === '') {
+        return 'Please enter sleep hours (0–24).';
+      }
+      if (water === null || water === undefined || String(water).trim() === '') {
+        return 'Please enter water intake (0–3 litres).';
+      }
+
+      // ── 2. Date format and calendar validity ──────────────────────
+      // Regex confirms YYYY-MM-DD shape; localDateString round-trip confirms
+      // the date exists on a real calendar (rejects e.g. 2025-02-30).
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(date)) {
+        return 'Date must be in YYYY-MM-DD format.';
+      }
+      const parsedDate = new Date(date + 'T00:00:00');
+      if (isNaN(parsedDate.getTime()) || localDateString(parsedDate) !== date) {
+        return 'Please enter a valid calendar date.';
+      }
+
+      // ── 3. Mood ───────────────────────────────────────────────────
+      const moodNum = Number(mood);
+      if (!Number.isInteger(moodNum) || moodNum < 1 || moodNum > 5) {
+        return 'Mood must be a whole number between 1 and 5.';
+      }
+
+      // ── 4. Sleep ──────────────────────────────────────────────────
+      const sleepNum = Number(sleep);
+      if (!isFinite(sleepNum) || sleepNum < 0 || sleepNum > 24) {
+        return 'Sleep must be a number between 0 and 24 hours.';
+      }
+      if (!isValidStep(sleepNum, 0.5)) {
+        return 'Sleep must be entered in 0.5-hour increments (e.g. 6, 6.5, 7).';
+      }
+
+      // ── 5. Water ──────────────────────────────────────────────────
+      const waterNum = Number(water);
+      if (!isFinite(waterNum) || waterNum < 0 || waterNum > 3) {
+        return 'Water must be a number between 0 and 3 litres.';
+      }
+      if (!isValidStep(waterNum, 0.1)) {
+        return 'Water must be entered in 0.1-litre increments (e.g. 1, 1.5, 2.3).';
+      }
+
+      // ── 6. Duplicate date ─────────────────────────────────────────
+      const duplicate = existingEntries.some(function (entry) {
+        return entry.date === date;
+      });
+      if (duplicate) {
+        return 'An entry for ' + date + ' already exists. Please choose a different date.';
+      }
+
+      // All checks passed
+      return null;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       DOM RENDERING
+       (Read entries array → update the page. No localStorage access.)
+       ═══════════════════════════════════════════════════════════════ */
+
+    /**
+     * renderSummary(entries)
+     *
+     * Reads the four statistic <dd> elements by ID and sets their textContent.
+     *
+     * When entries is empty, calcSummary returns null and each cell shows
+     * "No entries yet" — never misleading zeros.
+     *
+     * When entries is non-empty, averages are shown to one decimal place with
+     * their units appended as plain text (e.g. "7.5 h", "1.8 L").
+     *
+     * Does NOT sort the entries — that is calcSummary's responsibility
+     * (it sorts internally before slicing to the 7-entry window).
+     *
+     * @param {Array} entries  The current entries array (not modified).
+     */
+    function renderSummary(entries) {
+      const summary = calcSummary(entries);
+
+      const statCount = document.getElementById('stat-count');
+      const statMood  = document.getElementById('stat-mood');
+      const statSleep = document.getElementById('stat-sleep');
+      const statWater = document.getElementById('stat-water');
+
+      if (summary === null) {
+        // Empty state: "No entries yet" in the count cell; em dash in the
+        // three average cells so they don't overflow on narrow viewports.
+        statCount.textContent = 'No entries yet';
+        statMood.textContent  = '—';
+        statSleep.textContent = '—';
+        statWater.textContent = '—';
+      } else {
+        // Non-empty: averages formatted to exactly one decimal place via
+        // toFixed(1) so "7" displays as "7.0" rather than just "7".
+        statCount.textContent = summary.count;
+        statMood.textContent  = summary.avgMood.toFixed(1);
+        statSleep.textContent = summary.avgSleep.toFixed(1) + ' h';
+        statWater.textContent = summary.avgWater.toFixed(1) + ' L';
+      }
+    }
+
+    /**
+     * renderTable(entries)
+     *
+     * Clears #entries-container and replaces its content with either:
+     *   • a fully built <table> containing one row per entry (sorted
+     *     newest-first), or
+     *   • a "No entries yet" paragraph when the array is empty.
+     *
+     * All entry values are written via textContent, never concatenated
+     * into innerHTML, so user-supplied strings cannot inject HTML.
+     *
+     * Each Delete button carries:
+     *   • class="btn-delete"      — matched by the CSS danger style
+     *   • data-date="YYYY-MM-DD"  — used by the delegated click handler
+     *                               in Sub-Task 6 to identify which entry
+     *                               to remove
+     *   • aria-label              — describes the action to screen readers
+     *                               without relying on visible text alone
+     *
+     * No event listeners are attached here; Sub-Task 6 uses a single
+     * delegated listener on #entries-container instead.
+     *
+     * @param {Array} entries  The current entries array (not modified).
+     */
+    function renderTable(entries) {
+      const container = document.getElementById('entries-container');
+
+      // Always start with an empty container so stale content is never
+      // left behind after a deletion or erase-all.
+      // replaceChildren() with no arguments removes all child nodes without
+      // touching innerHTML — it avoids any parse-and-serialise round-trip.
+      container.replaceChildren();
+
+      if (entries.length === 0) {
+        // ── Empty state ───────────────────────────────────────────
+        const empty = document.createElement('p');
+        empty.className   = 'empty-state';
+        empty.textContent = 'No entries yet.';
+        container.appendChild(empty);
+        return;
+      }
+
+      // ── Build the table ───────────────────────────────────────────
+      const sorted = sortByDateDesc(entries);
+
+      // <table>
+      const table = document.createElement('table');
+      table.setAttribute('aria-label', 'Wellness entry history');
+
+      // ── <thead> ───────────────────────────────────────────────────
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+
+      const columns = ['Date', 'Mood', 'Sleep (h)', 'Water (L)', 'Actions'];
+      columns.forEach(function (label) {
+        const th = document.createElement('th');
+        th.setAttribute('scope', 'col');
+        th.textContent = label;
+        headerRow.appendChild(th);
+      });
+
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+
+      // ── <tbody> ───────────────────────────────────────────────────
+      const tbody = document.createElement('tbody');
+
+      sorted.forEach(function (entry) {
+        const row = document.createElement('tr');
+
+        // Date cell
+        const tdDate = document.createElement('td');
+        tdDate.textContent = entry.date;
+        row.appendChild(tdDate);
+
+        // Mood cell
+        const tdMood = document.createElement('td');
+        tdMood.textContent = entry.mood;
+        row.appendChild(tdMood);
+
+        // Sleep cell
+        const tdSleep = document.createElement('td');
+        tdSleep.textContent = entry.sleep;
+        row.appendChild(tdSleep);
+
+        // Water cell
+        const tdWater = document.createElement('td');
+        tdWater.textContent = entry.water;
+        row.appendChild(tdWater);
+
+        // Actions cell — Delete button
+        const tdActions = document.createElement('td');
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type          = 'button';
+        deleteBtn.className     = 'btn-delete';
+        deleteBtn.dataset.date  = entry.date;
+        deleteBtn.textContent   = 'Delete';
+        // aria-label gives screen readers a full description of the action.
+        deleteBtn.setAttribute('aria-label', 'Delete entry for ' + entry.date);
+        tdActions.appendChild(deleteBtn);
+        row.appendChild(tdActions);
+
+        tbody.appendChild(row);
+      });
+
+      table.appendChild(tbody);
+      container.appendChild(table);
+    }
+  </script>
+
+  <script>
+    /* ═══════════════════════════════════════════════════════════════
+       EVENT HANDLERS AND INITIALISATION  (Sub-Task 6)
+
+       Module-level state
+       ──────────────────
+       entries  The single source of truth for the current entry list.
+                Always a plain Array.  Mutated only on successful save
+                or delete — never on a failed storage operation.
+
+       locked   Set to true when localStorage cannot be read or its
+                content is corrupted.  Prevents any write to storage
+                so the original data is preserved for manual recovery.
+       ═══════════════════════════════════════════════════════════════ */
+
+    let entries = [];
+    let locked  = false;
+
+    /* ── App-level error helpers ──────────────────────────────────── */
+
+    /**
+     * showAppError(message)
+     *
+     * Injects a persistent error banner above <main> and disables all
+     * destructive controls (Save, Delete buttons, Erase all).
+     *
+     * Used only for unrecoverable startup errors (localStorage unreadable
+     * or corrupt).  Form validation errors use #form-error instead.
+     *
+     * @param {string} message  Human-readable description of the problem.
+     */
+    function showAppError(message) {
+      const container = document.getElementById('app-error');
+      const banner = document.createElement('div');
+      banner.className = 'app-error-banner';
+      banner.setAttribute('role', 'alert');
+
+      const heading = document.createElement('strong');
+      heading.textContent = 'Storage error — entries cannot be modified';
+      banner.appendChild(heading);
+
+      const body = document.createElement('p');
+      body.textContent = message;
+      banner.appendChild(body);
+
+      container.replaceChildren(banner);
+    }
+
+    /**
+     * lockApp()
+     *
+     * Sets the locked flag and disables Save, Erase-all, and any existing
+     * Delete buttons so no writes can reach localStorage.
+     */
+    function lockApp() {
+      locked = true;
+      document.getElementById('save-btn').disabled      = true;
+      document.getElementById('erase-all-btn').disabled = true;
+      // Delete buttons inside the table (if any were rendered) are also
+      // disabled.  Future renders via renderTable will call lockDeleteBtns().
+      lockDeleteBtns();
+    }
+
+    /**
+     * lockDeleteBtns()
+     *
+     * Disables every Delete button currently in #entries-container.
+     * Called after renderTable() when the app is in the locked state.
+     */
+    function lockDeleteBtns() {
+      document
+        .querySelectorAll('#entries-container .btn-delete')
+        .forEach(function (btn) { btn.disabled = true; });
+    }
+
+    /* ── Form error helpers ───────────────────────────────────────── */
+
+    /**
+     * showFormError(message)
+     *
+     * Makes #form-error visible before setting its text so that the
+     * role="alert" fires for a rendered (non-display:none) element.
+     * Screen readers monitor live regions only when they are in the
+     * render tree; making the element visible first ensures the content
+     * change is announced reliably.
+     */
+    function showFormError(message) {
+      const el = document.getElementById('form-error');
+      el.classList.add('is-visible'); // visible first
+      el.textContent = message;       // then set text
+    }
+
+    /**
+     * clearFormError()
+     *
+     * Hides #form-error and empties its text.
+     */
+    function clearFormError() {
+      const el = document.getElementById('form-error');
+      el.textContent = '';
+      el.classList.remove('is-visible');
+    }
+
+    /* ── Table-error helpers (Delete / Erase all storage failures) ── */
+
+    /**
+     * showTableError(message)
+     *
+     * Displays a storage-failure message in #table-error, which lives
+     * near the Entry History controls rather than in the form section.
+     * role="alert" on the element triggers screen reader announcement.
+     */
+    function showTableError(message) {
+      const el = document.getElementById('table-error');
+      el.classList.add('is-visible'); // visible first (same pattern as showFormError)
+      el.textContent = message;
+    }
+
+    /**
+     * clearTableError()
+     *
+     * Hides #table-error and empties its text.
+     */
+    function clearTableError() {
+      const el = document.getElementById('table-error');
+      el.textContent = '';
+      el.classList.remove('is-visible');
+    }
+
+    /* ── Erase-all button state helper ───────────────────────────── */
+
+    /**
+     * updateEraseAllBtn()
+     *
+     * Disables "Erase all demo entries" when there are no entries and the
+     * app is not locked.  Prevents a redundant confirm dialog on an empty
+     * list.
+     */
+    function updateEraseAllBtn() {
+      const btn = document.getElementById('erase-all-btn');
+      btn.disabled = locked || entries.length === 0;
+    }
+
+    /* ── Render helpers (thin wrappers that also update Erase-all) ── */
+
+    /**
+     * render()
+     *
+     * Re-renders both the summary panel and the entry table, then updates
+     * the Erase-all button state.  Calling a single function keeps all
+     * three DOM updates synchronised.
+     */
+    function render() {
+      renderSummary(entries);
+      renderTable(entries);
+      updateEraseAllBtn();
+      if (locked) {
+        lockDeleteBtns();
+      }
+    }
+
+    /* ── Initialisation ──────────────────────────────────────────── */
+
+    /**
+     * init()
+     *
+     * Called once on DOMContentLoaded.
+     *
+     * Steps:
+     *   1. Set the date input to today using localDateString(new Date()).
+     *      This uses the local date helpers already defined, keeping the
+     *      timezone handling consistent across the whole app.
+     *   2. Call loadEntries().
+     *      • null  → read or parse failure: lock the app, show an error,
+     *                render whatever can be shown (empty table).
+     *      • []    → first visit: nothing to validate, render empty state.
+     *      • Array → validate shape and duplicate dates with
+     *                validateStoredEntries().  If validation fails, lock
+     *                the app and show the integrity error.
+     *   3. On success, assign to entries and call render().
+     *   4. Attach all event listeners.
+     */
+    function init() {
+      // Step 1 — prefill date input with today
+      document.getElementById('entry-date').value = localDateString(new Date());
+
+      // Step 2 — load from localStorage
+      const loaded = loadEntries();
+
+      if (loaded === null) {
+        // localStorage is unreadable or contains unparseable data.
+        showAppError(
+          'The stored data could not be read. Your existing entries are preserved ' +
+          'in localStorage but cannot be loaded. Please open the browser console ' +
+          'for details, or clear the key "' + STORAGE_KEY + '" to start fresh.'
+        );
+        lockApp();
+        render(); // renders the empty state; Delete buttons are then locked
+        attachEventListeners();
+        return;
+      }
+
+      if (loaded.length > 0) {
+        // Step 3 — validate the integrity of each stored entry
+        const integrityError = validateStoredEntries(loaded);
+        if (integrityError) {
+          showAppError(
+            'The stored entries failed an integrity check: ' + integrityError +
+            ' Your data has been preserved. Please open the browser console for details.'
+          );
+          lockApp();
+          render();
+          attachEventListeners();
+          return;
+        }
+      }
+
+      // Step 4 — all good: populate state and render
+      entries = loaded;
+      render();
+      attachEventListeners();
+    }
+
+    /* ── Event listeners ─────────────────────────────────────────── */
+
+    /**
+     * attachEventListeners()
+     *
+     * Attaches all three listeners exactly once, after the DOM is ready
+     * and the initial state is known.  Kept separate from init() so the
+     * locked path can still attach listeners (the handlers check `locked`
+     * themselves before doing anything destructive).
+     */
+    function attachEventListeners() {
+      document.getElementById('entry-form')
+        .addEventListener('submit', handleFormSubmit);
+
+      document.getElementById('entries-container')
+        .addEventListener('click', handleTableClick);
+
+      document.getElementById('erase-all-btn')
+        .addEventListener('click', handleEraseAll);
+    }
+
+    /**
+     * handleFormSubmit(event)
+     *
+     * Handles the form's submit event.
+     *
+     * Flow:
+     *   1. Prevent the browser's default form submission (page reload).
+     *   2. Bail out silently if the app is locked (belt-and-braces check;
+     *      the Save button is also disabled).
+     *   3. Read the four field values from the DOM.
+     *   4. Run validateEntry().  If it returns an error string, show it
+     *      in #form-error and stop.
+     *   5. Build the new entry object, converting sleep and water to
+     *      numbers with Number().  Mood is also coerced to a number so
+     *      the stored type is always number, not string.
+     *   6. Construct the updated array (spread so we never mutate `entries`
+     *      before the save succeeds).
+     *   7. Call saveEntries().  If it returns false (write failure), show
+     *      an error and leave `entries` unchanged.
+     *   8. On success: update `entries`, reset the form, re-set today's
+     *      date (form.reset() clears it), clear the error, re-render.
+     */
+    function handleFormSubmit(event) {
+      event.preventDefault();
+
+      if (locked) return;
+
+      // Read raw values from the DOM
+      const dateVal  = document.getElementById('entry-date').value;
+      const moodEl   = document.querySelector('input[name="mood"]:checked');
+      const moodVal  = moodEl ? moodEl.value : '';
+      const sleepVal = document.getElementById('entry-sleep').value;
+      const waterVal = document.getElementById('entry-water').value;
+
+      // Validate — show error and move focus to the relevant field
+      const error = validateEntry(dateVal, moodVal, sleepVal, waterVal, entries);
+      if (error) {
+        showFormError(error);
+        // Move focus to the first offending field so keyboard users land on it.
+        // The error message already announced via role="alert"; we do not need
+        // aria-describedby on every input for this to be useful.
+        if (error.includes('date') || error.includes('Date')) {
+          document.getElementById('entry-date').focus();
+        } else if (error.includes('mood') || error.includes('Mood')) {
+          // Focus the first radio — arrow keys then navigate within the group.
+          document.querySelector('input[name="mood"]').focus();
+        } else if (error.includes('sleep') || error.includes('Sleep')) {
+          document.getElementById('entry-sleep').focus();
+        } else if (error.includes('water') || error.includes('Water')) {
+          document.getElementById('entry-water').focus();
+        }
+        return;
+      }
+
+      // Build the new entry — all numeric fields stored as numbers
+      const newEntry = {
+        date:  dateVal,
+        mood:  Number(moodVal),
+        sleep: Number(sleepVal),
+        water: Number(waterVal),
+      };
+
+      // Attempt to save before mutating any state
+      const updated = entries.concat([newEntry]);
+      const saved   = saveEntries(updated);
+
+      if (!saved) {
+        showFormError(
+          'Could not save the entry — the browser storage may be full or ' +
+          'unavailable. Please try again or check your browser settings.'
+        );
+        return;
+      }
+
+      // Commit the new state only after a successful save
+      entries = updated;
+      clearFormError();
+      event.target.reset();
+      document.getElementById('entry-date').value = localDateString(new Date());
+      render();
+    }
+
+    /**
+     * handleTableClick(event)
+     *
+     * Delegated click handler on #entries-container.
+     *
+     * Why event delegation?
+     *   renderTable() re-creates the entire table on every state change.
+     *   Attaching individual listeners to each Delete button would require
+     *   re-attaching them after every render.  A single listener on the
+     *   stable parent container fires for any click inside it, regardless
+     *   of re-renders.
+     *
+     * closest('.btn-delete') walks up the DOM from the actual click target
+     * to find the nearest ancestor (or the element itself) matching the
+     * selector.  This handles the case where the user clicks on a child
+     * element of the button (e.g. the text node or a hypothetical icon).
+     *
+     * Flow:
+     *   1. Find the Delete button using closest('.btn-delete').
+     *   2. Read entry.dataset.date.
+     *   3. Show a confirm() dialog.
+     *   4. Filter the entry out and attempt to save.
+     *   5. Only update state and re-render on success.
+     */
+    function handleTableClick(event) {
+      if (locked) return;
+
+      const btn = event.target.closest('.btn-delete');
+      if (!btn) return; // click was not on or inside a Delete button
+
+      const dateToDelete = btn.dataset.date;
+      if (!dateToDelete) return;
+
+      const confirmed = window.confirm(
+        'Delete entry for ' + dateToDelete + '?'
+      );
+      if (!confirmed) return;
+
+      const updated = entries.filter(function (e) {
+        return e.date !== dateToDelete;
+      });
+
+      // Record the deleted row's position before the table is rebuilt so
+      // focus can be restored to the equivalent row (or heading) afterwards.
+      const allBtns     = Array.from(
+        document.querySelectorAll('#entries-container .btn-delete')
+      );
+      const deletedIndex = allBtns.findIndex(function (b) {
+        return b.dataset.date === dateToDelete;
+      });
+
+      const saved = saveEntries(updated);
+      if (!saved) {
+        showTableError(
+          'Could not delete the entry — the browser storage may be unavailable. ' +
+          'Please try again.'
+        );
+        return;
+      }
+
+      // Commit state and re-render only after successful save.
+      entries = updated;
+      clearTableError();
+      render();
+
+      // Restore keyboard focus after the table has been rebuilt.
+      // Do not attempt to focus the disabled Erase-all button.
+      const newBtns = Array.from(
+        document.querySelectorAll('#entries-container .btn-delete')
+      );
+      if (newBtns.length > 0) {
+        // Same position if possible; fall back to the last row.
+        const focusIndex = Math.min(deletedIndex, newBtns.length - 1);
+        newBtns[focusIndex].focus();
+      } else {
+        // Table is now empty — focus the section heading (tabindex="-1").
+        document.getElementById('entries-heading').focus();
+      }
+    }
+
+    /**
+     * handleEraseAll(event)
+     *
+     * Handles the "Erase all demo entries" button.
+     *
+     * Uses saveEntries([]) rather than localStorage.removeItem() so that
+     * the write path is consistent and the same error handling applies.
+     * The key is set to an empty array rather than removed — on next load,
+     * loadEntries() will return [] for both an absent key and an empty array,
+     * so the behaviour is identical from the user's perspective.
+     */
+    function handleEraseAll() {
+      if (locked) return;
+
+      const confirmed = window.confirm(
+        'This will permanently delete all entries. Continue?'
+      );
+      if (!confirmed) return;
+
+      const saved = saveEntries([]);
+      if (!saved) {
+        showTableError(
+          'Could not erase entries — the browser storage may be unavailable. ' +
+          'Please try again.'
+        );
+        return;
+      }
+
+      entries = [];
+      clearTableError();
+      render();
+    }
+
+    /* ── Boot ────────────────────────────────────────────────────── */
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</head>
+<body>
+
+  <header>
+    <h1>Wellness Tracker</h1>
+    <p class="disclaimer" role="note">
+      <strong>Demo only: use fictional data. Not for medical use.</strong>
+    </p>
+  </header>
+
+  <main>
+
+    <!-- ── App-level error banner (injected by JS on load failure) ── -->
+    <!-- No aria-live here; role="alert" on the injected banner is sufficient. -->
+    <div id="app-error"></div>
+
+    <!-- ── Entry form ──────────────────────────────────────────── -->
+    <section id="entry-form-section" aria-labelledby="form-heading">
+      <h2 id="form-heading">Log a Wellness Entry</h2>
+
+      <form id="entry-form" novalidate>
+
+        <!-- Date -->
+        <div class="field-group">
+          <label for="entry-date">Date</label>
+          <input
+            type="date"
+            id="entry-date"
+            name="entry-date"
+            required
+            aria-required="true"
+          >
+        </div>
+
+        <!-- Mood -->
+        <fieldset id="mood-fieldset">
+          <legend>Mood</legend>
+          <div class="radio-group">
+
+            <label class="radio-label">
+              <input type="radio" name="mood" value="1" required>
+              <span class="radio-value">1</span>
+              <span class="radio-desc">Very poor</span>
+            </label>
+
+            <label class="radio-label">
+              <input type="radio" name="mood" value="2">
+              <span class="radio-value">2</span>
+              <span class="radio-desc">Poor</span>
+            </label>
+
+            <label class="radio-label">
+              <input type="radio" name="mood" value="3">
+              <span class="radio-value">3</span>
+              <span class="radio-desc">Fair</span>
+            </label>
+
+            <label class="radio-label">
+              <input type="radio" name="mood" value="4">
+              <span class="radio-value">4</span>
+              <span class="radio-desc">Good</span>
+            </label>
+
+            <label class="radio-label">
+              <input type="radio" name="mood" value="5">
+              <span class="radio-value">5</span>
+              <span class="radio-desc">Excellent</span>
+            </label>
+
+          </div>
+        </fieldset>
+
+        <!-- Sleep -->
+        <div class="field-group">
+          <label for="entry-sleep">Sleep</label>
+          <div class="input-with-unit">
+            <input
+              type="number"
+              id="entry-sleep"
+              name="entry-sleep"
+              min="0"
+              max="24"
+              step="0.5"
+              placeholder="0–24"
+              required
+              aria-required="true"
+              aria-describedby="sleep-unit"
+            >
+            <span id="sleep-unit" class="unit-label">hours</span>
+          </div>
+        </div>
+
+        <!-- Water -->
+        <div class="field-group">
+          <label for="entry-water">Water</label>
+          <div class="input-with-unit">
+            <input
+              type="number"
+              id="entry-water"
+              name="entry-water"
+              min="0"
+              max="3"
+              step="0.1"
+              placeholder="0–3"
+              required
+              aria-required="true"
+              aria-describedby="water-unit"
+            >
+            <span id="water-unit" class="unit-label">litres</span>
+          </div>
+        </div>
+
+        <!-- Inline validation message -->
+        <p id="form-error" class="form-error" role="alert"></p>
+
+        <!-- Submit -->
+        <button type="submit" id="save-btn">Save entry</button>
+
+      </form>
+    </section>
+
+    <!-- ── Recent summary ──────────────────────────────────────── -->
+    <section id="summary-section" aria-labelledby="summary-heading">
+      <h2 id="summary-heading">Recent Summary</h2>
+      <p class="summary-note">Based on the 7 most recent entries.</p>
+
+      <dl class="summary-grid">
+        <div class="summary-item">
+          <dt>Entries</dt>
+          <dd id="stat-count">—</dd>
+        </div>
+        <div class="summary-item">
+          <dt>Avg Mood</dt>
+          <dd id="stat-mood">—</dd>
+        </div>
+        <div class="summary-item">
+          <dt>Avg Sleep</dt>
+          <dd id="stat-sleep">—</dd>
+        </div>
+        <div class="summary-item">
+          <dt>Avg Water</dt>
+          <dd id="stat-water">—</dd>
+        </div>
+      </dl>
+    </section>
+
+    <!-- ── Entry history ───────────────────────────────────────── -->
+    <section id="entries-section" aria-labelledby="entries-heading">
+      <div class="entries-header">
+        <!-- tabindex="-1" allows JS to restore focus here when the last entry is deleted -->
+        <h2 id="entries-heading" tabindex="-1">Entry History</h2>
+        <button type="button" id="erase-all-btn" class="btn-danger">
+          Erase all demo entries
+        </button>
+      </div>
+
+      <!-- Storage-failure message for Delete / Erase all actions -->
+      <p id="table-error" class="table-error" role="alert"></p>
+
+      <!-- JS will inject a <table> or a "No entries yet" <p> here -->
+      <div id="entries-container" aria-live="polite" aria-relevant="additions removals"></div>
+    </section>
+
+  </main>
+
+</body>
+</html>
