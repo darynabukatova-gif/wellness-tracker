@@ -325,6 +325,10 @@
       transition: background-color 0.15s;
     }
 
+    button[hidden] {
+      display: none;
+    }
+
     /* Primary — Save entry */
     button[type="submit"],
     .btn-primary {
@@ -363,6 +367,33 @@
 
     .btn-delete:not(:disabled):hover {
       background-color: var(--colour-danger);
+      color: #ffffff;
+    }
+
+    .btn-neutral {
+      background-color: transparent;
+      color: var(--colour-text-muted);
+      border: 1px solid var(--colour-border);
+      align-self: flex-start;
+    }
+
+    .btn-neutral:not(:disabled):hover {
+      background-color: var(--colour-row-alt);
+      border-color: var(--colour-text-muted);
+    }
+
+    .btn-edit {
+      padding: var(--space-1) var(--space-2);
+      font-size: var(--font-size-sm);
+      background-color: transparent;
+      color: var(--colour-accent);
+      border: 1px solid var(--colour-accent);
+      border-radius: var(--radius-sm);
+      font-weight: 500;
+    }
+
+    .btn-edit:not(:disabled):hover {
+      background-color: var(--colour-accent);
       color: #ffffff;
     }
 
@@ -1167,8 +1198,16 @@
         tdWater.textContent = entry.water;
         row.appendChild(tdWater);
 
-        // Actions cell — Delete button
+        // Actions cell — Edit and Delete buttons
         const tdActions = document.createElement('td');
+        const editBtn = document.createElement('button');
+        editBtn.type          = 'button';
+        editBtn.className     = 'btn-edit';
+        editBtn.dataset.date  = entry.date;
+        editBtn.textContent   = 'Edit';
+        editBtn.setAttribute('aria-label', 'Edit entry for ' + entry.date);
+        tdActions.appendChild(editBtn);
+
         const deleteBtn = document.createElement('button');
         deleteBtn.type          = 'button';
         deleteBtn.className     = 'btn-delete';
@@ -1204,6 +1243,7 @@
 
     let entries = [];
     let locked  = false;
+    let editingDate = null;
 
     /* ── App-level error helpers ──────────────────────────────────── */
 
@@ -1248,6 +1288,7 @@
       // Delete buttons inside the table (if any were rendered) are also
       // disabled.  Future renders via renderTable will call lockDeleteBtns().
       lockDeleteBtns();
+      lockEditBtns();
     }
 
     /**
@@ -1259,6 +1300,12 @@
     function lockDeleteBtns() {
       document
         .querySelectorAll('#entries-container .btn-delete')
+        .forEach(function (btn) { btn.disabled = true; });
+    }
+
+    function lockEditBtns() {
+      document
+        .querySelectorAll('#entries-container .btn-edit')
         .forEach(function (btn) { btn.disabled = true; });
     }
 
@@ -1345,7 +1392,47 @@
       updateEraseAllBtn();
       if (locked) {
         lockDeleteBtns();
+        lockEditBtns();
       }
+    }
+
+    function enterEditMode(date) {
+      const entry = entries.find(function (candidate) {
+        return candidate.date === date;
+      });
+      if (!entry) return;
+
+      if (editingDate !== null && editingDate !== date) {
+        const confirmed = window.confirm(
+          'Discard unsaved changes and edit entry for ' + date + '?'
+        );
+        if (!confirmed) return;
+      }
+
+      editingDate = date;
+      document.getElementById('entry-date').value = entry.date;
+      document.getElementById('entry-date').readOnly = true;
+      document.querySelectorAll('input[name="mood"]').forEach(function (radio) {
+        radio.checked = Number(radio.value) === entry.mood;
+      });
+      document.getElementById('entry-sleep').value = entry.sleep;
+      document.getElementById('entry-water').value = entry.water;
+      document.getElementById('form-heading').textContent = 'Edit Wellness Entry';
+      document.getElementById('save-btn').textContent = 'Save changes';
+      document.getElementById('cancel-edit-btn').hidden = false;
+      clearFormError();
+      document.querySelector('input[name="mood"]').focus();
+    }
+
+    function exitEditMode() {
+      editingDate = null;
+      document.getElementById('entry-form').reset();
+      document.getElementById('entry-date').readOnly = false;
+      document.getElementById('entry-date').value = localDateString(new Date());
+      document.getElementById('form-heading').textContent = 'Log a Wellness Entry';
+      document.getElementById('save-btn').textContent = 'Save entry';
+      document.getElementById('cancel-edit-btn').hidden = true;
+      clearFormError();
     }
 
     /* ── Initialisation ──────────────────────────────────────────── */
@@ -1429,6 +1516,12 @@
 
       document.getElementById('erase-all-btn')
         .addEventListener('click', handleEraseAll);
+
+      document.getElementById('cancel-edit-btn')
+        .addEventListener('click', function () {
+          exitEditMode();
+          document.getElementById('entry-date').focus();
+        });
     }
 
     /**
@@ -1464,6 +1557,68 @@
       const moodVal  = moodEl ? moodEl.value : '';
       const sleepVal = document.getElementById('entry-sleep').value;
       const waterVal = document.getElementById('entry-water').value;
+
+      if (editingDate !== null) {
+        const editedEntry = entries.find(function (entry) {
+          return entry.date === editingDate;
+        });
+
+        if (!editedEntry) {
+          showFormError(
+            'The entry being edited no longer exists. Please cancel editing and try again.'
+          );
+          return;
+        }
+
+        const existingEntries = entries.filter(function (entry) {
+          return entry.date !== editingDate;
+        });
+        const error = validateEntry(
+          editingDate, moodVal, sleepVal, waterVal, existingEntries
+        );
+        if (error) {
+          showFormError(error);
+          if (error.includes('mood') || error.includes('Mood')) {
+            document.querySelector('input[name="mood"]').focus();
+          } else if (error.includes('sleep') || error.includes('Sleep')) {
+            document.getElementById('entry-sleep').focus();
+          } else if (error.includes('water') || error.includes('Water')) {
+            document.getElementById('entry-water').focus();
+          }
+          return;
+        }
+
+        const updatedEntry = {
+          date:  editingDate,
+          mood:  Number(moodVal),
+          sleep: Number(sleepVal),
+          water: Number(waterVal),
+        };
+        const updated = entries.map(function (entry) {
+          return entry.date === editingDate ? updatedEntry : entry;
+        });
+        const saved = saveEntries(updated);
+
+        if (!saved) {
+          showFormError(
+            'Could not save the changes — the browser storage may be full or ' +
+            'unavailable. Please try again or check your browser settings.'
+          );
+          return;
+        }
+
+        entries = updated;
+        exitEditMode();
+        render();
+        const editButtons = Array.from(
+          document.querySelectorAll('#entries-container .btn-edit')
+        );
+        const updatedEditButton = editButtons.find(function (button) {
+          return button.dataset.date === updatedEntry.date;
+        });
+        if (updatedEditButton) updatedEditButton.focus();
+        return;
+      }
 
       // Validate — show error and move focus to the relevant field
       const error = validateEntry(dateVal, moodVal, sleepVal, waterVal, entries);
@@ -1540,6 +1695,12 @@
     function handleTableClick(event) {
       if (locked) return;
 
+      const editBtn = event.target.closest('.btn-edit');
+      if (editBtn) {
+        enterEditMode(editBtn.dataset.date);
+        return;
+      }
+
       const btn = event.target.closest('.btn-delete');
       if (!btn) return; // click was not on or inside a Delete button
 
@@ -1576,6 +1737,9 @@
       // Commit state and re-render only after successful save.
       entries = updated;
       clearTableError();
+      if (editingDate === dateToDelete) {
+        exitEditMode();
+      }
       render();
 
       // Restore keyboard focus after the table has been rebuilt.
@@ -1623,6 +1787,7 @@
 
       entries = [];
       clearTableError();
+      exitEditMode();
       render();
     }
 
@@ -1746,6 +1911,9 @@
 
         <!-- Submit -->
         <button type="submit" id="save-btn">Save entry</button>
+        <button type="button" id="cancel-edit-btn" class="btn-neutral" hidden>
+          Cancel editing
+        </button>
 
       </form>
     </section>

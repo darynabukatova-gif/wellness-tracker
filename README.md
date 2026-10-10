@@ -27,6 +27,8 @@ no frameworks, no build tools, no server required.
 | **Log an entry** | Record mood, sleep duration, and water intake for any date |
 | **One entry per day** | Each calendar date can hold exactly one entry |
 | **Entry history** | All entries displayed in a table, newest first |
+| **Edit an entry** | Load an existing entry and save updated mood, sleep, or water values |
+| **Cancel editing** | Leave edit mode without changing stored data |
 | **Delete an entry** | Remove any row with a confirmation prompt |
 | **Erase all** | Remove every entry with a confirmation prompt |
 | **7-entry summary** | Rolling averages for mood, sleep, and water across the seven most recent entries |
@@ -102,6 +104,12 @@ handleFormSubmit() / handleTableClick() / handleEraseAll() / init()
 3. `saveEntries()` writes to `localStorage` **before** the in-memory state is
    updated.  If the write fails the existing state is preserved.
 4. On success: state updated, form reset, summary and table re-rendered.
+
+**Editing an entry**
+1. Click **Edit** in the entry history to load that entry into the form.
+2. The date remains read-only while editing; mood, sleep, and water can be changed.
+3. Click **Save changes** to replace the existing entry without creating a second
+   entry. Click **Cancel editing** to discard form changes without modifying storage.
 
 **Deleting an entry**
 1. `window.confirm()` asks for confirmation.
@@ -244,16 +252,17 @@ built-in `node:test` runner (no external dependencies).
 test/
 ├── helpers.js        — vm extraction helper and in-memory localStorage stub
 ├── pure.test.js      — 91 tests covering the seven pure functions
-└── storage.test.js   — 20 tests covering loadEntries and saveEntries
+├── storage.test.js   — 20 tests covering loadEntries and saveEntries
+└── edit.test.js      — DOM-mock integration tests for edit, delete, and erase workflows
 ```
 
 **Run all tests:**
 
 ```bash
-~/.nvm/versions/node/v24.21.0/bin/node --test test/pure.test.js test/storage.test.js
+node --test test/*.test.js
 ```
 
-Expected output: **111 tests, 111 pass, 0 fail.**
+Expected output: **119 tests, 119 pass, 0 fail.**
 
 **How it works:**  `helpers.js` extracts the first `<script>` block from
 `index.html` using a regex, evaluates it in an isolated `vm` context (no
@@ -266,9 +275,12 @@ the tests always exercise the exact code that runs in the browser.
 |------|-----------------|
 | `pure.test.js` | `localDateString`, `isValidStep`, `isValidEntryShape`, `validateStoredEntries`, `validateEntry`, `sortByDateDesc`, `calcSummary` |
 | `storage.test.js` | `loadEntries`, `saveEntries` (round-trip, corrupt data, write failure, read failure) |
+| `edit.test.js` | Edit-mode loading, saving, validation, failed writes, cancellation, deletion conflicts, and erase-all mode handling |
 
-DOM rendering and event-handler code require a live browser and cannot be
-tested in Node.js; see Manual browser tests below.
+The edit tests use a small DOM mock to exercise the event-handler workflow in Node.js
+without adding a dependency. Full browser rendering, responsive layout, native
+focus behavior, keyboard activation, and real localStorage behavior still require
+manual browser testing.
 
 ### Manual browser tests
 
@@ -280,8 +292,19 @@ These behaviours require a live browser and cannot be checked with Node.js:
    the table; summary updates.
 3. Close and reopen the tab — entries persist.
 
+#### Editing
+4. Click **Edit** on an entry — its values load into the form and the date becomes
+   read-only.
+5. Change mood, sleep, or water and click **Save changes** — the same row updates
+   without increasing the entry count.
+6. Click **Cancel editing** after changing a value — stored data remains unchanged
+   and the form returns to new-entry mode.
+7. While editing, delete another entry and confirm — the edit form remains intact.
+   Delete the entry being edited or use **Erase all demo entries** — edit mode ends
+   only after the storage write succeeds.
+
 #### Validation
-4. Submit the form with one field empty — an inline error appears and focus moves to
+8. Submit the form with one field empty — an inline error appears and focus moves to
    the empty field.
 5. Enter `6.3` for sleep — step-increment error shown, focus on sleep field.
 6. Enter `1.15` for water — step-increment error shown, focus on water field.
