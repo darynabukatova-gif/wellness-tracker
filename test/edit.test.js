@@ -36,7 +36,9 @@ function makeApp() {
   const elements = new Map();
   ['entry-date', 'entry-sleep', 'entry-water', 'form-heading', 'save-btn',
    'cancel-edit-btn', 'form-error', 'table-error', 'erase-all-btn',
-   'entries-container', 'entries-heading', 'entry-form'].forEach(id => {
+   'entries-container', 'entries-heading', 'entry-form', 'sleep-value',
+   'water-value', 'sleep-minus', 'sleep-plus', 'water-minus', 'water-plus',
+   'sleep-unit', 'water-unit'].forEach(id => {
     elements.set(id, new Element(id));
   });
   const radios = [1, 2, 3, 4, 5].map(value => {
@@ -50,6 +52,7 @@ function makeApp() {
     querySelector(selector) {
       if (selector === 'input[name="mood"]:checked') return radios.find(r => r.checked) || null;
       if (selector === 'input[name="mood"]') return radios[0];
+      if (selector.startsWith('#')) return elements.get(selector.slice(1)) || null;
       return null;
     },
     querySelectorAll(selector) {
@@ -70,17 +73,18 @@ function makeApp() {
     Date,
   };
   vm.createContext(sandbox);
-  const source = scripts[1] + '\nthis.__api = { enterEditMode, exitEditMode, handleFormSubmit, handleTableClick, handleEraseAll, get entries() { return entries; }, get editingDate() { return editingDate; }, set entries(value) { entries = value; }, set editingDate(value) { editingDate = value; } };';
+  const source = scripts[1] + '\nthis.__api = { enterEditMode, exitEditMode, handleFormSubmit, handleTableClick, handleEraseAll, adjustValueControl, resetValueControls, setValueControlValues, updateSleepControl, updateWaterControl, lockApp, get entries() { return entries; }, get editingDate() { return editingDate; }, get sleepSelected() { return sleepSelected; }, get waterSelected() { return waterSelected; }, set entries(value) { entries = value; }, set editingDate(value) { editingDate = value; } };';
   new vm.Script(scripts[0] + '\n' + source).runInContext(sandbox);
   sandbox.render = () => {};
   sandbox.__api.entries = [
     { date: '2025-06-10', mood: 4, sleep: 7.5, water: 2.1 },
     { date: '2025-06-11', mood: 3, sleep: 6, water: 1.8 },
   ];
+  sandbox.__api.resetValueControls();
   return { api: sandbox.__api, elements, radios, buttons, storage, confirms };
 }
 
-function submit(app) { app.api.handleFormSubmit({ preventDefault() {} }); }
+function submit(app) { app.api.handleFormSubmit({ preventDefault() {}, target: app.elements.get('entry-form') }); }
 
 test('entering edit mode loads the selected entry and keeps its date read-only', () => {
   const app = makeApp();
@@ -175,4 +179,111 @@ test('erase all exits edit mode only after a successful erase', () => {
   app.api.handleEraseAll();
   assert.equal(app.api.editingDate, null);
   assert.equal(app.api.entries.length, 0);
+});
+
+test('sleep and water start unselected and reject an incomplete submission', () => {
+  const app = makeApp();
+  assert.equal(app.api.sleepSelected, false);
+  assert.equal(app.api.waterSelected, false);
+  app.elements.get('entry-date').value = '2025-06-12';
+  app.radios[2].checked = true;
+  submit(app);
+  assert.match(app.elements.get('form-error').textContent, /sleep/i);
+});
+
+test('explicitly selecting zero is valid for both sliders', () => {
+  const app = makeApp();
+  app.api.setValueControlValues(0, 0);
+  app.elements.get('entry-date').value = '2025-06-12';
+  app.radios[2].checked = true;
+  submit(app);
+  assert.equal(app.api.entries.length, 3);
+  assert.equal(app.api.entries[2].sleep, 0);
+  assert.equal(app.api.entries[2].water, 0);
+});
+
+test('moving sliders selects values and updates displayed values', () => {
+  const app = makeApp();
+  app.elements.get('entry-sleep').value = '6.5';
+  app.elements.get('entry-water').value = '1.7';
+  app.api.updateSleepControl();
+  app.api.updateWaterControl();
+  assert.equal(app.api.sleepSelected, false);
+  assert.equal(app.elements.get('sleep-value').textContent, 'Choose a value');
+  // The actual input listeners set the selected flags; this mirrors native input events.
+  app.api.setValueControlValues(6.5, 1.7);
+  assert.equal(app.elements.get('sleep-value').textContent, '6.5 h');
+  assert.equal(app.elements.get('water-value').textContent, '1.7 L');
+});
+
+test('minus and plus buttons change each value by exactly one step', () => {
+  const app = makeApp();
+  app.api.setValueControlValues(6.5, 1.7);
+  app.api.adjustValueControl('sleep', 1);
+  app.api.adjustValueControl('water', -1);
+  assert.equal(app.elements.get('entry-sleep').value, '7');
+  assert.equal(app.elements.get('entry-water').value, '1.6');
+});
+
+test('unselected plus and minus choose initial step or minimum values', () => {
+  const app = makeApp();
+  app.api.adjustValueControl('sleep', 1);
+  assert.equal(app.elements.get('entry-sleep').value, '0.5');
+  app.api.resetValueControls();
+  app.api.adjustValueControl('water', -1);
+  assert.equal(app.elements.get('entry-water').value, '0');
+});
+
+test('slider values clamp at minimum and maximum and disable boundary buttons', () => {
+  const app = makeApp();
+  app.api.setValueControlValues(24, 3);
+  app.api.adjustValueControl('sleep', 1);
+  app.api.adjustValueControl('water', 1);
+  assert.equal(app.elements.get('entry-sleep').value, '24');
+  assert.equal(app.elements.get('entry-water').value, '3');
+  assert.equal(app.elements.get('sleep-plus').disabled, true);
+  assert.equal(app.elements.get('water-plus').disabled, true);
+  app.api.adjustValueControl('sleep', -1);
+  app.api.adjustValueControl('water', -1);
+  app.api.adjustValueControl('sleep', -1);
+  app.api.adjustValueControl('water', -1);
+  app.api.setValueControlValues(0, 0);
+  assert.equal(app.elements.get('sleep-minus').disabled, true);
+  assert.equal(app.elements.get('water-minus').disabled, true);
+});
+
+test('water display rounds to one decimal place without floating-point artefacts', () => {
+  const app = makeApp();
+  app.api.setValueControlValues(6.5, 1.7);
+  app.elements.get('entry-water').value = '1.7000000000000002';
+  app.api.updateWaterControl();
+  assert.equal(app.elements.get('water-value').textContent, '1.7 L');
+});
+
+test('editing loads selected slider values and reset clears them after cancel and save', () => {
+  const app = makeApp();
+  app.api.enterEditMode('2025-06-11');
+  assert.equal(app.api.sleepSelected, true);
+  assert.equal(app.api.waterSelected, true);
+  assert.equal(app.elements.get('sleep-value').textContent, '6 h');
+  assert.equal(app.elements.get('water-value').textContent, '1.8 L');
+  app.api.exitEditMode();
+  assert.equal(app.api.sleepSelected, false);
+  assert.equal(app.api.waterSelected, false);
+  assert.equal(app.elements.get('sleep-value').textContent, 'Choose a value');
+  app.api.enterEditMode('2025-06-10');
+  submit(app);
+  assert.equal(app.api.sleepSelected, false);
+  assert.equal(app.api.waterSelected, false);
+});
+
+test('locked applications disable slider and adjustment controls', () => {
+  const app = makeApp();
+  app.api.lockApp();
+  assert.equal(app.elements.get('entry-sleep').disabled, true);
+  assert.equal(app.elements.get('entry-water').disabled, true);
+  assert.equal(app.elements.get('sleep-minus').disabled, true);
+  assert.equal(app.elements.get('sleep-plus').disabled, true);
+  assert.equal(app.elements.get('water-minus').disabled, true);
+  assert.equal(app.elements.get('water-plus').disabled, true);
 });

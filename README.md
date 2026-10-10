@@ -24,7 +24,9 @@ no frameworks, no build tools, no server required.
 
 | Feature | Detail |
 |---|---|
-| **Log an entry** | Record mood, sleep duration, and water intake for any date |
+| **Log an entry** | Record mood, sleep duration, and water intake for any date using accessible sliders |
+| **Slider controls** | Adjust sleep in 0.5-hour steps and water in 0.1-litre steps with range sliders or minus/plus buttons |
+| **Unselected values** | Sleep and water begin with "Choose a value"; explicitly selected zero is valid |
 | **One entry per day** | Each calendar date can hold exactly one entry |
 | **Entry history** | All entries displayed in a table, newest first |
 | **Edit an entry** | Load an existing entry and save updated mood, sleep, or water values |
@@ -107,7 +109,8 @@ handleFormSubmit() / handleTableClick() / handleEraseAll() / init()
 
 **Editing an entry**
 1. Click **Edit** in the entry history to load that entry into the form.
-2. The date remains read-only while editing; mood, sleep, and water can be changed.
+2. The date remains read-only while editing; mood, sleep, and water can be changed
+   with the sliders or their minus/plus buttons.
 3. Click **Save changes** to replace the existing entry without creating a second
    entry. Click **Cancel editing** to discard form changes without modifying storage.
 
@@ -253,7 +256,7 @@ test/
 ├── helpers.js        — vm extraction helper and in-memory localStorage stub
 ├── pure.test.js      — 91 tests covering the seven pure functions
 ├── storage.test.js   — 20 tests covering loadEntries and saveEntries
-└── edit.test.js      — DOM-mock integration tests for edit, delete, and erase workflows
+└── edit.test.js      — DOM-mock integration tests for edit, slider, delete, and erase workflows
 ```
 
 **Run all tests:**
@@ -262,7 +265,7 @@ test/
 node --test test/*.test.js
 ```
 
-Expected output: **119 tests, 119 pass, 0 fail.**
+Expected output: **128 tests, 128 pass, 0 fail.**
 
 **How it works:**  `helpers.js` extracts the first `<script>` block from
 `index.html` using a regex, evaluates it in an isolated `vm` context (no
@@ -275,7 +278,7 @@ the tests always exercise the exact code that runs in the browser.
 |------|-----------------|
 | `pure.test.js` | `localDateString`, `isValidStep`, `isValidEntryShape`, `validateStoredEntries`, `validateEntry`, `sortByDateDesc`, `calcSummary` |
 | `storage.test.js` | `loadEntries`, `saveEntries` (round-trip, corrupt data, write failure, read failure) |
-| `edit.test.js` | Edit-mode loading, saving, validation, failed writes, cancellation, deletion conflicts, and erase-all mode handling |
+| `edit.test.js` | Edit-mode loading, saving, validation, failed writes, cancellation, deletion conflicts, erase-all mode handling, slider selection, stepping, clamping, rounding, reset, and locked controls |
 
 The edit tests use a small DOM mock to exercise the event-handler workflow in Node.js
 without adding a dependency. Full browser rendering, responsive layout, native
@@ -292,14 +295,23 @@ These behaviours require a live browser and cannot be checked with Node.js:
    the table; summary updates.
 3. Close and reopen the tab — entries persist.
 
+#### Slider controls
+4. Open a new form — Sleep and Water both show **Choose a value**.
+5. Move each slider with the mouse and keyboard arrows — the displayed value updates.
+6. Use minus/plus — Sleep changes by 0.5 hours and Water by 0.1 litres; buttons
+   disable at the minimum and maximum.
+7. Explicitly select zero and save — zero is accepted as a valid value.
+8. Submit without selecting Sleep or Water — the appropriate required-field error
+   appears.
+
 #### Editing
-4. Click **Edit** on an entry — its values load into the form and the date becomes
+9. Click **Edit** on an entry — its values load into the sliders and the date becomes
    read-only.
-5. Change mood, sleep, or water and click **Save changes** — the same row updates
+10. Change mood, sleep, or water and click **Save changes** — the same row updates
    without increasing the entry count.
-6. Click **Cancel editing** after changing a value — stored data remains unchanged
+11. Click **Cancel editing** after changing a value — stored data remains unchanged
    and the form returns to new-entry mode.
-7. While editing, delete another entry and confirm — the edit form remains intact.
+12. While editing, delete another entry and confirm — the edit form remains intact.
    Delete the entry being edited or use **Erase all demo entries** — edit mode ends
    only after the storage write succeeds.
 
