@@ -38,7 +38,8 @@
  * EXPORTED API
  *   loadContext(localStorageStub?)
  *     Returns an object containing:
- *       { localDateString, isValidStep, isValidEntryShape,
+ *       { localDateString, addCalendarDays, buildTrendSeries,
+ *         buildCalendarMonth, isValidStep, isValidEntryShape,
  *         validateStoredEntries, validateEntry, sortByDateDesc,
  *         calcSummary, loadEntries, saveEntries, storage }
  *
@@ -67,6 +68,9 @@ const INDEX_HTML = path.resolve(__dirname, '..', 'index.html');
 // ── Names of all functions that must be present after evaluation ─────────────
 const REQUIRED_FUNCTIONS = [
   'localDateString',
+  'addCalendarDays',
+  'buildTrendSeries',
+  'buildCalendarMonth',
   'isValidStep',
   'isValidEntryShape',
   'validateStoredEntries',
@@ -191,6 +195,9 @@ function getScriptSource() {
  *
  * @returns {{
  *   localDateString:      function,
+ *   addCalendarDays:      function,
+ *   buildTrendSeries:     function,
+ *   buildCalendarMonth:   function,
  *   isValidStep:          function,
  *   isValidEntryShape:    function,
  *   validateStoredEntries:function,
@@ -243,6 +250,9 @@ function loadContext(localStorageStub) {
   // Callers receive a plain object; the full sandbox is not exposed.
   return {
     localDateString:       sandbox.localDateString,
+    addCalendarDays:       sandbox.addCalendarDays,
+    buildTrendSeries:      sandbox.buildTrendSeries,
+    buildCalendarMonth:    sandbox.buildCalendarMonth,
     isValidStep:           sandbox.isValidStep,
     isValidEntryShape:     sandbox.isValidEntryShape,
     validateStoredEntries: sandbox.validateStoredEntries,

@@ -35,6 +35,11 @@ the optional desktop shell and AppImage packaging.
 | **Delete an entry** | Remove any row with a confirmation prompt |
 | **Erase all** | Remove every entry with a confirmation prompt |
 | **7-entry summary** | Rolling averages for mood, sleep, and water across the seven most recent entries |
+| **History & Trends** | Switch between a monthly calendar and three read-only trend charts |
+| **Monthly calendar** | Monday-first month navigation, saved-entry indicators, and selectable date details |
+| **Calendar actions** | Create an entry for an empty date or edit its saved entry without leaving the calendar context |
+| **Trend charts** | Responsive SVG charts for mood, sleep, and water over 7, 30, or 90 calendar days ending today |
+| **Exact chart data** | A keyboard-accessible expandable table gives the precise date and value behind each chart point |
 | **Persistence** | Browser entries use `localStorage`; Electron entries use a JSON file in the app data directory |
 | **Offline desktop app** | The Electron version runs locally without a network connection |
 | **Responsive layout** | Usable at desktop widths and at narrow mobile viewports (≥ 320 px) |
@@ -80,11 +85,13 @@ Browser localStorage ─┐
 Electron IPC/JSON ────┘                              │
                                                      ▼
 sortByDateDesc() / calcSummary()       ← pure data processing (no DOM, no storage)
-localDateString() / isValidStep()      ← pure helpers
+localDateString() / addCalendarDays() / buildTrendSeries() / buildCalendarMonth()
+                                       ← pure local-calendar helpers
 isValidEntryShape() / validateStoredEntries() / validateEntry()  ← pure validation
     │
     ▼
-renderSummary() / renderTable()        ← DOM rendering (reads entries array, writes DOM)
+renderSummary() / renderTable() / renderCalendar() / renderCharts()
+                                       ← DOM rendering (reads entries array, writes DOM)
     │
     ▼
 handleFormSubmit() / handleTableClick() / handleEraseAll() / init()
@@ -99,7 +106,7 @@ handleFormSubmit() / handleTableClick() / handleEraseAll() / init()
    `entries.json`. A missing Electron file starts as an empty dataset.
 3. On a read, parse, or integrity failure: the app locks — Save, Delete, and Erase all are
    disabled — and a prominent error banner is shown above the form.
-4. On success: `render()` populates the summary panel and entry table.
+4. On success: `render()` populates the summary, History & Trends views, and entry table.
 
 **Saving an entry**
 1. `validateEntry()` checks all four fields.  On error the relevant field receives
@@ -122,6 +129,41 @@ handleFormSubmit() / handleTableClick() / handleEraseAll() / init()
 3. The storage adapter writes first.  On failure, state is unchanged.
 4. On success: focus is restored to the Delete button at the same row position
    (or the previous row, or the Entry History heading if the table is now empty).
+
+### History & Trends
+
+The **History & Trends** section sits between the recent summary and entry
+history. Its two view buttons use a pressed-state indicator; they are ordinary
+buttons rather than ARIA tabs, so normal Tab and Enter/Space behaviour applies.
+
+**Calendar** is the default view. It shows a Monday-first monthly grid with
+previous/next-month controls. Each date is a button with an accessible label;
+dates with saved entries have both a visible **Entry** label and an accessible
+entry-recorded description. Selecting a date only shows read-only details—it
+does not save or change the form. The detail panel offers:
+
+- **Edit entry** for a date that has an entry. It reuses edit mode, preserves
+  the entry date, scrolls to the form, and focuses the mood control.
+- **Create entry** for an empty date. It returns the form to new-entry mode,
+  pre-fills that date, and leaves mood, sleep, and water unselected.
+
+If either action would discard a changed form, the app asks for confirmation.
+Cancelling preserves both the form and calendar selection. Calendar actions are
+disabled during a save and when storage has locked the application; selecting a
+date and month navigation remain read-only operations.
+
+**Charts** contains separate responsive SVG line charts for Mood (1–5), Sleep
+(0–24 h), and Water (0–3 L). Select **7 days**, **30 days** (the default), or
+**90 days** to show that inclusive number of local calendar days ending today.
+Charts use saved data only: they refresh after a successful create, edit, delete,
+or erase operation, never after a failed write or from unsaved form values.
+
+A date with no saved entry is represented as a gap, never as zero; lines are not
+drawn across that gap. A recorded zero is retained as a plotted point. Use
+**Show exact chart data** to open the accompanying accessible table, which lists
+each date and marks absent entries as **Missing**. The SVG charts have titles
+and descriptions for assistive technology; the exact-data table is the best way
+to inspect individual values with a screen reader or keyboard.
 
 ### CSS design tokens
 
@@ -342,7 +384,8 @@ test/
 ├── file-storage.test.js       — JSON-file storage tests using temporary directories
 ├── electron-security.test.js  — Electron URL/frame and window-focus policy tests
 ├── install-script.test.js     — Linux installer syntax and ownership tests
-└── edit.test.js               — DOM-mock integration tests for the renderer workflow
+├── edit.test.js               — DOM-mock integration tests for the renderer workflow
+└── trends-calendar.test.js    — Local-calendar and trend-series helper tests
 ```
 
 **Run all tests:**
@@ -351,7 +394,7 @@ test/
 npm test
 ```
 
-Expected output: **150 tests, 150 pass, 0 fail.**
+Expected output: **180 individual tests, 180 pass, 0 fail, 0 skipped.**
 
 **How it works:**  `helpers.js` extracts the first `<script>` block from
 `index.html` using a regex, evaluates it in an isolated `vm` context (no
@@ -363,11 +406,12 @@ the tests always exercise the exact code that runs in the browser.
 | File | Functions tested |
 |------|-----------------|
 | `pure.test.js` | `localDateString`, `isValidStep`, `isValidEntryShape`, `validateStoredEntries`, `validateEntry`, `sortByDateDesc`, `calcSummary` |
+| `trends-calendar.test.js` | Local-calendar date arithmetic, inclusive 7/30/90-day series, gaps versus zeroes, and Monday-first calendar months |
 | `storage.test.js` | `loadEntries`, `saveEntries` (round-trip, corrupt data, write failure, read failure) |
 | `file-storage.test.js` | JSON-file load/save behavior, atomic replacement, failures, and serialized writes |
 | `electron-security.test.js` | Expected local URL/main-frame policy and single-instance window restoration helpers |
 | `install-script.test.js` | Shell syntax, atomic replacement safeguards, and legacy-installation adoption checks |
-| `edit.test.js` | Browser/Electron adapters, async startup, edit-mode loading, saving, validation, failed writes, cancellation, deletion conflicts, erase-all mode handling, slider selection, busy state, and locked controls |
+| `edit.test.js` | Browser/Electron adapters, async startup, edit-mode loading, saving, validation, failed writes, cancellation, deletion conflicts, erase-all mode handling, slider selection, busy/locked controls, calendar actions, and SVG chart rendering |
 
 The edit tests use a small DOM mock to exercise the event-handler workflow in Node.js
 without adding a dependency. Full browser rendering, responsive layout, native
@@ -405,44 +449,57 @@ These behaviours require a live browser and cannot be checked with Node.js:
    only after the storage write succeeds.
 
 #### Validation
-8. Submit the form with one field empty — an inline error appears and focus moves to
+13. Submit the form with one field empty — an inline error appears and focus moves to
    the empty field.
-5. Enter `6.3` for sleep — step-increment error shown, focus on sleep field.
-6. Enter `1.15` for water — step-increment error shown, focus on water field.
-7. Save an entry, then try to save another for the same date — duplicate-date error
+14. Enter `6.3` for sleep — step-increment error shown, focus on sleep field.
+15. Enter `1.15` for water — step-increment error shown, focus on water field.
+16. Save an entry, then try to save another for the same date — duplicate-date error
    shown, focus on date field.
 
 #### Deletion and erase
-8. Click **Delete** on a row, then **Cancel** — entry remains; focus unchanged.
-9. Click **Delete**, then **OK** — entry removed; focus moves to the Delete button
+17. Click **Delete** on a row, then **Cancel** — entry remains; focus unchanged.
+18. Click **Delete**, then **OK** — entry removed; focus moves to the Delete button
    at the same row position (or the previous row if the deleted row was last; or the
    **Entry History** heading if the table is now empty).
-10. Click **Erase all demo entries**, then **OK** — table shows "No entries yet";
+19. Click **Erase all demo entries**, then **OK** — table shows "No entries yet";
     summary shows "No entries yet" and "—" dashes.
 
 #### Storage error simulation
-11. Open DevTools → Application → Local Storage → set `wellness-tracker-demo-v1`
+20. Open DevTools → Application → Local Storage → set `wellness-tracker-demo-v1`
     to an invalid value (e.g. `not json`).
-12. Reload the page — a red error banner appears above the form; Save, Delete, and
+21. Reload the page — a red error banner appears above the form; Save, Delete, and
     Erase all are disabled; existing storage is not overwritten.
 
 #### Summary window
-13. Save 8 entries on consecutive dates.  The summary shows count = 7 and averages
+22. Save 8 entries on consecutive dates.  The summary shows count = 7 and averages
     computed from the 7 most recent dates only.
 
 #### Keyboard navigation
-14. Tab through the form — date → mood radios (then arrow keys within the group) →
+23. Tab through the form — date → mood radios (then arrow keys within the group) →
     sleep → water → Save entry.
-15. Tab into the entry table — Delete buttons are reachable.
-16. Activate a Delete button with **Space** or **Enter** — confirmation dialog
+24. Tab into the entry table — Delete buttons are reachable.
+25. Activate a Delete button with **Space** or **Enter** — confirmation dialog
     appears.
-17. All interactive elements show a visible blue focus outline when focused by
+26. All interactive elements show a visible blue focus outline when focused by
     keyboard.
 
+#### History & Trends
+27. In **Calendar**, use previous/next month across a year boundary. Select both
+    a saved date and an empty date; confirm the detail text and **Entry** marker
+    are correct.
+28. Use **Edit entry** and **Create entry** from the calendar. With a changed form,
+    cancel the discard confirmation and verify the form and selected date remain
+    unchanged. Confirm once and verify focus moves to the form.
+29. In **Charts**, switch among 7, 30, and 90 days. Verify the range ends on
+    today, a deliberately missing date creates a visible line gap, and a saved
+    zero appears as a point at the baseline rather than as a gap.
+30. Open **Show exact chart data** and navigate the table with a keyboard and a
+    screen reader. Verify it distinguishes **Missing** from zero values.
+
 #### Responsive layout
-18. Resize the browser window below 600 px — form and summary stack to a single
-    column; summary tiles reflow to two columns; entry table scrolls horizontally
-    without breaking the page layout.
+31. Resize the browser window below 600 px, including 320 CSS pixels — form,
+    calendar, and charts fit without page-level horizontal overflow; the table
+    scrolls only within its own data wrapper.
 
 ---
 
@@ -490,6 +547,10 @@ be found.  If you need to migrate data, do so before changing the key.
 - [ ] Duplicate-date submission is rejected
 - [ ] Delete removes the correct entry and restores focus correctly
 - [ ] Erase all clears the table and shows the empty state
+- [ ] Calendar month navigation and date details stay in sync with saved entries
+- [ ] Calendar Create/Edit actions preserve unsaved form changes when confirmation is cancelled
+- [ ] Charts show the selected inclusive local-calendar range, with gaps for missing dates and points for zeroes
+- [ ] Charts and calendar refresh only after successful storage writes
 - [ ] App locks and shows the error banner when localStorage contains invalid JSON
 - [ ] All form controls are reachable and operable by keyboard alone
 - [ ] Layout is usable at 320 px viewport width
