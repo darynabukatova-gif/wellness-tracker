@@ -135,6 +135,7 @@
        ═══════════════════════════════════════════════════════════ */
     #entry-form-section,
     #summary-section,
+    #history-trends-section,
     #entries-section {
       background-color: var(--colour-surface);
       border: 1px solid var(--colour-border);
@@ -144,6 +145,7 @@
 
     #entry-form-section h2,
     #summary-section h2,
+    #history-trends-section h2,
     #entries-section h2 {
       margin-bottom: var(--space-4);
     }
@@ -540,6 +542,257 @@
     }
 
     /* ═══════════════════════════════════════════════════════════
+       13b. History and Trends
+       ═══════════════════════════════════════════════════════════ */
+    .history-view-switch {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      margin-bottom: var(--space-5);
+    }
+
+    .history-view-btn {
+      padding: var(--space-2) var(--space-4);
+      background-color: transparent;
+      color: var(--colour-text-muted);
+      border: 1px solid var(--colour-border);
+    }
+
+    .history-view-btn[aria-pressed="true"] {
+      color: #ffffff;
+      background-color: var(--colour-accent);
+      border-color: var(--colour-accent);
+    }
+
+    .history-placeholder {
+      color: var(--colour-text-muted);
+      font-size: var(--font-size-sm);
+    }
+
+    .trend-period-selector {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      margin-bottom: var(--space-4);
+    }
+
+    .trend-period-btn {
+      padding: var(--space-1) var(--space-3);
+      color: var(--colour-text-muted);
+      background-color: transparent;
+      border: 1px solid var(--colour-border);
+      font-size: var(--font-size-sm);
+    }
+
+    .trend-period-btn[aria-pressed="true"] {
+      color: #ffffff;
+      background-color: var(--colour-accent);
+      border-color: var(--colour-accent);
+    }
+
+    .trend-chart-list {
+      display: grid;
+      gap: var(--space-5);
+    }
+
+    .trend-chart-card {
+      min-width: 0;
+      padding: var(--space-3);
+      background-color: var(--colour-bg);
+      border: 1px solid var(--colour-border);
+      border-radius: var(--radius-sm);
+    }
+
+    .trend-chart-card h3 {
+      margin-bottom: var(--space-2);
+      font-size: var(--font-size-base);
+    }
+
+    .trend-chart {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+    }
+
+    .trend-axis,
+    .trend-grid-line {
+      stroke: var(--colour-border);
+      stroke-width: 1;
+    }
+
+    .trend-line {
+      fill: none;
+      stroke: var(--colour-accent);
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .trend-point {
+      fill: var(--colour-accent);
+    }
+
+    .trend-axis-label {
+      fill: var(--colour-text-muted);
+      font-family: var(--font-family);
+      font-size: 10px;
+    }
+
+    .trend-empty-label {
+      fill: var(--colour-text-muted);
+      font-family: var(--font-family);
+      font-size: 12px;
+      text-anchor: middle;
+    }
+
+    .trend-data-details {
+      margin-top: var(--space-5);
+      color: var(--colour-text-muted);
+      font-size: var(--font-size-sm);
+    }
+
+    .trend-data-details summary {
+      width: fit-content;
+      cursor: pointer;
+      color: var(--colour-accent);
+      font-weight: 600;
+    }
+
+    .trend-data-table-wrap {
+      max-width: 100%;
+      margin-top: var(--space-3);
+      overflow-x: auto;
+    }
+
+    .trend-data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .trend-data-table th,
+    .trend-data-table td {
+      padding: var(--space-2);
+      text-align: left;
+      border-bottom: 1px solid var(--colour-border);
+      white-space: nowrap;
+    }
+
+    .trend-data-table th {
+      color: var(--colour-text-muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+    }
+
+    .calendar-header {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: var(--space-2);
+      margin-bottom: var(--space-3);
+    }
+
+    .calendar-header h3 {
+      font-size: var(--font-size-base);
+      text-align: center;
+    }
+
+    .calendar-nav-btn {
+      min-width: 2.5rem;
+      padding: var(--space-2);
+      background-color: transparent;
+      color: var(--colour-accent);
+      border: 1px solid var(--colour-accent);
+    }
+
+    .calendar-weekdays,
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: var(--space-1);
+      width: 100%;
+    }
+
+    .calendar-weekdays {
+      margin-bottom: var(--space-1);
+    }
+
+    .calendar-weekdays span {
+      overflow: hidden;
+      color: var(--colour-text-muted);
+      font-size: 0.6875rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-align: center;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .calendar-day-blank {
+      min-height: 3.5rem;
+    }
+
+    .calendar-day {
+      min-width: 0;
+      min-height: 3.5rem;
+      padding: var(--space-1);
+      flex-direction: column;
+      gap: 0;
+      background-color: var(--colour-surface);
+      color: var(--colour-text);
+      border: 1px solid var(--colour-border);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .calendar-day:not(:disabled):hover {
+      border-color: var(--colour-accent);
+      background-color: var(--colour-radio-selected-bg);
+    }
+
+    .calendar-day.has-entry {
+      border-width: 2px;
+      border-color: var(--colour-accent);
+    }
+
+    .calendar-day.is-selected {
+      color: #ffffff;
+      background-color: var(--colour-accent-dark);
+      border-color: var(--colour-accent-dark);
+    }
+
+    .calendar-day-number {
+      font-size: var(--font-size-sm);
+      font-weight: 700;
+    }
+
+    .calendar-entry-label {
+      font-size: 0.625rem;
+      font-weight: 500;
+      line-height: 1.1;
+    }
+
+    .calendar-details {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2);
+      min-height: 3rem;
+      margin-top: var(--space-4);
+      padding: var(--space-3);
+      color: var(--colour-text-muted);
+      background-color: var(--colour-bg);
+      border: 1px solid var(--colour-border);
+      border-radius: var(--radius-sm);
+      font-size: var(--font-size-sm);
+    }
+
+    .calendar-detail-action {
+      padding: var(--space-1) var(--space-3);
+      font-size: var(--font-size-sm);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
        14. Entry table
        ═══════════════════════════════════════════════════════════ */
     #entries-container table {
@@ -635,6 +888,7 @@
 
       #entry-form-section,
       #summary-section,
+      #history-trends-section,
       #entries-section {
         padding: var(--space-4);
       }
@@ -670,6 +924,11 @@
       .entries-header {
         flex-direction: column;
         align-items: flex-start;
+      }
+
+      .calendar-day,
+      .calendar-day-blank {
+        min-height: 3.125rem;
       }
     }
   </style>
@@ -905,6 +1164,148 @@
       const m   = String(d.getMonth() + 1).padStart(2, '0');
       const day = String(d.getDate()).padStart(2, '0');
       return y + '-' + m + '-' + day;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       HISTORY & TRENDS DATA HELPERS
+       (Pure local-calendar calculations; no DOM or persistence access.)
+       ═══════════════════════════════════════════════════════════════ */
+
+    /**
+     * localCalendarDate(dateKey)
+     *
+     * Parses a YYYY-MM-DD key as a local calendar date at noon. A bare
+     * `new Date('YYYY-MM-DD')` is deliberately avoided because JavaScript
+     * interprets that form as UTC. Noon also avoids normal daylight-saving
+     * changes that can make a local midnight ambiguous.
+     *
+     * @param  {string} dateKey
+     * @returns {Date} Local Date object representing local noon on dateKey.
+     * @throws {RangeError} When dateKey is not a real YYYY-MM-DD date.
+     */
+    function localCalendarDate(dateKey) {
+      if (typeof dateKey !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+        throw new RangeError('Date must use YYYY-MM-DD format.');
+      }
+
+      const year = Number(dateKey.slice(0, 4));
+      const monthIndex = Number(dateKey.slice(5, 7)) - 1;
+      const day = Number(dateKey.slice(8, 10));
+      const date = new Date(0);
+      date.setHours(12, 0, 0, 0);
+      // setFullYear avoids Date's special 1900 offset for years 0–99.
+      date.setFullYear(year, monthIndex, day);
+
+      if (date.getFullYear() !== year || date.getMonth() !== monthIndex || date.getDate() !== day) {
+        throw new RangeError('Date must be a real calendar date.');
+      }
+      return date;
+    }
+
+    /**
+     * addCalendarDays(dateKey, offset)
+     *
+     * Returns the local calendar date `offset` days from dateKey. The input
+     * string is never modified, and Date#setDate handles month/year rollover.
+     *
+     * @param  {string} dateKey YYYY-MM-DD local calendar date.
+     * @param  {number} offset  Whole number of calendar days, positive or negative.
+     * @returns {string} YYYY-MM-DD local calendar date.
+     */
+    function addCalendarDays(dateKey, offset) {
+      if (!Number.isInteger(offset)) {
+        throw new RangeError('Calendar-day offset must be an integer.');
+      }
+      const date = localCalendarDate(dateKey);
+      date.setDate(date.getDate() + offset);
+      return localDateString(date);
+    }
+
+    /**
+     * buildTrendSeries(entries, metric, dayCount, endDate)
+     *
+     * Builds an inclusive, chronological calendar-day series ending on
+     * endDate. Missing entries deliberately become null rather than zero so
+     * a chart can render a visible gap. Stored zero values remain zero.
+     *
+     * @param  {Array}  entries  Valid Wellness Tracker entries (not modified).
+     * @param  {string} metric   One of mood, sleep, or water.
+     * @param  {number} dayCount One of 7, 30, or 90.
+     * @param  {string} endDate  Inclusive YYYY-MM-DD end date.
+     * @returns {{ metric: string, dayCount: number, startDate: string,
+     *             endDate: string, points: Array<{date: string, value: number|null}> }}
+     */
+    function buildTrendSeries(entries, metric, dayCount, endDate) {
+      const allowedMetrics = ['mood', 'sleep', 'water'];
+      const allowedDayCounts = [7, 30, 90];
+      if (allowedMetrics.indexOf(metric) === -1) {
+        throw new RangeError('Unsupported trend metric.');
+      }
+      if (allowedDayCounts.indexOf(dayCount) === -1) {
+        throw new RangeError('Trend day count must be 7, 30, or 90.');
+      }
+
+      // Validate the end date before calculating the range.
+      localCalendarDate(endDate);
+      const entriesByDate = new Map();
+      entries.forEach(function (entry) {
+        entriesByDate.set(entry.date, entry);
+      });
+
+      const startDate = addCalendarDays(endDate, 1 - dayCount);
+      const points = [];
+      for (let offset = 0; offset < dayCount; offset++) {
+        const date = addCalendarDays(startDate, offset);
+        const entry = entriesByDate.get(date);
+        points.push({
+          date,
+          value: entry ? entry[metric] : null,
+        });
+      }
+
+      return { metric, dayCount, startDate, endDate, points };
+    }
+
+    /**
+     * buildCalendarMonth(entries, year, monthIndex)
+     *
+     * Returns local-calendar information for every date in one month. Monday
+     * has weekdayOffset 0 and Sunday has weekdayOffset 6. Each day retains a
+     * reference to its matching entry, if one exists, without changing the
+     * entries array or any entry object.
+     *
+     * @param  {Array} entries    Valid Wellness Tracker entries (not modified).
+     * @param  {number} year      Four-digit calendar year.
+     * @param  {number} monthIndex JavaScript month index, 0 (January) to 11.
+     * @returns {{ year: number, monthIndex: number, weekdayOffset: number,
+     *             days: Array<{day: number, date: string, hasEntry: boolean, entry: Object|null}> }}
+     */
+    function buildCalendarMonth(entries, year, monthIndex) {
+      if (!Number.isInteger(year) || !Number.isInteger(monthIndex) ||
+          monthIndex < 0 || monthIndex > 11) {
+        throw new RangeError('Calendar month requires an integer year and month index from 0 to 11.');
+      }
+
+      const firstDate = new Date(0);
+      firstDate.setHours(12, 0, 0, 0);
+      firstDate.setFullYear(year, monthIndex, 1);
+      const lastDate = new Date(firstDate);
+      lastDate.setMonth(lastDate.getMonth() + 1, 0);
+      const daysInMonth = lastDate.getDate();
+      const weekdayOffset = (firstDate.getDay() + 6) % 7;
+      const entriesByDate = new Map();
+      entries.forEach(function (entry) {
+        entriesByDate.set(entry.date, entry);
+      });
+
+      const days = [];
+      for (let day = 1; day <= daysInMonth; day++) {
+        const date = addCalendarDays(localDateString(firstDate), day - 1);
+        const entry = entriesByDate.get(date) || null;
+        days.push({ date, day, hasEntry: entry !== null, entry });
+      }
+
+      return { year, monthIndex, weekdayOffset, days };
     }
 
     /* ═══════════════════════════════════════════════════════════════
@@ -1298,6 +1699,11 @@
     let storageAdapter = null;
     let busy = false;
     let listenersAttached = false;
+    let historyView = 'calendar';
+    let calendarYear = null;
+    let calendarMonthIndex = null;
+    let selectedCalendarDate = null;
+    let trendDayCount = 30;
 
     function getStorageAdapter() {
       if (window.wellnessStorage &&
@@ -1340,6 +1746,8 @@
         radio.disabled = disabled;
       });
       document.querySelectorAll('#entries-container .btn-edit, #entries-container .btn-delete')
+        .forEach(function (button) { button.disabled = disabled; });
+      document.querySelectorAll('#calendar-details .calendar-detail-action')
         .forEach(function (button) { button.disabled = disabled; });
       if (!disabled) {
         updateSleepControl();
@@ -1558,17 +1966,431 @@
       btn.disabled = busy || locked || entries.length === 0;
     }
 
-    /* ── Render helpers (thin wrappers that also update Erase-all) ── */
+    /* ── History and Trends ──────────────────────────────────────── */
+
+    const TREND_CONFIGS = [
+      { metric: 'mood', title: 'Mood', min: 1, max: 5, unit: '' },
+      { metric: 'sleep', title: 'Sleep', min: 0, max: 24, unit: 'h' },
+      { metric: 'water', title: 'Water', min: 0, max: 3, unit: 'L' },
+    ];
+    const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+
+    function createSvgElement(name, attributes) {
+      const element = document.createElementNS(SVG_NAMESPACE, name);
+      Object.keys(attributes || {}).forEach(function (name) {
+        element.setAttribute(name, attributes[name]);
+      });
+      return element;
+    }
+
+    function formatTrendDate(dateKey) {
+      const date = new Date(0);
+      date.setHours(12, 0, 0, 0);
+      date.setFullYear(
+        Number(dateKey.slice(0, 4)),
+        Number(dateKey.slice(5, 7)) - 1,
+        Number(dateKey.slice(8, 10))
+      );
+      return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(date);
+    }
+
+    function formatTrendValue(value, unit) {
+      if (value === null) return '— Missing';
+      return String(value) + (unit ? ' ' + unit : '');
+    }
+
+    function renderTrendChart(container, config, series) {
+      const card = document.createElement('section');
+      card.className = 'trend-chart-card';
+      card.dataset.metric = config.metric;
+
+      const heading = document.createElement('h3');
+      heading.textContent = config.title + (config.unit ? ' (' + config.unit + ')' : ' (1–5)');
+      card.appendChild(heading);
+
+      const svg = createSvgElement('svg', {
+        class: 'trend-chart',
+        viewBox: '0 0 320 180',
+        role: 'img',
+        'aria-labelledby': 'trend-' + config.metric + '-title trend-' + config.metric + '-description',
+        'data-metric': config.metric,
+      });
+      const title = createSvgElement('title', { id: 'trend-' + config.metric + '-title' });
+      title.textContent = config.title + ' trend';
+      svg.appendChild(title);
+      const description = createSvgElement('desc', { id: 'trend-' + config.metric + '-description' });
+      const populatedPoints = series.points.filter(function (point) { return point.value !== null; });
+      description.textContent = populatedPoints.length === 0
+        ? 'No recorded ' + config.title.toLowerCase() + ' values from ' + series.startDate +
+          ' to ' + series.endDate + '.'
+        : config.title + ' values from ' + series.startDate + ' to ' + series.endDate +
+          '. Missing dates are shown as gaps.';
+      svg.appendChild(description);
+
+      const left = 38;
+      const top = 18;
+      const width = 266;
+      const height = 118;
+      const bottom = top + height;
+      const xFor = function (index) {
+        return left + (index / (series.points.length - 1)) * width;
+      };
+      const yFor = function (value) {
+        return top + ((config.max - value) / (config.max - config.min)) * height;
+      };
+
+      [config.max, config.min].forEach(function (value) {
+        const y = yFor(value);
+        svg.appendChild(createSvgElement('line', {
+          class: 'trend-grid-line', x1: left, y1: y, x2: left + width, y2: y,
+        }));
+        const label = createSvgElement('text', {
+          class: 'trend-axis-label', x: left - 5, y: y + 3, 'text-anchor': 'end',
+        });
+        label.textContent = String(value) + (config.unit ? ' ' + config.unit : '');
+        svg.appendChild(label);
+      });
+      svg.appendChild(createSvgElement('line', {
+        class: 'trend-axis', x1: left, y1: top, x2: left, y2: bottom,
+      }));
+      svg.appendChild(createSvgElement('line', {
+        class: 'trend-axis', x1: left, y1: bottom, x2: left + width, y2: bottom,
+      }));
+
+      const labelIndexes = [0, Math.floor((series.points.length - 1) / 2), series.points.length - 1];
+      labelIndexes.filter(function (index, position, all) {
+        return all.indexOf(index) === position;
+      }).forEach(function (index) {
+        const label = createSvgElement('text', {
+          class: 'trend-axis-label', x: xFor(index), y: bottom + 17, 'text-anchor': 'middle',
+        });
+        label.textContent = formatTrendDate(series.points[index].date);
+        svg.appendChild(label);
+      });
+
+      if (populatedPoints.length === 0) {
+        const emptyLabel = createSvgElement('text', {
+          class: 'trend-empty-label', x: left + width / 2, y: top + height / 2,
+        });
+        emptyLabel.textContent = 'No recorded values in this period';
+        svg.appendChild(emptyLabel);
+      } else {
+        let segment = [];
+        const appendSegment = function () {
+          if (segment.length > 1) {
+            const path = createSvgElement('path', {
+              class: 'trend-line',
+              d: segment.map(function (point, index) {
+                return (index === 0 ? 'M ' : 'L ') + xFor(point.index) + ' ' + yFor(point.value);
+              }).join(' '),
+              'data-trend-segment': String(segment.length),
+            });
+            svg.appendChild(path);
+          }
+          segment = [];
+        };
+
+        series.points.forEach(function (point, index) {
+          if (point.value === null) {
+            appendSegment();
+            return;
+          }
+          segment.push({ index, value: point.value });
+        });
+        appendSegment();
+
+        series.points.forEach(function (point, index) {
+          if (point.value === null) return;
+          svg.appendChild(createSvgElement('circle', {
+            class: 'trend-point',
+            cx: xFor(index), cy: yFor(point.value), r: 3,
+            'data-date': point.date, 'data-value': point.value,
+          }));
+        });
+      }
+
+      card.appendChild(svg);
+      container.appendChild(card);
+    }
+
+    function renderTrendDataTable(seriesByMetric) {
+      const container = document.getElementById('trend-data-table-container');
+      container.replaceChildren();
+      const table = document.createElement('table');
+      table.className = 'trend-data-table';
+      const caption = document.createElement('caption');
+      caption.textContent = 'Exact daily values. “Missing” means no entry was saved for that date.';
+      table.appendChild(caption);
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      ['Date', 'Mood', 'Sleep (h)', 'Water (L)'].forEach(function (label) {
+        const heading = document.createElement('th');
+        heading.setAttribute('scope', 'col');
+        heading.textContent = label;
+        headerRow.appendChild(heading);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      seriesByMetric.mood.points.forEach(function (moodPoint, index) {
+        const row = document.createElement('tr');
+        const date = document.createElement('td');
+        date.textContent = moodPoint.date;
+        row.appendChild(date);
+        [
+          [moodPoint.value, ''],
+          [seriesByMetric.sleep.points[index].value, 'h'],
+          [seriesByMetric.water.points[index].value, 'L'],
+        ].forEach(function (valueAndUnit) {
+          const cell = document.createElement('td');
+          cell.textContent = formatTrendValue(valueAndUnit[0], valueAndUnit[1]);
+          row.appendChild(cell);
+        });
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      container.appendChild(table);
+    }
+
+    function renderCharts() {
+      const chartList = document.getElementById('trend-chart-list');
+      chartList.replaceChildren();
+      const endDate = localDateString(new Date());
+      const seriesByMetric = {};
+      TREND_CONFIGS.forEach(function (config) {
+        const series = buildTrendSeries(entries, config.metric, trendDayCount, endDate);
+        seriesByMetric[config.metric] = series;
+        renderTrendChart(chartList, config, series);
+      });
+      document.querySelectorAll('.trend-period-btn').forEach(function (button) {
+        button.setAttribute('aria-pressed', String(Number(button.dataset.trendDays) === trendDayCount));
+      });
+      renderTrendDataTable(seriesByMetric);
+    }
+
+    function setTrendDayCount(dayCount) {
+      if ([7, 30, 90].indexOf(dayCount) === -1) return;
+      trendDayCount = dayCount;
+      renderCharts();
+    }
+
+    /* ── Calendar ────────────────────────────────────────────────── */
+
+    function ensureCalendarMonth() {
+      if (calendarYear !== null && calendarMonthIndex !== null) return;
+      const today = new Date();
+      calendarYear = today.getFullYear();
+      calendarMonthIndex = today.getMonth();
+    }
+
+    function formatCalendarMonth(year, monthIndex) {
+      const date = new Date(0);
+      date.setHours(12, 0, 0, 0);
+      date.setFullYear(year, monthIndex, 1);
+      return new Intl.DateTimeFormat('en', {
+        month: 'long',
+        year: 'numeric',
+      }).format(date);
+    }
+
+    function formatCalendarDate(dateKey) {
+      const date = new Date(0);
+      date.setHours(12, 0, 0, 0);
+      date.setFullYear(
+        Number(dateKey.slice(0, 4)),
+        Number(dateKey.slice(5, 7)) - 1,
+        Number(dateKey.slice(8, 10))
+      );
+      return new Intl.DateTimeFormat('en', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      }).format(date);
+    }
+
+    function calendarMonthKey(year, monthIndex) {
+      return String(year).padStart(4, '0') + '-' + String(monthIndex + 1).padStart(2, '0');
+    }
+
+    function renderCalendarDetails() {
+      const details = document.getElementById('calendar-details');
+      details.replaceChildren();
+      if (!selectedCalendarDate) {
+        details.textContent = 'Select a date to view its saved entry.';
+        return;
+      }
+
+      const entry = entries.find(function (candidate) {
+        return candidate.date === selectedCalendarDate;
+      });
+      const readableDate = formatCalendarDate(selectedCalendarDate);
+      if (!entry) {
+        details.textContent = 'No entry recorded for ' + readableDate + '.';
+      } else {
+        details.textContent = 'Entry for ' + readableDate + ': Mood ' + entry.mood +
+          ', Sleep ' + entry.sleep + ' h, Water ' + entry.water + ' L.';
+      }
+
+      const actionButton = document.createElement('button');
+      actionButton.type = 'button';
+      actionButton.className = 'calendar-detail-action ' + (entry ? 'btn-primary' : 'btn-neutral');
+      actionButton.dataset.calendarAction = entry ? 'edit' : 'create';
+      actionButton.dataset.calendarDate = selectedCalendarDate;
+      actionButton.textContent = entry ? 'Edit entry' : 'Create entry';
+      actionButton.setAttribute(
+        'aria-label',
+        (entry ? 'Edit entry for ' : 'Create entry for ') + readableDate
+      );
+      actionButton.disabled = busy || locked;
+      details.appendChild(actionButton);
+    }
+
+    function renderCalendar(announceMonth) {
+      ensureCalendarMonth();
+      const month = buildCalendarMonth(entries, calendarYear, calendarMonthIndex);
+      const monthKey = calendarMonthKey(calendarYear, calendarMonthIndex);
+      if (selectedCalendarDate && selectedCalendarDate.slice(0, 7) !== monthKey) {
+        selectedCalendarDate = null;
+      }
+
+      document.getElementById('calendar-month-heading').textContent =
+        formatCalendarMonth(calendarYear, calendarMonthIndex);
+      document.getElementById('calendar-month-status').textContent = announceMonth
+        ? 'Showing ' + formatCalendarMonth(calendarYear, calendarMonthIndex) + '.'
+        : '';
+
+      const grid = document.getElementById('calendar-grid');
+      grid.replaceChildren();
+      for (let blank = 0; blank < month.weekdayOffset; blank++) {
+        const blankCell = document.createElement('div');
+        blankCell.className = 'calendar-day-blank';
+        blankCell.setAttribute('aria-hidden', 'true');
+        grid.appendChild(blankCell);
+      }
+
+      month.days.forEach(function (day) {
+        const dateButton = document.createElement('button');
+        const isSelected = day.date === selectedCalendarDate;
+        dateButton.type = 'button';
+        dateButton.className = 'calendar-day' +
+          (day.hasEntry ? ' has-entry' : '') +
+          (isSelected ? ' is-selected' : '');
+        dateButton.dataset.calendarDate = day.date;
+        dateButton.setAttribute('aria-pressed', String(isSelected));
+        dateButton.setAttribute(
+          'aria-label',
+          formatCalendarDate(day.date) + (day.hasEntry ? ', entry recorded' : ', no entry recorded')
+        );
+
+        const number = document.createElement('span');
+        number.className = 'calendar-day-number';
+        number.textContent = day.day;
+        dateButton.appendChild(number);
+        if (day.hasEntry) {
+          const entryLabel = document.createElement('span');
+          entryLabel.className = 'calendar-entry-label';
+          entryLabel.textContent = 'Entry';
+          dateButton.appendChild(entryLabel);
+        }
+        grid.appendChild(dateButton);
+      });
+
+      renderCalendarDetails();
+    }
+
+    function renderHistoryTrends() {
+      const chartsPanel = document.getElementById('history-charts-panel');
+      const calendarPanel = document.getElementById('history-calendar-panel');
+      const chartsButton = document.getElementById('history-view-charts');
+      const calendarButton = document.getElementById('history-view-calendar');
+      const calendarVisible = historyView === 'calendar';
+
+      chartsPanel.hidden = calendarVisible;
+      calendarPanel.hidden = !calendarVisible;
+      chartsButton.setAttribute('aria-pressed', String(!calendarVisible));
+      calendarButton.setAttribute('aria-pressed', String(calendarVisible));
+      renderCharts();
+      renderCalendar(false);
+    }
+
+    function setHistoryView(view) {
+      if (view !== 'charts' && view !== 'calendar') return;
+      historyView = view;
+      renderHistoryTrends();
+    }
+
+    function changeCalendarMonth(offset) {
+      if (!Number.isInteger(offset) || offset === 0) return;
+      ensureCalendarMonth();
+      calendarMonthIndex += offset;
+      while (calendarMonthIndex < 0) {
+        calendarMonthIndex += 12;
+        calendarYear -= 1;
+      }
+      while (calendarMonthIndex > 11) {
+        calendarMonthIndex -= 12;
+        calendarYear += 1;
+      }
+      selectedCalendarDate = null;
+      renderCalendar(true);
+    }
+
+    function handleHistoryTrendsClick(event) {
+      const viewButton = event.target.closest('.history-view-btn');
+      if (viewButton) {
+        setHistoryView(viewButton.dataset.historyView);
+        return;
+      }
+
+      const periodButton = event.target.closest('.trend-period-btn');
+      if (periodButton) {
+        setTrendDayCount(Number(periodButton.dataset.trendDays));
+        return;
+      }
+
+      const previousButton = event.target.closest('#calendar-prev-btn');
+      if (previousButton) {
+        changeCalendarMonth(-1);
+        return;
+      }
+
+      const nextButton = event.target.closest('#calendar-next-btn');
+      if (nextButton) {
+        changeCalendarMonth(1);
+        return;
+      }
+
+      const actionButton = event.target.closest('.calendar-detail-action');
+      if (actionButton) {
+        if (busy || locked) return;
+        const date = actionButton.dataset.calendarDate;
+        if (!date) return;
+        const changed = actionButton.dataset.calendarAction === 'edit'
+          ? enterEditMode(date)
+          : enterNewEntryModeForDate(date);
+        if (changed) focusEntryFormAfterCalendarAction();
+        return;
+      }
+
+      const dateButton = event.target.closest('.calendar-day');
+      if (!dateButton || !dateButton.dataset.calendarDate) return;
+      selectedCalendarDate = dateButton.dataset.calendarDate;
+      renderCalendar(false);
+    }
+
+    /* ── Render helpers (thin wrappers that also update the views) ── */
 
     /**
      * render()
      *
-     * Re-renders both the summary panel and the entry table, then updates
-     * the Erase-all button state.  Calling a single function keeps all
-     * three DOM updates synchronised.
+     * Re-renders the summary, History & Trends views, and entry table, then
+     * updates the Erase-all button state. Calling a single function keeps all
+     * derived views synchronised after successful storage writes.
      */
     function render() {
       renderSummary(entries);
+      renderHistoryTrends();
       renderTable(entries);
       updateEraseAllBtn();
       if (locked) {
@@ -1579,17 +2401,57 @@
       updateMutatingControls();
     }
 
+    function hasUnsavedFormChanges() {
+      const date = document.getElementById('entry-date').value;
+      const mood = document.querySelector('input[name="mood"]:checked');
+      const sleep = document.getElementById('entry-sleep').value;
+      const water = document.getElementById('entry-water').value;
+
+      if (editingDate === null) {
+        return date !== localDateString(new Date()) || Boolean(mood) ||
+          sleepSelected || waterSelected;
+      }
+
+      const original = entries.find(function (entry) {
+        return entry.date === editingDate;
+      });
+      if (!original) return true;
+      return date !== original.date || !mood || Number(mood.value) !== original.mood ||
+        !sleepSelected || !waterSelected || Number(sleep) !== original.sleep ||
+        Number(water) !== original.water;
+    }
+
+    function confirmDiscardUnsavedFormChanges() {
+      return !hasUnsavedFormChanges() || window.confirm(
+        'Discard unsaved form changes and continue?'
+      );
+    }
+
+    function focusEntryFormAfterCalendarAction() {
+      const formSection = document.getElementById('entry-form-section');
+      if (formSection && typeof formSection.scrollIntoView === 'function') {
+        formSection.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      }
+      const mood = document.querySelector('input[name="mood"]');
+      if (mood && !mood.disabled) mood.focus();
+    }
+
+    function enterNewEntryModeForDate(date) {
+      if (!confirmDiscardUnsavedFormChanges()) return false;
+      exitEditMode();
+      document.getElementById('entry-date').value = date;
+      return true;
+    }
+
     function enterEditMode(date) {
       const entry = entries.find(function (candidate) {
         return candidate.date === date;
       });
-      if (!entry) return;
+      if (!entry) return false;
 
-      if (editingDate !== null && editingDate !== date) {
-        const confirmed = window.confirm(
-          'Discard unsaved changes and edit entry for ' + date + '?'
-        );
-        if (!confirmed) return;
+      if (editingDate === date) return true;
+      if (!confirmDiscardUnsavedFormChanges()) {
+        return false;
       }
 
       editingDate = date;
@@ -1604,6 +2466,7 @@
       document.getElementById('cancel-edit-btn').hidden = false;
       clearFormError();
       document.querySelector('input[name="mood"]').focus();
+      return true;
     }
 
     function exitEditMode() {
@@ -1699,6 +2562,9 @@
 
       document.getElementById('entries-container')
         .addEventListener('click', handleTableClick);
+
+      document.getElementById('history-trends-section')
+        .addEventListener('click', handleHistoryTrendsClick);
 
       document.getElementById('erase-all-btn')
         .addEventListener('click', handleEraseAll);
@@ -2168,6 +3034,57 @@
           <dd id="stat-water">—</dd>
         </div>
       </dl>
+    </section>
+
+    <!-- ── History and Trends ─────────────────────────────────────── -->
+    <section id="history-trends-section" aria-labelledby="history-trends-heading">
+      <h2 id="history-trends-heading">History &amp; Trends</h2>
+      <div class="history-view-switch" role="group" aria-label="History and Trends view">
+        <button
+          type="button"
+          id="history-view-charts"
+          class="history-view-btn"
+          data-history-view="charts"
+          aria-pressed="false"
+          aria-controls="history-charts-panel"
+        >Charts</button>
+        <button
+          type="button"
+          id="history-view-calendar"
+          class="history-view-btn"
+          data-history-view="calendar"
+          aria-pressed="true"
+          aria-controls="history-calendar-panel"
+        >Calendar</button>
+      </div>
+
+      <div id="history-charts-panel" hidden>
+        <div class="trend-period-selector" role="group" aria-label="Chart period">
+          <button type="button" class="trend-period-btn" data-trend-days="7" aria-pressed="false">7 days</button>
+          <button type="button" class="trend-period-btn" data-trend-days="30" aria-pressed="true">30 days</button>
+          <button type="button" class="trend-period-btn" data-trend-days="90" aria-pressed="false">90 days</button>
+        </div>
+        <p class="history-placeholder">Calendar days ending today. Missing dates appear as gaps.</p>
+        <div id="trend-chart-list" class="trend-chart-list"></div>
+        <details class="trend-data-details">
+          <summary>Show exact chart data</summary>
+          <div id="trend-data-table-container" class="trend-data-table-wrap"></div>
+        </details>
+      </div>
+
+      <div id="history-calendar-panel">
+        <div class="calendar-header">
+          <button type="button" id="calendar-prev-btn" class="calendar-nav-btn" aria-label="Show previous month">‹</button>
+          <h3 id="calendar-month-heading" aria-live="off"></h3>
+          <button type="button" id="calendar-next-btn" class="calendar-nav-btn" aria-label="Show next month">›</button>
+        </div>
+        <p id="calendar-month-status" class="sr-only" aria-live="polite"></p>
+        <div class="calendar-weekdays" aria-hidden="true">
+          <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+        </div>
+        <div id="calendar-grid" class="calendar-grid" aria-label="Monthly wellness calendar"></div>
+        <div id="calendar-details" class="calendar-details" aria-live="polite"></div>
+      </div>
     </section>
 
     <!-- ── Entry history ───────────────────────────────────────── -->
