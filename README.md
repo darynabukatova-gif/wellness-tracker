@@ -1,8 +1,9 @@
 # Wellness Tracker
 
-A minimal, single-file web application for recording daily wellness data.
-Built as a learning project using plain HTML, embedded CSS, and vanilla JavaScript —
-no frameworks, no build tools, no server required.
+A browser application and Linux Electron desktop application for recording daily
+wellness data. The renderer remains a single `index.html` file built with plain
+HTML, embedded CSS, and vanilla JavaScript; Electron and electron-builder provide
+the optional desktop shell and AppImage packaging.
 
 > **Demo only: use fictional data. Not for medical use.**
 
@@ -34,7 +35,8 @@ no frameworks, no build tools, no server required.
 | **Delete an entry** | Remove any row with a confirmation prompt |
 | **Erase all** | Remove every entry with a confirmation prompt |
 | **7-entry summary** | Rolling averages for mood, sleep, and water across the seven most recent entries |
-| **Persistence** | Entries survive page reloads via `localStorage` |
+| **Persistence** | Browser entries use `localStorage`; Electron entries use a JSON file in the app data directory |
+| **Offline desktop app** | The Electron version runs locally without a network connection |
 | **Responsive layout** | Usable at desktop widths and at narrow mobile viewports (≥ 320 px) |
 | **Keyboard accessible** | All controls reachable and operable by keyboard alone |
 
@@ -52,17 +54,19 @@ no frameworks, no build tools, no server required.
 
 ## Technology and architecture
 
-The entire application lives in a single file — **`index.html`** — which contains
-three sections: an embedded `<style>` block, an embedded `<script>` block for
-storage operations, data processing, and validation functions, and a second
-`<script>` block for event handlers and initialisation.
+The shared renderer lives in **`index.html`**. It contains an embedded `<style>`
+block, an embedded `<script>` block for browser storage, data processing, and
+validation functions, and a second `<script>` block for event handlers and
+initialisation. The Electron desktop shell is deliberately small: its main
+process, restricted preload bridge, and JSON-file storage backend live under
+`electron/`.
 
-### No external dependencies
+### Dependencies
 
 - No JavaScript frameworks or libraries
 - No CSS frameworks
-- No build steps or package manager
-- No backend, accounts, or network calls
+- Electron and electron-builder are development dependencies
+- No backend, accounts, or network calls are required at runtime
 - No cookies
 
 ### Code organisation
@@ -71,12 +75,10 @@ The JavaScript is split into clearly separated layers.  Each layer has a single
 responsibility and does not reach into another layer's domain.
 
 ```
-localStorage
-    │
-    ▼
-loadEntries() / saveEntries()          ← storage operations (read/write localStorage)
-    │
-    ▼
+Browser localStorage ─┐
+                      ├─ async storage adapter ─→ entry arrays
+Electron IPC/JSON ────┘                              │
+                                                     ▼
 sortByDateDesc() / calcSummary()       ← pure data processing (no DOM, no storage)
 localDateString() / isValidStep()      ← pure helpers
 isValidEntryShape() / validateStoredEntries() / validateEntry()  ← pure validation
@@ -93,9 +95,9 @@ handleFormSubmit() / handleTableClick() / handleEraseAll() / init()
 
 **Page load**
 1. `init()` sets the date input to today's local date.
-2. `loadEntries()` reads `localStorage`; returns `[]` (first visit), an array
-   (returning visit), or `null` (read / parse failure).
-3. On `null` or integrity failure: the app locks — Save, Delete, and Erase all are
+2. The asynchronous storage adapter loads browser `localStorage` or Electron's
+   `entries.json`. A missing Electron file starts as an empty dataset.
+3. On a read, parse, or integrity failure: the app locks — Save, Delete, and Erase all are
    disabled — and a prominent error banner is shown above the form.
 4. On success: `render()` populates the summary panel and entry table.
 
@@ -103,7 +105,7 @@ handleFormSubmit() / handleTableClick() / handleEraseAll() / init()
 1. `validateEntry()` checks all four fields.  On error the relevant field receives
    focus and the message appears inline.
 2. A candidate array is built with `entries.concat([newEntry])`.
-3. `saveEntries()` writes to `localStorage` **before** the in-memory state is
+3. The storage adapter writes **before** the in-memory state is
    updated.  If the write fails the existing state is preserved.
 4. On success: state updated, form reset, summary and table re-rendered.
 
@@ -117,7 +119,7 @@ handleFormSubmit() / handleTableClick() / handleEraseAll() / init()
 **Deleting an entry**
 1. `window.confirm()` asks for confirmation.
 2. `entries.filter()` builds the candidate array without mutating `entries`.
-3. `saveEntries()` writes first.  On failure, state is unchanged.
+3. The storage adapter writes first.  On failure, state is unchanged.
 4. On success: focus is restored to the Delete button at the same row position
    (or the previous row, or the Entry History heading if the table is now empty).
 
@@ -131,10 +133,23 @@ of the `<style>` block — no other selectors need changing.
 
 ## How to run
 
-1. Download or clone this repository so that `index.html` is on your local machine.
-2. Open `index.html` in any modern browser (Chrome 105+, Firefox 121+, Safari 15.4+,
+1. Download or clone this repository.
+2. Install the Electron development dependency:
+
+```bash
+npm install
+```
+
+3. To use the browser version, open `index.html` in any modern browser (Chrome 105+, Firefox 121+, Safari 15.4+,
    Edge 105+).
-3. No installation, build step, or internet connection is required.
+4. To run the Electron desktop version from source on Linux:
+
+```bash
+npm start
+```
+
+The desktop application is self-contained and works offline after dependencies
+have been installed.
 
 ```
 # macOS
@@ -148,6 +163,66 @@ start index.html
 ```
 
 Or drag the file into an open browser window.
+
+### Build a Linux AppImage
+
+Build the x86_64 Linux package with:
+
+```bash
+npm run dist
+```
+
+The generated AppImage is written to `dist/`, using a name similar to
+`Wellness Tracker-1.0.0.AppImage`. Make it executable and launch it:
+
+```bash
+chmod +x "dist/Wellness Tracker-1.0.0.AppImage"
+"dist/Wellness Tracker-1.0.0.AppImage"
+```
+
+Running from source uses `npm start`; running the AppImage does not require
+Node.js or the repository checkout. The AppImage needs a compatible x86_64
+Linux system with glibc 2.25 or later (Ubuntu 20.04 provides glibc 2.31) and FUSE 2 support
+(`libfuse2` on Ubuntu) to mount the image. The AppImage uses the custom
+512×512 Linux icon at `assets/wellness-tracker-512.png`.
+
+### Install the Ubuntu desktop launcher
+
+After building the AppImage, install it for the current user and add its desktop
+launcher with:
+
+```bash
+./scripts/install-linux.sh
+```
+
+The script does not use `sudo`. It installs the AppImage as
+`~/Applications/WellnessTracker.AppImage`, copies the icon into
+`~/.local/share/icons/`, and creates
+`~/.local/share/applications/wellness-tracker.desktop`. The generated launcher
+uses absolute paths and sets `StartupWMClass=wellness-tracker` so Ubuntu can
+associate the launcher with the application window.
+
+After rebuilding with `npm run dist`, rerun the same script to refresh the
+installed AppImage, icon, and launcher. It replaces only those three files and
+does not access or modify Wellness Tracker data.
+
+If the launcher was installed by the older script that predates ownership
+markers, verify and adopt it once before refreshing it:
+
+```bash
+./scripts/install-linux.sh --adopt-legacy
+```
+
+This option verifies the existing launcher, AppImage, and icon before creating
+the marker. It refuses unrelated files; later refreshes use the normal command.
+
+### Desktop storage
+
+Electron stores entries in an unencrypted `entries.json` file under Electron's
+`app.getPath('userData')` directory. The browser version continues to use the
+`wellness-tracker-demo-v1` `localStorage` key. Browser and desktop data are
+separate, and no automatic migration is performed between them. Use fictional
+demo data only.
 
 ### `file://` URL behaviour
 
@@ -163,7 +238,7 @@ serve the file from a local web server (e.g. `npx serve .` or VS Code Live Serve
 
 ## Data storage
 
-### Key
+### Browser key
 
 Entries are stored under a single `localStorage` key:
 
@@ -171,8 +246,14 @@ Entries are stored under a single `localStorage` key:
 wellness-tracker-demo-v1
 ```
 
-To wipe all data manually, open browser DevTools → Application → Local Storage →
-find the key → delete it.  The app will start fresh on the next page load.
+To wipe browser data manually, open browser DevTools → Application → Local Storage →
+find the key → delete it. The browser app will start fresh on the next page load.
+
+### Desktop file
+
+The Electron application stores the same entry-array format in `entries.json`
+under its user-data directory. It does not read, modify, or migrate the browser's
+`localStorage` data.
 
 ### Entry object
 
@@ -194,7 +275,9 @@ Each entry is a plain JavaScript object with exactly four fields:
 | `sleep` | Number, multiples of 0.5 | number |
 | `water` | Number, multiples of 0.1 | number |
 
-All entries are serialised to a JSON array and written as a single string.
+In the browser, entries are serialised to a JSON array and written as a single
+`localStorage` string. In Electron, the same array-of-entry-objects format is
+stored in `entries.json` under the application's user-data directory.
 
 ### Storage operations
 
@@ -203,13 +286,13 @@ All entries are serialised to a JSON array and written as a single string.
 | Save entry | Existing array read, new entry appended, whole array rewritten |
 | Delete entry | Entry filtered out, whole array rewritten |
 | Erase all | Empty array `[]` written (key is not removed) |
-| Load on start | JSON parsed; `null` returned on any read or parse failure |
+| Load on start | JSON is parsed; storage failures lock the application and preserve existing data |
 
 ### Privacy note
 
-`localStorage` is browser-local, unencrypted, and accessible to any JavaScript
-running on the same origin.  It is not backed up automatically.  **Do not store
-real personal health information in this application.**
+Browser `localStorage` and Electron's `entries.json` are both unencrypted and
+are not intended for personal health information. Electron data is a regular
+user-data file, not an encrypted vault. **Use fictional demo data only.**
 
 ---
 
@@ -249,23 +332,26 @@ accidental data loss.
 ### Automated tests (Node.js)
 
 The `test/` directory contains a permanent automated test suite using Node.js 24's
-built-in `node:test` runner (no external dependencies).
+built-in `node:test` runner (no external test-framework dependency).
 
 ```
 test/
-├── helpers.js        — vm extraction helper and in-memory localStorage stub
-├── pure.test.js      — 91 tests covering the seven pure functions
-├── storage.test.js   — 20 tests covering loadEntries and saveEntries
-└── edit.test.js      — DOM-mock integration tests for edit, slider, delete, and erase workflows
+├── helpers.js                 — vm extraction helper and in-memory localStorage stub
+├── pure.test.js               — 91 tests covering the pure functions
+├── storage.test.js            — 20 localStorage tests
+├── file-storage.test.js       — JSON-file storage tests using temporary directories
+├── electron-security.test.js  — Electron URL/frame and window-focus policy tests
+├── install-script.test.js     — Linux installer syntax and ownership tests
+└── edit.test.js               — DOM-mock integration tests for the renderer workflow
 ```
 
 **Run all tests:**
 
 ```bash
-node --test test/*.test.js
+npm test
 ```
 
-Expected output: **128 tests, 128 pass, 0 fail.**
+Expected output: **150 tests, 150 pass, 0 fail.**
 
 **How it works:**  `helpers.js` extracts the first `<script>` block from
 `index.html` using a regex, evaluates it in an isolated `vm` context (no
@@ -278,7 +364,10 @@ the tests always exercise the exact code that runs in the browser.
 |------|-----------------|
 | `pure.test.js` | `localDateString`, `isValidStep`, `isValidEntryShape`, `validateStoredEntries`, `validateEntry`, `sortByDateDesc`, `calcSummary` |
 | `storage.test.js` | `loadEntries`, `saveEntries` (round-trip, corrupt data, write failure, read failure) |
-| `edit.test.js` | Edit-mode loading, saving, validation, failed writes, cancellation, deletion conflicts, erase-all mode handling, slider selection, stepping, clamping, rounding, reset, and locked controls |
+| `file-storage.test.js` | JSON-file load/save behavior, atomic replacement, failures, and serialized writes |
+| `electron-security.test.js` | Expected local URL/main-frame policy and single-instance window restoration helpers |
+| `install-script.test.js` | Shell syntax, atomic replacement safeguards, and legacy-installation adoption checks |
+| `edit.test.js` | Browser/Electron adapters, async startup, edit-mode loading, saving, validation, failed writes, cancellation, deletion conflicts, erase-all mode handling, slider selection, busy state, and locked controls |
 
 The edit tests use a small DOM mock to exercise the event-handler workflow in Node.js
 without adding a dependency. Full browser rendering, responsive layout, native
@@ -393,7 +482,7 @@ be found.  If you need to migrate data, do so before changing the key.
 
 ### Regression checklist after any change
 
-- [ ] All 111 automated tests pass (`node --test test/pure.test.js test/storage.test.js`)
+- [ ] All automated tests pass (`npm test`)
 - [ ] Form submits a valid entry and it appears in the table
 - [ ] Summary averages recalculate correctly
 - [ ] Entry persists after page reload
@@ -411,10 +500,23 @@ be found.  If you need to migrate data, do so before changing the key.
 
 ```
 Wellness tracker/
-├── index.html               # Entire application (HTML + CSS + JS)
+├── .github/workflows/tests.yml # Automated test workflow
+├── .gitignore                  # Generated dependency and build-output exclusions
+├── assets/
+│   └── wellness-tracker-512.png # Linux application icon
+├── electron/
+│   ├── main.js              # Electron main process and IPC handlers
+│   ├── preload.js           # Restricted renderer storage bridge
+│   ├── security.js          # Trusted renderer/navigation and IPC checks
+│   └── storage.js           # JSON-file storage backend
+├── index.html               # Browser and Electron renderer application
+├── package.json             # npm scripts and Electron dependency
+├── package-lock.json        # Locked npm dependency versions
+├── scripts/
+│   └── install-linux.sh     # User-local Ubuntu launcher installer
+├── test/                    # Node.js automated tests and lightweight mocks
 ├── README.md                # This file
 └── wellness-tracker-plan.md # Original incremental development plan
-                             # (implementation decisions may differ from final code)
 ```
 
 ---
