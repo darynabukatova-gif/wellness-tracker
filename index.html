@@ -595,7 +595,7 @@
 
     /* ═══════════════════════════════════════════════════════════════
        15b. App-level error banner
-            Shown when localStorage cannot be read or is corrupted.
+            Shown when the active storage backend cannot be read or is corrupted.
             Sits above <main> and is injected by JS into #app-error.
        ═══════════════════════════════════════════════════════════════ */
     #app-error {
@@ -682,7 +682,7 @@
 
     /* ═══════════════════════════════════════════════════════════════
        STORAGE OPERATIONS
-       (These are the only functions that touch localStorage.)
+       (Browser-only localStorage functions; Electron uses the async bridge.)
        ═══════════════════════════════════════════════════════════════ */
 
     /**
@@ -707,7 +707,7 @@
      *          • The stored string is not valid JSON (SyntaxError from JSON.parse)
      *          • The parsed value exists but is not an array
      *        In all these cases the raw stored value is left untouched.
-     *        null is the signal to the caller (Sub-Task 6 init) that it must
+     *        null is the signal to the browser storage adapter that it must
      *        NOT overwrite storage and should show the user an error message.
      *
      * Why JSON.parse()?
@@ -793,7 +793,7 @@
 
     /* ═══════════════════════════════════════════════════════════════
        PURE DATA-PROCESSING FUNCTIONS
-       (No localStorage access. No DOM access. Input → output only.)
+       (No persistence or DOM access. Input → output only.)
        ═══════════════════════════════════════════════════════════════ */
 
     /**
@@ -981,7 +981,7 @@
     /**
      * validateStoredEntries(arr)
      *
-     * Validates the entire array that was loaded from localStorage.
+     * Validates the entire array loaded from the active storage backend.
      * Returns null when the array is clean, or an error string describing
      * the first problem found.
      *
@@ -989,7 +989,7 @@
      *   1. Every element must pass isValidEntryShape().
      *   2. No two elements may share the same date.
      *
-     * A non-null return tells the caller (Sub-Task 6 init) that the stored
+     * A non-null return tells initialisation that the stored
      * data is corrupt.  The caller must NOT overwrite storage and should
      * show the user an error message so they can investigate.
      *
@@ -1017,7 +1017,7 @@
 
     /* ═══════════════════════════════════════════════════════════════
        VALIDATION
-       (Pure function — no DOM access, no localStorage access.)
+       (Pure function — no DOM or persistence access.)
        ═══════════════════════════════════════════════════════════════ */
 
     /**
@@ -1113,7 +1113,7 @@
 
     /* ═══════════════════════════════════════════════════════════════
        DOM RENDERING
-       (Read entries array → update the page. No localStorage access.)
+       (Read entries array → update the page. No persistence access.)
        ═══════════════════════════════════════════════════════════════ */
 
     /**
@@ -1171,12 +1171,12 @@
      * Each Delete button carries:
      *   • class="btn-delete"      — matched by the CSS danger style
      *   • data-date="YYYY-MM-DD"  — used by the delegated click handler
-     *                               in Sub-Task 6 to identify which entry
+     *                               in the delegated click handler to identify which entry
      *                               to remove
      *   • aria-label              — describes the action to screen readers
      *                               without relying on visible text alone
      *
-     * No event listeners are attached here; Sub-Task 6 uses a single
+     * No event listeners are attached here; the app uses a single
      * delegated listener on #entries-container instead.
      *
      * @param {Array} entries  The current entries array (not modified).
@@ -1277,7 +1277,7 @@
 
   <script>
     /* ═══════════════════════════════════════════════════════════════
-       EVENT HANDLERS AND INITIALISATION  (Sub-Task 6)
+       EVENT HANDLERS AND INITIALISATION
 
        Module-level state
        ──────────────────
@@ -1285,7 +1285,7 @@
                 Always a plain Array.  Mutated only on successful save
                 or delete — never on a failed storage operation.
 
-       locked   Set to true when localStorage cannot be read or its
+       locked   Set to true when the active storage backend cannot be read or its
                 content is corrupted.  Prevents any write to storage
                 so the original data is preserved for manual recovery.
        ═══════════════════════════════════════════════════════════════ */
@@ -1295,6 +1295,58 @@
     let editingDate = null;
     let sleepSelected = false;
     let waterSelected = false;
+    let storageAdapter = null;
+    let busy = false;
+    let listenersAttached = false;
+
+    function getStorageAdapter() {
+      if (window.wellnessStorage &&
+          typeof window.wellnessStorage.loadEntries === 'function' &&
+          typeof window.wellnessStorage.saveEntries === 'function') {
+        return window.wellnessStorage;
+      }
+
+      return {
+        async loadEntries() {
+          const loaded = loadEntries();
+          return loaded === null
+            ? { ok: false, code: 'READ_FAILED', error: 'Could not read localStorage.' }
+            : { ok: true, state: 'present', entries: loaded };
+        },
+        async saveEntries(nextEntries) {
+          return saveEntries(nextEntries)
+            ? { ok: true }
+            : { ok: false, code: 'WRITE_FAILED', error: 'Could not save localStorage.' };
+        },
+      };
+    }
+
+    function setBusyState(value) {
+      busy = value;
+      updateMutatingControls();
+    }
+
+    function updateMutatingControls() {
+      const disabled = busy || locked;
+      [
+        '#entry-date', '#save-btn', '#cancel-edit-btn', '#erase-all-btn',
+        '#entry-sleep', '#entry-water', '#sleep-minus', '#sleep-plus',
+        '#water-minus', '#water-plus'
+      ].forEach(function (selector) {
+        const control = document.querySelector(selector);
+        if (control) control.disabled = disabled;
+      });
+      document.querySelectorAll('input[name="mood"]').forEach(function (radio) {
+        radio.disabled = disabled;
+      });
+      document.querySelectorAll('#entries-container .btn-edit, #entries-container .btn-delete')
+        .forEach(function (button) { button.disabled = disabled; });
+      if (!disabled) {
+        updateSleepControl();
+        updateWaterControl();
+      }
+      updateEraseAllBtn();
+    }
 
     function roundWater(value) {
       return Math.round(Number(value) * 10) / 10;
@@ -1307,8 +1359,8 @@
       const plus = document.getElementById('sleep-plus');
       const value = Number(slider.value);
       if (display) display.textContent = sleepSelected ? value.toFixed(1).replace(/\.0$/, '') + ' h' : 'Choose a value';
-      if (minus) minus.disabled = sleepSelected && value <= 0;
-      if (plus) plus.disabled = sleepSelected && value >= 24;
+      if (minus) minus.disabled = busy || locked || (sleepSelected && value <= 0);
+      if (plus) plus.disabled = busy || locked || (sleepSelected && value >= 24);
     }
 
     function updateWaterControl() {
@@ -1318,8 +1370,8 @@
       const plus = document.getElementById('water-plus');
       const value = roundWater(slider.value);
       if (display) display.textContent = waterSelected ? value.toFixed(1) + ' L' : 'Choose a value';
-      if (minus) minus.disabled = waterSelected && value <= 0;
-      if (plus) plus.disabled = waterSelected && value >= 3;
+      if (minus) minus.disabled = busy || locked || (waterSelected && value <= 0);
+      if (plus) plus.disabled = busy || locked || (waterSelected && value >= 3);
     }
 
     function resetValueControls() {
@@ -1391,6 +1443,7 @@
       container.replaceChildren(banner);
     }
 
+
     /**
      * lockApp()
      *
@@ -1406,6 +1459,7 @@
       lockDeleteBtns();
       lockEditBtns();
       lockValueControls();
+      updateMutatingControls();
     }
 
     /**
@@ -1501,7 +1555,7 @@
      */
     function updateEraseAllBtn() {
       const btn = document.getElementById('erase-all-btn');
-      btn.disabled = locked || entries.length === 0;
+      btn.disabled = busy || locked || entries.length === 0;
     }
 
     /* ── Render helpers (thin wrappers that also update Erase-all) ── */
@@ -1522,6 +1576,7 @@
         lockEditBtns();
         lockValueControls();
       }
+      updateMutatingControls();
     }
 
     function enterEditMode(date) {
@@ -1574,40 +1629,36 @@
      *   1. Set the date input to today using localDateString(new Date()).
      *      This uses the local date helpers already defined, keeping the
      *      timezone handling consistent across the whole app.
-     *   2. Call loadEntries().
-     *      • null  → read or parse failure: lock the app, show an error,
-     *                render whatever can be shown (empty table).
-     *      • []    → first visit: nothing to validate, render empty state.
-     *      • Array → validate shape and duplicate dates with
+     *   2. Await the selected storage adapter.
+     *      • failed result → lock the app, show an error, and render an empty table.
+     *      • successful result → validate shape and duplicate dates with
      *                validateStoredEntries().  If validation fails, lock
      *                the app and show the integrity error.
      *   3. On success, assign to entries and call render().
      *   4. Attach all event listeners.
      */
-    function init() {
-      // Step 1 — prefill date input with today
+    async function init() {
+      if (listenersAttached) return;
+      attachEventListeners();
       document.getElementById('entry-date').value = localDateString(new Date());
       resetValueControls();
+      setBusyState(true);
 
-      // Step 2 — load from localStorage
-      const loaded = loadEntries();
+      try {
+        storageAdapter = getStorageAdapter();
+        const result = await storageAdapter.loadEntries();
 
-      if (loaded === null) {
-        // localStorage is unreadable or contains unparseable data.
-        showAppError(
-          'The stored data could not be read. Your existing entries are preserved ' +
-          'in localStorage but cannot be loaded. Please open the browser console ' +
-          'for details, or clear the key "' + STORAGE_KEY + '" to start fresh.'
-        );
-        lockApp();
-        render(); // renders the empty state; Delete buttons are then locked
-        attachEventListeners();
-        return;
-      }
+        if (!result || !result.ok) {
+          showAppError(
+            'The stored data could not be read. Existing data has been preserved. ' +
+            'Please check the storage and try again.'
+          );
+          lockApp();
+          render();
+          return;
+        }
 
-      if (loaded.length > 0) {
-        // Step 3 — validate the integrity of each stored entry
-        const integrityError = validateStoredEntries(loaded);
+        const integrityError = validateStoredEntries(result.entries);
         if (integrityError) {
           showAppError(
             'The stored entries failed an integrity check: ' + integrityError +
@@ -1615,15 +1666,19 @@
           );
           lockApp();
           render();
-          attachEventListeners();
           return;
         }
-      }
 
-      // Step 4 — all good: populate state and render
-      entries = loaded;
-      render();
-      attachEventListeners();
+        entries = result.entries;
+        render();
+      } catch (error) {
+        showAppError('The stored data could not be read. Existing data has been preserved.');
+        lockApp();
+        render();
+      } finally {
+        setBusyState(false);
+        if (locked) updateMutatingControls();
+      }
     }
 
     /* ── Event listeners ─────────────────────────────────────────── */
@@ -1637,6 +1692,8 @@
      * themselves before doing anything destructive).
      */
     function attachEventListeners() {
+      if (listenersAttached) return;
+      listenersAttached = true;
       document.getElementById('entry-form')
         .addEventListener('submit', handleFormSubmit);
 
@@ -1669,6 +1726,7 @@
 
       document.getElementById('cancel-edit-btn')
         .addEventListener('click', function () {
+          if (busy || locked) return;
           exitEditMode();
           document.getElementById('entry-date').focus();
         });
@@ -1691,15 +1749,15 @@
      *      the stored type is always number, not string.
      *   6. Construct the updated array (spread so we never mutate `entries`
      *      before the save succeeds).
-     *   7. Call saveEntries().  If it returns false (write failure), show
+     *   7. Await the storage adapter. If saving fails, show
      *      an error and leave `entries` unchanged.
      *   8. On success: update `entries`, reset the form, re-set today's
      *      date (form.reset() clears it), clear the error, re-render.
      */
-    function handleFormSubmit(event) {
+    async function handleFormSubmit(event) {
       event.preventDefault();
 
-      if (locked) return;
+      if (locked || busy || !storageAdapter) return;
 
       // Read raw values from the DOM
       const dateVal  = document.getElementById('entry-date').value;
@@ -1747,26 +1805,31 @@
         const updated = entries.map(function (entry) {
           return entry.date === editingDate ? updatedEntry : entry;
         });
-        const saved = saveEntries(updated);
+        let focusEditedEntry = false;
+        setBusyState(true);
+        try {
+          const saved = await storageAdapter.saveEntries(updated);
+          if (!saved || !saved.ok) {
+            showFormError('Could not save the changes — storage may be unavailable. Please try again.');
+            return;
+          }
 
-        if (!saved) {
-          showFormError(
-            'Could not save the changes — the browser storage may be full or ' +
-            'unavailable. Please try again or check your browser settings.'
-          );
-          return;
+          entries = updated;
+          exitEditMode();
+          render();
+          focusEditedEntry = true;
+        } catch (error) {
+          showFormError('Could not save the changes — storage may be unavailable. Please try again.');
+        } finally {
+          setBusyState(false);
+          if (focusEditedEntry) {
+            const editButtons = Array.from(document.querySelectorAll('#entries-container .btn-edit'));
+            const updatedEditButton = editButtons.find(function (button) {
+              return button.dataset.date === updatedEntry.date;
+            });
+            if (updatedEditButton) updatedEditButton.focus();
+          }
         }
-
-        entries = updated;
-        exitEditMode();
-        render();
-        const editButtons = Array.from(
-          document.querySelectorAll('#entries-container .btn-edit')
-        );
-        const updatedEditButton = editButtons.find(function (button) {
-          return button.dataset.date === updatedEntry.date;
-        });
-        if (updatedEditButton) updatedEditButton.focus();
         return;
       }
 
@@ -1800,23 +1863,25 @@
 
       // Attempt to save before mutating any state
       const updated = entries.concat([newEntry]);
-      const saved   = saveEntries(updated);
+      setBusyState(true);
+      try {
+        const saved = await storageAdapter.saveEntries(updated);
+        if (!saved || !saved.ok) {
+          showFormError('Could not save the entry — storage may be unavailable. Please try again.');
+          return;
+        }
 
-      if (!saved) {
-        showFormError(
-          'Could not save the entry — the browser storage may be full or ' +
-          'unavailable. Please try again or check your browser settings.'
-        );
-        return;
+        entries = updated;
+        clearFormError();
+        event.target.reset();
+        document.getElementById('entry-date').value = localDateString(new Date());
+        resetValueControls();
+        render();
+      } catch (error) {
+        showFormError('Could not save the entry — storage may be unavailable. Please try again.');
+      } finally {
+        setBusyState(false);
       }
-
-      // Commit the new state only after a successful save
-      entries = updated;
-      clearFormError();
-      event.target.reset();
-      document.getElementById('entry-date').value = localDateString(new Date());
-      resetValueControls();
-      render();
     }
 
     /**
@@ -1843,8 +1908,8 @@
      *   4. Filter the entry out and attempt to save.
      *   5. Only update state and re-render on success.
      */
-    function handleTableClick(event) {
-      if (locked) return;
+    async function handleTableClick(event) {
+      if (locked || busy || !storageAdapter) return;
 
       const editBtn = event.target.closest('.btn-edit');
       if (editBtn) {
@@ -1876,35 +1941,33 @@
         return b.dataset.date === dateToDelete;
       });
 
-      const saved = saveEntries(updated);
-      if (!saved) {
-        showTableError(
-          'Could not delete the entry — the browser storage may be unavailable. ' +
-          'Please try again.'
-        );
-        return;
-      }
+      let restoreDeleteFocus = false;
+      setBusyState(true);
+      try {
+        const saved = await storageAdapter.saveEntries(updated);
+        if (!saved || !saved.ok) {
+          showTableError('Could not delete the entry — storage may be unavailable. Please try again.');
+          return;
+        }
 
-      // Commit state and re-render only after successful save.
-      entries = updated;
-      clearTableError();
-      if (editingDate === dateToDelete) {
-        exitEditMode();
-      }
-      render();
-
-      // Restore keyboard focus after the table has been rebuilt.
-      // Do not attempt to focus the disabled Erase-all button.
-      const newBtns = Array.from(
-        document.querySelectorAll('#entries-container .btn-delete')
-      );
-      if (newBtns.length > 0) {
-        // Same position if possible; fall back to the last row.
-        const focusIndex = Math.min(deletedIndex, newBtns.length - 1);
-        newBtns[focusIndex].focus();
-      } else {
-        // Table is now empty — focus the section heading (tabindex="-1").
-        document.getElementById('entries-heading').focus();
+        entries = updated;
+        clearTableError();
+        if (editingDate === dateToDelete) exitEditMode();
+        render();
+        restoreDeleteFocus = true;
+      } catch (error) {
+        showTableError('Could not delete the entry — storage may be unavailable. Please try again.');
+      } finally {
+        setBusyState(false);
+        if (restoreDeleteFocus) {
+          const newBtns = Array.from(document.querySelectorAll('#entries-container .btn-delete'));
+          if (newBtns.length > 0) {
+            const focusIndex = Math.min(deletedIndex, newBtns.length - 1);
+            newBtns[focusIndex].focus();
+          } else {
+            document.getElementById('entries-heading').focus();
+          }
+        }
       }
     }
 
@@ -1913,33 +1976,34 @@
      *
      * Handles the "Erase all demo entries" button.
      *
-     * Uses saveEntries([]) rather than localStorage.removeItem() so that
-     * the write path is consistent and the same error handling applies.
-     * The key is set to an empty array rather than removed — on next load,
-     * loadEntries() will return [] for both an absent key and an empty array,
-     * so the behaviour is identical from the user's perspective.
+     * Uses the storage adapter to save an empty array so every backend uses
+     * the same write path and error handling.
      */
-    function handleEraseAll() {
-      if (locked) return;
+    async function handleEraseAll() {
+      if (locked || busy || !storageAdapter) return;
 
       const confirmed = window.confirm(
         'This will permanently delete all entries. Continue?'
       );
       if (!confirmed) return;
 
-      const saved = saveEntries([]);
-      if (!saved) {
-        showTableError(
-          'Could not erase entries — the browser storage may be unavailable. ' +
-          'Please try again.'
-        );
-        return;
-      }
+      setBusyState(true);
+      try {
+        const saved = await storageAdapter.saveEntries([]);
+        if (!saved || !saved.ok) {
+          showTableError('Could not erase entries — storage may be unavailable. Please try again.');
+          return;
+        }
 
-      entries = [];
-      clearTableError();
-      exitEditMode();
-      render();
+        entries = [];
+        clearTableError();
+        exitEditMode();
+        render();
+      } catch (error) {
+        showTableError('Could not erase entries — storage may be unavailable. Please try again.');
+      } finally {
+        setBusyState(false);
+      }
     }
 
     /* ── Boot ────────────────────────────────────────────────────── */

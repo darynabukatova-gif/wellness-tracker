@@ -3,9 +3,9 @@
 # Runs the Wellness Tracker automated test suite on every push to main and on
 # every pull request that targets main.
 #
-# The project has no npm dependencies, so no install step is needed.
-# All test code uses Node.js built-in modules only (node:test, node:assert,
-# node:fs, node:path, node:vm).
+# The repository includes npm development dependencies for Electron packaging.
+# The automated tests themselves use Node.js built-in modules and do not require
+# npm install, so this workflow can run the test files directly.
 
 name: Wellness Tracker Tests
 
@@ -55,8 +55,8 @@ jobs:
       # actions/setup-node installs the requested Node.js version and adds it
       # to PATH so the `node` command in the next step resolves to Node 24.
       # @v7 is the current stable major version.
-      # No cache: is specified because there is no package.json and nothing
-      # to cache — the project has zero npm dependencies.
+      # The workflow does not install dependencies because this test suite uses
+      # only Node.js built-in modules; Electron packaging is tested locally.
       - name: Set up Node.js 24
         uses: actions/setup-node@v7
         with:
@@ -67,9 +67,8 @@ jobs:
       # stabilised in Node.js 20+.  It discovers and runs all files matching
       # the glob test/*.test.js.
       #
-      # The glob test/*.test.js expands to:
-      #   test/pure.test.js      — 91 tests, seven pure functions
-      #   test/storage.test.js   — 20 tests, loadEntries / saveEntries
+      # The glob runs the pure-function, browser-storage, file-storage,
+      # renderer integration, Electron security-policy, and installer tests.
       #
       # Exit code 0  → all tests passed  → the job succeeds (green check)
       # Exit code 1  → one or more failed → the job fails  (red cross)
