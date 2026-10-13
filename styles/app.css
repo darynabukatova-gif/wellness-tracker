@@ -1,0 +1,960 @@
+    /* ═══════════════════════════════════════════════════════════
+       1. Reset and box-sizing
+       ═══════════════════════════════════════════════════════════ */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       2. Design tokens (CSS custom properties)
+       ═══════════════════════════════════════════════════════════ */
+    :root {
+      /* Colours */
+      --colour-bg:           #f5f7fa;
+      --colour-surface:      #ffffff;
+      --colour-border:       #d1d9e0;
+      --colour-border-focus: #2563eb;
+      --colour-text:         #1a202c;
+      --colour-text-muted:   #4a5568;
+      --colour-accent:       #2563eb;
+      --colour-accent-dark:  #1d4ed8;
+      --colour-danger:       #b91c1c;
+      --colour-danger-dark:  #991b1b;
+      --colour-error-bg:     #fef2f2;
+      --colour-error-border: #fca5a5;
+      --colour-disclaimer-bg:     #fffbeb;
+      --colour-disclaimer-border: #fbbf24;
+      --colour-radio-selected-bg: #eff6ff;
+      --colour-radio-selected-border: #2563eb;
+      --colour-row-alt:      #f8fafc;
+
+      /* Typography */
+      --font-family: -apple-system, "Segoe UI", system-ui, Arial, sans-serif;
+      --font-size-base: 1rem;        /* 16 px */
+      --font-size-sm:   0.875rem;    /* 14 px */
+      --line-height:    1.6;
+
+      /* Spacing scale */
+      --space-1: 0.25rem;
+      --space-2: 0.5rem;
+      --space-3: 0.75rem;
+      --space-4: 1rem;
+      --space-5: 1.25rem;
+      --space-6: 1.5rem;
+      --space-8: 2rem;
+
+      /* Border radius */
+      --radius-sm: 4px;
+      --radius-md: 8px;
+
+      /* Layout */
+      --max-width: 760px;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       3. Base typography and body
+       ═══════════════════════════════════════════════════════════ */
+    body {
+      font-family: var(--font-family);
+      font-size: var(--font-size-base);
+      line-height: var(--line-height);
+      color: var(--colour-text);
+      background-color: var(--colour-bg);
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+
+    h2 {
+      font-size: 1.125rem;
+      font-weight: 600;
+      line-height: 1.4;
+      color: var(--colour-text);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       4. Page layout — centred single column
+       ═══════════════════════════════════════════════════════════ */
+    header, main, footer {
+      width: 100%;
+      max-width: var(--max-width);
+      margin-inline: auto;
+      padding-inline: var(--space-4);
+    }
+
+    header {
+      padding-block: var(--space-6);
+      border-bottom: 1px solid var(--colour-border);
+      margin-bottom: var(--space-6);
+    }
+
+    header h1 {
+      margin-bottom: var(--space-2);
+    }
+
+    main {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-8);
+      padding-bottom: var(--space-8);
+    }
+
+    footer {
+      border-top: 1px solid var(--colour-border);
+      padding-block: var(--space-4);
+      margin-top: var(--space-4);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       5. Disclaimer banner
+       ═══════════════════════════════════════════════════════════ */
+    .disclaimer {
+      display: inline-block;
+      background-color: var(--colour-disclaimer-bg);
+      border: 1px solid var(--colour-disclaimer-border);
+      border-radius: var(--radius-sm);
+      padding: var(--space-2) var(--space-3);
+      font-size: var(--font-size-sm);
+      color: var(--colour-text);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       6. Section cards
+       ═══════════════════════════════════════════════════════════ */
+    #entry-form-section,
+    #summary-section,
+    #history-trends-section,
+    #entries-section,
+    #backup-section {
+      background-color: var(--colour-surface);
+      border: 1px solid var(--colour-border);
+      border-radius: var(--radius-md);
+      padding: var(--space-6);
+    }
+
+    #entry-form-section h2,
+    #summary-section h2,
+    #history-trends-section h2,
+    #entries-section h2,
+    #backup-section h2 {
+      margin-bottom: var(--space-4);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       7. Form layout
+       ═══════════════════════════════════════════════════════════ */
+    #entry-form {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-5);
+    }
+
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-1);
+    }
+
+    .field-group label {
+      font-weight: 600;
+      font-size: var(--font-size-sm);
+      color: var(--colour-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    input[type="date"] {
+      width: 100%;
+      max-width: 18rem;
+      padding: var(--space-2) var(--space-3);
+      border: 1px solid var(--colour-border);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-family);
+      font-size: var(--font-size-base);
+      color: var(--colour-text);
+      background-color: var(--colour-surface);
+      appearance: none;
+      -webkit-appearance: none;
+    }
+
+    input[type="date"]:hover,
+    input[type="range"]:hover {
+      border-color: var(--colour-accent);
+    }
+
+    .input-with-unit {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+    }
+
+    .slider-header,
+    .slider-buttons {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-2);
+      width: 100%;
+    }
+
+    .slider-header label {
+      font-weight: 600;
+      font-size: var(--font-size-sm);
+      color: var(--colour-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .input-with-unit input[type="range"] {
+      width: 100%;
+      accent-color: var(--colour-accent);
+    }
+
+    .value-adjust-btn {
+      min-width: 2.25rem;
+      padding: var(--space-1) var(--space-2);
+      border: 1px solid var(--colour-border);
+      background-color: var(--colour-surface);
+      color: var(--colour-text);
+      font-size: 1.125rem;
+      line-height: 1.4;
+    }
+
+    .value-adjust-btn:not(:disabled):hover {
+      border-color: var(--colour-accent);
+      background-color: var(--colour-radio-selected-bg);
+    }
+
+    .value-display {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .unit-label {
+      font-size: var(--font-size-sm);
+      color: var(--colour-text-muted);
+      white-space: nowrap;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       8. Mood radio group
+       ═══════════════════════════════════════════════════════════ */
+    #mood-fieldset {
+      border: none;
+      padding: 0;
+    }
+
+    #mood-fieldset legend {
+      font-weight: 600;
+      font-size: var(--font-size-sm);
+      color: var(--colour-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: var(--space-2);
+    }
+
+    .radio-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+    }
+
+    .radio-label {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-1);
+      padding: var(--space-2) var(--space-3);
+      border: 2px solid var(--colour-border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      min-width: 4.5rem;
+      text-align: center;
+      transition: border-color 0.15s, background-color 0.15s;
+      /* position context so the hidden radio doesn't shift layout */
+      position: relative;
+    }
+
+    .radio-label:hover {
+      border-color: var(--colour-accent);
+      background-color: var(--colour-radio-selected-bg);
+    }
+
+    /* Hide the native radio visually but keep it in the tab/click flow */
+    .radio-label input[type="radio"] {
+      position: absolute;
+      opacity: 0;
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+      margin: 0;
+      cursor: pointer;
+    }
+
+    .radio-value {
+      font-size: 1.25rem;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--colour-text);
+    }
+
+    .radio-desc {
+      font-size: 0.75rem;
+      color: var(--colour-text-muted);
+      line-height: 1.2;
+    }
+
+    /* Selected state */
+    .radio-label:has(input:checked) {
+      border-color: var(--colour-radio-selected-border);
+      background-color: var(--colour-radio-selected-bg);
+    }
+
+    .radio-label:has(input:checked) .radio-value {
+      color: var(--colour-accent);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       9. Focus indicators
+       ═══════════════════════════════════════════════════════════ */
+    :focus-visible {
+      outline: 3px solid var(--colour-border-focus);
+      outline-offset: 2px;
+    }
+
+    /* For the hidden radio, show the focus ring on its parent label */
+    .radio-label:focus-within {
+      outline: 3px solid var(--colour-border-focus);
+      outline-offset: 2px;
+    }
+
+    /* Suppress the default outline on the hidden radio itself
+       because the parent label shows it instead */
+    .radio-label input[type="radio"]:focus-visible {
+      outline: none;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       10. Buttons
+       ═══════════════════════════════════════════════════════════ */
+    button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: var(--space-2) var(--space-5);
+      border: none;
+      border-radius: var(--radius-sm);
+      font-family: var(--font-family);
+      font-size: var(--font-size-base);
+      font-weight: 600;
+      cursor: pointer;
+      line-height: 1.4;
+      transition: background-color 0.15s;
+    }
+
+    button[hidden] {
+      display: none;
+    }
+
+    /* Primary — Save entry */
+    button[type="submit"],
+    .btn-primary {
+      background-color: var(--colour-accent);
+      color: #ffffff;
+      align-self: flex-start;
+    }
+
+    button[type="submit"]:not(:disabled):hover,
+    .btn-primary:not(:disabled):hover {
+      background-color: var(--colour-accent-dark);
+    }
+
+    /* Danger — Erase all, Delete */
+    .btn-danger {
+      background-color: transparent;
+      color: var(--colour-danger);
+      border: 1px solid var(--colour-danger);
+    }
+
+    .btn-danger:not(:disabled):hover {
+      background-color: var(--colour-danger);
+      color: #ffffff;
+    }
+
+    /* Small delete button used inside table rows */
+    .btn-delete {
+      padding: var(--space-1) var(--space-2);
+      font-size: var(--font-size-sm);
+      background-color: transparent;
+      color: var(--colour-danger);
+      border: 1px solid var(--colour-danger);
+      border-radius: var(--radius-sm);
+      font-weight: 500;
+    }
+
+    .btn-delete:not(:disabled):hover {
+      background-color: var(--colour-danger);
+      color: #ffffff;
+    }
+
+    .btn-neutral {
+      background-color: transparent;
+      color: var(--colour-text-muted);
+      border: 1px solid var(--colour-border);
+      align-self: flex-start;
+    }
+
+    .btn-neutral:not(:disabled):hover {
+      background-color: var(--colour-row-alt);
+      border-color: var(--colour-text-muted);
+    }
+
+    .btn-edit {
+      padding: var(--space-1) var(--space-2);
+      font-size: var(--font-size-sm);
+      background-color: transparent;
+      color: var(--colour-accent);
+      border: 1px solid var(--colour-accent);
+      border-radius: var(--radius-sm);
+      font-weight: 500;
+    }
+
+    .btn-edit:not(:disabled):hover {
+      background-color: var(--colour-accent);
+      color: #ffffff;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       11. Validation error message
+       ═══════════════════════════════════════════════════════════ */
+    .form-error {
+      /* Hidden when empty; visible once JS sets textContent */
+      min-height: 0;
+      font-size: var(--font-size-sm);
+      color: var(--colour-danger);
+      background-color: var(--colour-error-bg);
+      border: 1px solid var(--colour-error-border);
+      border-radius: var(--radius-sm);
+      padding: var(--space-2) var(--space-3);
+      /* Hide when there is no message */
+      display: none;
+    }
+
+    /* JS will toggle this class to show the error */
+    .form-error.is-visible {
+      display: block;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       12. Summary panel
+       ═══════════════════════════════════════════════════════════ */
+    .summary-note {
+      font-size: var(--font-size-sm);
+      color: var(--colour-text-muted);
+      margin-bottom: var(--space-4);
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: var(--space-3);
+    }
+
+    .summary-item {
+      background-color: var(--colour-bg);
+      border: 1px solid var(--colour-border);
+      border-radius: var(--radius-sm);
+      padding: var(--space-3) var(--space-4);
+      text-align: center;
+    }
+
+    .summary-item dt {
+      font-size: var(--font-size-sm);
+      color: var(--colour-text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: var(--space-1);
+    }
+
+    .summary-item dd {
+      font-size: 1.375rem;
+      font-weight: 700;
+      color: var(--colour-text);
+      line-height: 1.2;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       13. Entry history section header
+       ═══════════════════════════════════════════════════════════ */
+    .entries-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+      margin-bottom: var(--space-4);
+    }
+
+    .entries-header h2 {
+      margin-bottom: 0;
+    }
+
+    .backup-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-3);
+      margin-top: var(--space-3);
+    }
+
+    .backup-note {
+      color: var(--colour-text-muted);
+      font-size: var(--font-size-sm);
+    }
+
+    .import-preview {
+      margin-top: var(--space-4);
+      padding: var(--space-3);
+      background-color: var(--colour-bg);
+      border: 1px solid var(--colour-border);
+      border-radius: var(--radius-sm);
+    }
+
+    .import-preview-warning {
+      margin-top: var(--space-2);
+      color: var(--colour-danger);
+      font-weight: 600;
+    }
+
+    .backup-status {
+      color: var(--colour-accent-dark);
+      font-size: var(--font-size-sm);
+      margin-top: var(--space-3);
+    }
+
+    /* Table-level error message — shown for Delete / Erase all storage failures.
+       Placed between .entries-header and #entries-container in the HTML. */
+    .table-error {
+      font-size: var(--font-size-sm);
+      color: var(--colour-danger);
+      background-color: var(--colour-error-bg);
+      border: 1px solid var(--colour-error-border);
+      border-radius: var(--radius-sm);
+      padding: var(--space-2) var(--space-3);
+      margin-bottom: var(--space-3);
+      display: none;
+    }
+
+    .table-error.is-visible {
+      display: block;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       13b. History and Trends
+       ═══════════════════════════════════════════════════════════ */
+    .history-view-switch {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      margin-bottom: var(--space-5);
+    }
+
+    .history-view-btn {
+      padding: var(--space-2) var(--space-4);
+      background-color: transparent;
+      color: var(--colour-text-muted);
+      border: 1px solid var(--colour-border);
+    }
+
+    .history-view-btn[aria-pressed="true"] {
+      color: #ffffff;
+      background-color: var(--colour-accent);
+      border-color: var(--colour-accent);
+    }
+
+    .history-placeholder {
+      color: var(--colour-text-muted);
+      font-size: var(--font-size-sm);
+    }
+
+    .trend-period-selector {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      margin-bottom: var(--space-4);
+    }
+
+    .trend-period-btn {
+      padding: var(--space-1) var(--space-3);
+      color: var(--colour-text-muted);
+      background-color: transparent;
+      border: 1px solid var(--colour-border);
+      font-size: var(--font-size-sm);
+    }
+
+    .trend-period-btn[aria-pressed="true"] {
+      color: #ffffff;
+      background-color: var(--colour-accent);
+      border-color: var(--colour-accent);
+    }
+
+    .trend-chart-list {
+      display: grid;
+      gap: var(--space-5);
+    }
+
+    .trend-chart-card {
+      min-width: 0;
+      padding: var(--space-3);
+      background-color: var(--colour-bg);
+      border: 1px solid var(--colour-border);
+      border-radius: var(--radius-sm);
+    }
+
+    .trend-chart-card h3 {
+      margin-bottom: var(--space-2);
+      font-size: var(--font-size-base);
+    }
+
+    .trend-chart {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+    }
+
+    .trend-axis,
+    .trend-grid-line {
+      stroke: var(--colour-border);
+      stroke-width: 1;
+    }
+
+    .trend-line {
+      fill: none;
+      stroke: var(--colour-accent);
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .trend-point {
+      fill: var(--colour-accent);
+    }
+
+    .trend-axis-label {
+      fill: var(--colour-text-muted);
+      font-family: var(--font-family);
+      font-size: 10px;
+    }
+
+    .trend-empty-label {
+      fill: var(--colour-text-muted);
+      font-family: var(--font-family);
+      font-size: 12px;
+      text-anchor: middle;
+    }
+
+    .trend-data-details {
+      margin-top: var(--space-5);
+      color: var(--colour-text-muted);
+      font-size: var(--font-size-sm);
+    }
+
+    .trend-data-details summary {
+      width: fit-content;
+      cursor: pointer;
+      color: var(--colour-accent);
+      font-weight: 600;
+    }
+
+    .trend-data-table-wrap {
+      max-width: 100%;
+      margin-top: var(--space-3);
+      overflow-x: auto;
+    }
+
+    .trend-data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .trend-data-table th,
+    .trend-data-table td {
+      padding: var(--space-2);
+      text-align: left;
+      border-bottom: 1px solid var(--colour-border);
+      white-space: nowrap;
+    }
+
+    .trend-data-table th {
+      color: var(--colour-text-muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+    }
+
+    .calendar-header {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: var(--space-2);
+      margin-bottom: var(--space-3);
+    }
+
+    .calendar-header h3 {
+      font-size: var(--font-size-base);
+      text-align: center;
+    }
+
+    .calendar-nav-btn {
+      min-width: 2.5rem;
+      padding: var(--space-2);
+      background-color: transparent;
+      color: var(--colour-accent);
+      border: 1px solid var(--colour-accent);
+    }
+
+    .calendar-weekdays,
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: var(--space-1);
+      width: 100%;
+    }
+
+    .calendar-weekdays {
+      margin-bottom: var(--space-1);
+    }
+
+    .calendar-weekdays span {
+      overflow: hidden;
+      color: var(--colour-text-muted);
+      font-size: 0.6875rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-align: center;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .calendar-day-blank {
+      min-height: 3.5rem;
+    }
+
+    .calendar-day {
+      min-width: 0;
+      min-height: 3.5rem;
+      padding: var(--space-1);
+      flex-direction: column;
+      gap: 0;
+      background-color: var(--colour-surface);
+      color: var(--colour-text);
+      border: 1px solid var(--colour-border);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .calendar-day:not(:disabled):hover {
+      border-color: var(--colour-accent);
+      background-color: var(--colour-radio-selected-bg);
+    }
+
+    .calendar-day.has-entry {
+      border-width: 2px;
+      border-color: var(--colour-accent);
+    }
+
+    .calendar-day.is-selected {
+      color: #ffffff;
+      background-color: var(--colour-accent-dark);
+      border-color: var(--colour-accent-dark);
+    }
+
+    .calendar-day-number {
+      font-size: var(--font-size-sm);
+      font-weight: 700;
+    }
+
+    .calendar-entry-label {
+      font-size: 0.625rem;
+      font-weight: 500;
+      line-height: 1.1;
+    }
+
+    .calendar-details {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2);
+      min-height: 3rem;
+      margin-top: var(--space-4);
+      padding: var(--space-3);
+      color: var(--colour-text-muted);
+      background-color: var(--colour-bg);
+      border: 1px solid var(--colour-border);
+      border-radius: var(--radius-sm);
+      font-size: var(--font-size-sm);
+    }
+
+    .calendar-detail-action {
+      padding: var(--space-1) var(--space-3);
+      font-size: var(--font-size-sm);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       14. Entry table
+       ═══════════════════════════════════════════════════════════ */
+    #entries-container table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: var(--font-size-sm);
+    }
+
+    #entries-container th,
+    #entries-container td {
+      padding: var(--space-2) var(--space-3);
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    #entries-container th {
+      font-weight: 600;
+      color: var(--colour-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 0.75rem;
+      border-bottom: 2px solid var(--colour-border);
+      white-space: nowrap;
+    }
+
+    #entries-container tbody tr:nth-child(even) {
+      background-color: var(--colour-row-alt);
+    }
+
+    #entries-container tbody tr:hover {
+      background-color: #eef2ff;
+    }
+
+    #entries-container td:last-child {
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    #entries-container td,
+    #entries-container th {
+      border-bottom: 1px solid var(--colour-border);
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       15. Empty state
+       ═══════════════════════════════════════════════════════════ */
+    .empty-state {
+      text-align: center;
+      padding: var(--space-8) var(--space-4);
+      color: var(--colour-text-muted);
+      font-size: var(--font-size-sm);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       15b. App-level error banner
+            Shown when the active storage backend cannot be read or is corrupted.
+            Sits above <main> and is injected by JS into #app-error.
+       ═══════════════════════════════════════════════════════════════ */
+    #app-error {
+      max-width: var(--max-width);
+      margin-inline: auto;
+      padding-inline: var(--space-4);
+      margin-bottom: var(--space-4);
+    }
+
+    .app-error-banner {
+      background-color: var(--colour-error-bg);
+      border: 1px solid var(--colour-error-border);
+      border-radius: var(--radius-sm);
+      padding: var(--space-3) var(--space-4);
+      font-size: var(--font-size-sm);
+      color: var(--colour-danger);
+    }
+
+    .app-error-banner strong {
+      display: block;
+      margin-bottom: var(--space-1);
+    }
+
+    /* Disabled state for Save / Erase-all buttons when app is locked */
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       16. Responsive — narrow viewports (≤ 600 px)
+       ═══════════════════════════════════════════════════════════ */
+    @media (max-width: 600px) {
+      header, main, footer {
+        padding-inline: var(--space-3);
+      }
+
+      #entry-form-section,
+      #summary-section,
+      #history-trends-section,
+      #entries-section {
+        padding: var(--space-4);
+      }
+
+      /* Summary: 2 columns on narrow screens */
+      .summary-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      /* Mood radios: wrap naturally, full row on very small screens */
+      .radio-group {
+        gap: var(--space-1);
+      }
+
+      .radio-label {
+        min-width: 3.5rem;
+        padding: var(--space-2);
+      }
+
+      /* Scrollable table on narrow screens without causing page overflow */
+      #entries-section {
+        overflow: hidden; /* prevent section border from being clipped */
+      }
+
+      #entries-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        /* Ensure the container, not the page, scrolls horizontally */
+        max-width: 100%;
+      }
+
+      /* Entries header: stack vertically if needed */
+      .entries-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .calendar-day,
+      .calendar-day-blank {
+        min-height: 3.125rem;
+      }
+    }

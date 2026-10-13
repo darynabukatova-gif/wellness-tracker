@@ -1,9 +1,8 @@
 /**
  * test/helpers.js
  *
- * Extracts the pure-functions <script> block from index.html and evaluates
- * it in an isolated vm context so the test files can call the application
- * functions directly without modifying index.html or duplicating code.
+ * Reads js/core.js and evaluates it in an isolated vm context so the test
+ * files can call the application functions directly without duplicating code.
  *
  * NODE VERSION COMPATIBILITY
  *   This file uses bare require() names ('fs', 'path', 'vm') which work on
@@ -19,7 +18,7 @@
  *   used here for scope isolation, not security.
  *
  * WHY NOT COPY THE FUNCTIONS?
- *   Copying would create two sources of truth.  If a function in index.html
+ *   Copying would create two sources of truth.  If a function in js/core.js
  *   is changed, the tests would still use the old copy and might pass even
  *   though the real application behaviour broke.  Extracting from the file
  *   means the tests always exercise the code that actually runs in the browser.
@@ -59,12 +58,12 @@ const fs   = require('fs');
 const path = require('path');
 const vm   = require('vm');
 
-// ── Locate index.html relative to the project root ──────────────────────────
+// ── Locate js/core.js relative to the project root ──────────────────────────
 //
 // __dirname is the test/ directory; the project root is one level up.
 // Using path.resolve keeps this correct regardless of the working directory
 // from which `node --test` is invoked.
-const INDEX_HTML = path.resolve(__dirname, '..', 'index.html');
+const CORE_JS = path.resolve(__dirname, '..', 'js', 'core.js');
 
 // ── Names of all functions that must be present after evaluation ─────────────
 const REQUIRED_FUNCTIONS = [
@@ -84,46 +83,15 @@ const REQUIRED_FUNCTIONS = [
   'saveEntries',
 ];
 
-// ── Extract the first <script> block ────────────────────────────────────────
-//
-// The regex matches the content between the first bare <script> tag and its
-// closing </script>.  The 's' (dotAll) flag allows '.' to match newlines.
-//
-// Anchoring to the first <script> is intentional: the second block contains
-// event handlers that reference `document` and `window.confirm`, which are
-// not available in a vm context without a full DOM stub.
-const SCRIPT_PATTERN = /<script>([\s\S]*?)<\/script>/;
+function readCoreSource() {
+  const source = fs.readFileSync(CORE_JS, 'utf8');
 
-/**
- * extractFirstScript(html)
- *
- * Extracts the text content of the first inline <script> block.
- * Throws a descriptive error if no block is found or if the extracted
- * content does not contain STORAGE_KEY (a sentinel that confirms we have
- * the right block and not an accidentally matched empty or unrelated tag).
- *
- * @param   {string} html  The full text of index.html.
- * @returns {string}       The JavaScript source extracted from the block.
- */
-function extractFirstScript(html) {
-  const match = html.match(SCRIPT_PATTERN);
-
-  if (!match) {
-    throw new Error(
-      'helpers.js: could not find a <script>…</script> block in index.html.\n' +
-      'Check that index.html is the correct file and has not been restructured.'
-    );
-  }
-
-  const source = match[1];
-
-  // Verify the sentinel: STORAGE_KEY must appear in the extracted block.
-  // This confirms we have the data/validation script, not some other tag.
+  // Verify the sentinel: STORAGE_KEY must appear in the core source.
   if (!source.includes("const STORAGE_KEY = 'wellness-tracker-demo-v1'")) {
     throw new Error(
-      'helpers.js: the first <script> block in index.html does not contain\n' +
+      'helpers.js: js/core.js does not contain\n' +
       "STORAGE_KEY = 'wellness-tracker-demo-v1'.\n" +
-      'The file structure may have changed.  Update the extraction logic in\n' +
+      'The core file may have been renamed or its structure changed. Update\n' +
       'test/helpers.js to match the new structure.'
     );
   }
@@ -175,8 +143,7 @@ let _cachedSource = null;
 
 function getScriptSource() {
   if (_cachedSource === null) {
-    const html = fs.readFileSync(INDEX_HTML, 'utf8');
-    _cachedSource = extractFirstScript(html);
+    _cachedSource = readCoreSource();
   }
   return _cachedSource;
 }
@@ -186,7 +153,7 @@ function getScriptSource() {
 /**
  * loadContext(localStorageStub?)
  *
- * Evaluates the first <script> block from index.html in a fresh vm context
+ * Evaluates js/core.js in a fresh vm context
  * and returns the selected application functions plus the storage stub.
  *
  * A fresh context is created on every call, so each test (or describe block)
@@ -230,13 +197,13 @@ function loadContext(localStorageStub) {
   vm.createContext(sandbox);
 
   // vm.Script compiles once; runInContext() executes in the given sandbox.
-  // Using a filename in the options makes stack traces point at index.html
+  // Using a filename in the options makes stack traces point at js/core.js
   // rather than showing "[vm]", which is helpful when a test fails.
-  const script = new vm.Script(getScriptSource(), { filename: 'index.html' });
+  const script = new vm.Script(getScriptSource(), { filename: 'js/core.js' });
   script.runInContext(sandbox);
 
   // Verify that every expected function was actually defined by the script.
-  // This catches renames or deletions in index.html before they produce
+  // This catches renames or deletions in js/core.js before they produce
   // confusing "not a function" errors deep inside a test.
   const missing = REQUIRED_FUNCTIONS.filter(
     name => typeof sandbox[name] !== 'function'
@@ -244,7 +211,7 @@ function loadContext(localStorageStub) {
   if (missing.length > 0) {
     throw new Error(
       'helpers.js: the following functions were not found after evaluating\n' +
-      'the <script> block from index.html:\n' +
+      'js/core.js:\n' +
       '  ' + missing.join(', ') + '\n' +
       'They may have been renamed or removed.  Update REQUIRED_FUNCTIONS in\n' +
       'test/helpers.js if this was intentional.'
