@@ -158,7 +158,7 @@ function makeApp() {
     },
   };
   vm.createContext(sandbox);
-  const source = appSource + '\nthis.__api = { init, render, renderHistoryTrends, renderCharts, renderCalendar, setHistoryView, setTrendDayCount, changeCalendarMonth, handleHistoryTrendsClick, hasUnsavedFormChanges, enterNewEntryModeForDate, enterEditMode, exitEditMode, handleFormSubmit, handleTableClick, handleEraseAll, handleExportBackup, handleImportBackup, handleImportFileChange, handleCancelImport, handleReplaceImport, adjustValueControl, resetValueControls, setValueControlValues, updateSleepControl, updateWaterControl, setBusyState, lockApp, getStorageAdapter, get entries() { return entries; }, get editingDate() { return editingDate; }, get sleepSelected() { return sleepSelected; }, get waterSelected() { return waterSelected; }, get busy() { return busy; }, get locked() { return locked; }, get pendingImport() { return pendingImport; }, get importReading() { return importReading; }, get historyView() { return historyView; }, get trendDayCount() { return trendDayCount; }, get calendarYear() { return calendarYear; }, get calendarMonthIndex() { return calendarMonthIndex; }, get selectedCalendarDate() { return selectedCalendarDate; }, set entries(value) { entries = value; }, set editingDate(value) { editingDate = value; }, set storageAdapter(value) { storageAdapter = value; }, set calendarYear(value) { calendarYear = value; }, set calendarMonthIndex(value) { calendarMonthIndex = value; }, set selectedCalendarDate(value) { selectedCalendarDate = value; } };';
+  const source = appSource + '\nthis.__api = { init, render, renderHistoryTrends, renderHistoryTrendsForCurrentState, renderCharts, renderCalendar, renderCalendarForCurrentState, renderCalendarDetails, ensureCalendarMonth, normalizeCalendarSelection, setHistoryView, setTrendDayCount, changeCalendarMonth, handleHistoryTrendsClick, hasUnsavedFormChanges, enterNewEntryModeForDate, enterEditMode, exitEditMode, handleFormSubmit, handleTableClick, handleEraseAll, handleExportBackup, handleImportBackup, handleImportFileChange, handleCancelImport, handleReplaceImport, adjustValueControl, resetValueControls, setValueControlValues, updateSleepControl, updateWaterControl, setBusyState, lockApp, getStorageAdapter, get entries() { return entries; }, get editingDate() { return editingDate; }, get sleepSelected() { return sleepSelected; }, get waterSelected() { return waterSelected; }, get busy() { return busy; }, get locked() { return locked; }, get pendingImport() { return pendingImport; }, get importReading() { return importReading; }, get historyView() { return historyView; }, get trendDayCount() { return trendDayCount; }, get calendarYear() { return calendarYear; }, get calendarMonthIndex() { return calendarMonthIndex; }, get selectedCalendarDate() { return selectedCalendarDate; }, set entries(value) { entries = value; }, set editingDate(value) { editingDate = value; }, set storageAdapter(value) { storageAdapter = value; }, set calendarYear(value) { calendarYear = value; }, set calendarMonthIndex(value) { calendarMonthIndex = value; }, set selectedCalendarDate(value) { selectedCalendarDate = value; } };';
   new vm.Script(coreSource + '\n' + viewsSource + '\n' + source).runInContext(sandbox);
   const realRender = sandbox.render;
   sandbox.render = () => {};
@@ -176,6 +176,15 @@ function makeApp() {
   ].join('-');
   sandbox.__api.resetValueControls();
   return { api: sandbox.__api, elements, radios, buttons, storage, confirms, confirmationMessages, window: sandbox.window, sandbox, downloads, realRender };
+}
+
+function makeViews() {
+  const app = makeApp();
+  const sandbox = { document: app.sandbox.document, Date };
+  vm.createContext(sandbox);
+  const source = coreSource + '\n' + viewsSource + '\nthis.__views = { renderSummary, renderTable, renderCharts, renderCalendar, renderHistoryTrends };';
+  new vm.Script(source).runInContext(sandbox);
+  return { ...app, views: sandbox.__views };
 }
 
 async function submit(app) { await app.api.handleFormSubmit({ preventDefault() {}, target: app.elements.get('entry-form') }); }
@@ -252,9 +261,199 @@ function localDateKey(date = new Date()) {
   ].join('-');
 }
 
+function renderChartsForApp(app) {
+  app.api.renderCharts(app.api.entries, app.api.trendDayCount, localDateKey());
+}
+
+function renderHistoryTrendsForApp(app) {
+  app.api.renderHistoryTrendsForCurrentState();
+}
+
 test('calendar detail container permits its interactive action button', () => {
   assert.match(html, /<div id="calendar-details" class="calendar-details" aria-live="polite"><\/div>/);
   assert.doesNotMatch(html, /<p id="calendar-details"/);
+});
+
+test('calendar detail renderer uses explicit entries, selected date, and mutation state', () => {
+  const app = makeApp();
+  app.api.entries = [{ date: '2025-06-11', mood: 1, sleep: 1, water: 0.1 }];
+  app.api.selectedCalendarDate = '2025-06-11';
+  app.api.setBusyState(true);
+  const explicitEntries = [{ date: '2025-06-12', mood: 5, sleep: 8, water: 2.4 }];
+
+  app.api.renderCalendarDetails(explicitEntries, '2025-06-12', false);
+
+  let action = findCalendarDetailAction(app);
+  assert.match(app.elements.get('calendar-details').textContent, /Mood 5, Sleep 8 h, Water 2.4 L/);
+  assert.equal(action.dataset.calendarDate, '2025-06-12');
+  assert.equal(action.dataset.calendarAction, 'edit');
+  assert.equal(action.disabled, false);
+  assert.equal(app.api.selectedCalendarDate, '2025-06-11');
+  assert.equal(app.api.entries[0].date, '2025-06-11');
+  assert.equal(app.api.busy, true);
+
+  app.api.renderCalendarDetails([], '2025-06-13', true);
+  action = findCalendarDetailAction(app);
+  assert.equal(action.dataset.calendarDate, '2025-06-13');
+  assert.equal(action.dataset.calendarAction, 'create');
+  assert.equal(action.disabled, true);
+});
+
+test('calendar renderer uses explicit state without changing controller calendar state', () => {
+  const app = makeApp();
+  app.api.entries = [{ date: '2025-07-10', mood: 1, sleep: 1, water: 0.1 }];
+  app.api.calendarYear = 2025;
+  app.api.calendarMonthIndex = 6;
+  app.api.selectedCalendarDate = '2025-07-10';
+  app.api.setBusyState(true);
+  const explicitEntries = [{ date: '2025-06-12', mood: 5, sleep: 8, water: 2.4 }];
+
+  app.api.renderCalendar(explicitEntries, {
+    year: 2025,
+    monthIndex: 5,
+    selectedDate: '2025-06-12',
+    announceMonth: true,
+    mutationsBlocked: false,
+  });
+
+  const selected = findCalendarDateButton(app, '2025-06-12');
+  const action = findCalendarDetailAction(app);
+  assert.match(app.elements.get('calendar-month-heading').textContent, /June 2025/);
+  assert.match(app.elements.get('calendar-month-status').textContent, /Showing June 2025/);
+  assert.match(selected.className, /has-entry/);
+  assert.match(selected.className, /is-selected/);
+  assert.match(app.elements.get('calendar-details').textContent, /Mood 5, Sleep 8 h, Water 2.4 L/);
+  assert.equal(action.disabled, false);
+  assert.equal(app.api.calendarYear, 2025);
+  assert.equal(app.api.calendarMonthIndex, 6);
+  assert.equal(app.api.selectedCalendarDate, '2025-07-10');
+});
+
+test('controller normalizes only calendar selections outside the displayed month', () => {
+  const app = makeApp();
+  app.api.calendarYear = 2025;
+  app.api.calendarMonthIndex = 5;
+  app.api.selectedCalendarDate = '2025-07-01';
+
+  app.api.normalizeCalendarSelection();
+  assert.equal(app.api.selectedCalendarDate, null);
+
+  app.api.selectedCalendarDate = '2025-06-10';
+  app.api.normalizeCalendarSelection();
+  assert.equal(app.api.selectedCalendarDate, '2025-06-10');
+  assert.equal(app.api.calendarYear, 2025);
+  assert.equal(app.api.calendarMonthIndex, 5);
+});
+
+test('isolated chart renderer uses explicit inputs for populated and empty states', () => {
+  const renderer = makeViews();
+  const entries = [{ date: '2025-06-12', mood: 5, sleep: 8, water: 2.4 }];
+  const originalEntries = JSON.stringify(entries);
+
+  renderer.views.renderCharts(entries, 7, '2025-06-12');
+
+  assert.equal(renderer.elements.get('trend-period-7').attributes['aria-pressed'], 'true');
+  assert.equal(renderer.elements.get('trend-chart-list').children.length, 3);
+  const populatedMood = trendCard(renderer, 'mood').children.find(child => child.tagName === 'SVG');
+  assert.equal(findDescendants(populatedMood, node => node.className === 'trend-point')[0].attributes['data-date'], '2025-06-12');
+  assert.equal(JSON.stringify(entries), originalEntries);
+
+  renderer.views.renderCharts([], 7, '2025-06-12');
+  const emptyMood = trendCard(renderer, 'mood').children.find(child => child.tagName === 'SVG');
+  assert.equal(findDescendants(emptyMood, node => node.className === 'trend-empty-label').length, 1);
+});
+
+test('isolated calendar renderer uses explicit populated state without mutating inputs', () => {
+  const renderer = makeViews();
+  const entries = [{ date: '2025-06-12', mood: 5, sleep: 8, water: 2.4 }];
+  const calendar = {
+    year: 2025,
+    monthIndex: 5,
+    selectedDate: '2025-06-12',
+    announceMonth: true,
+    mutationsBlocked: true,
+  };
+  const originalEntries = JSON.stringify(entries);
+  const originalCalendar = JSON.stringify(calendar);
+
+  renderer.views.renderCalendar(entries, calendar);
+
+  const selected = findCalendarDateButton(renderer, '2025-06-12');
+  const action = findCalendarDetailAction(renderer);
+  assert.match(renderer.elements.get('calendar-month-heading').textContent, /June 2025/);
+  assert.match(selected.className, /has-entry/);
+  assert.match(selected.className, /is-selected/);
+  assert.equal(action.disabled, true);
+  assert.equal(JSON.stringify(entries), originalEntries);
+  assert.equal(JSON.stringify(calendar), originalCalendar);
+});
+
+test('isolated History and Trends renderer uses explicit active view and shared inputs', () => {
+  const renderer = makeViews();
+  const entries = [{ date: '2025-06-12', mood: 5, sleep: 8, water: 2.4 }];
+  const viewState = {
+    activeView: 'charts',
+    trendDayCount: 7,
+    trendEndDate: '2025-06-12',
+    calendar: {
+      year: 2025,
+      monthIndex: 5,
+      selectedDate: '2025-06-12',
+      announceMonth: false,
+      mutationsBlocked: false,
+    },
+  };
+  const originalEntries = JSON.stringify(entries);
+  const originalViewState = JSON.stringify(viewState);
+
+  renderer.views.renderHistoryTrends(entries, viewState);
+
+  assert.equal(renderer.elements.get('history-charts-panel').hidden, false);
+  assert.equal(renderer.elements.get('history-calendar-panel').hidden, true);
+  assert.equal(renderer.elements.get('trend-period-7').attributes['aria-pressed'], 'true');
+  assert.equal(findCalendarDetailAction(renderer).disabled, false);
+  assert.equal(JSON.stringify(entries), originalEntries);
+  assert.equal(JSON.stringify(viewState), originalViewState);
+});
+
+test('History and Trends renderer uses explicit view state without changing controller state', () => {
+  const app = makeApp();
+  app.api.entries = [{ date: '2025-07-10', mood: 1, sleep: 1, water: 0.1 }];
+  app.api.calendarYear = 2025;
+  app.api.calendarMonthIndex = 6;
+  app.api.selectedCalendarDate = '2025-07-10';
+  app.api.setBusyState(true);
+  const explicitEntries = [{ date: '2025-06-12', mood: 5, sleep: 8, water: 2.4 }];
+
+  app.api.renderHistoryTrends(explicitEntries, {
+    activeView: 'charts',
+    trendDayCount: 7,
+    trendEndDate: '2025-06-12',
+    calendar: {
+      year: 2025,
+      monthIndex: 5,
+      selectedDate: '2025-06-12',
+      announceMonth: true,
+      mutationsBlocked: false,
+    },
+  });
+
+  const moodSvg = trendCard(app, 'mood').children.find(child => child.tagName === 'SVG');
+  const point = findDescendants(moodSvg, node => node.className === 'trend-point')[0];
+  const action = findCalendarDetailAction(app);
+  assert.equal(app.elements.get('history-charts-panel').hidden, false);
+  assert.equal(app.elements.get('history-calendar-panel').hidden, true);
+  assert.equal(app.elements.get('trend-period-7').attributes['aria-pressed'], 'true');
+  assert.equal(point.attributes['data-date'], '2025-06-12');
+  assert.match(app.elements.get('calendar-month-heading').textContent, /June 2025/);
+  assert.equal(action.dataset.calendarDate, '2025-06-12');
+  assert.equal(action.disabled, false);
+  assert.equal(app.api.historyView, 'calendar');
+  assert.equal(app.api.calendarYear, 2025);
+  assert.equal(app.api.calendarMonthIndex, 6);
+  assert.equal(app.api.selectedCalendarDate, '2025-07-10');
+  assert.equal(app.api.entries[0].date, '2025-07-10');
+  assert.equal(app.api.busy, true);
 });
 
 test('entering edit mode loads the selected entry and keeps its date read-only', () => {
@@ -920,7 +1119,7 @@ test('pending saves disable controls and reject overlapping submissions', async 
 
 test('History and Trends initially displays the current local month in Calendar view', () => {
   const app = makeApp();
-  app.api.renderHistoryTrends();
+  renderHistoryTrendsForApp(app);
   const now = new Date();
 
   assert.equal(app.api.historyView, 'calendar');
@@ -936,7 +1135,7 @@ test('calendar navigation crosses year boundaries, announces the month, and clea
   app.api.calendarYear = 2025;
   app.api.calendarMonthIndex = 11;
   app.api.selectedCalendarDate = '2025-12-10';
-  app.api.renderHistoryTrends();
+  renderHistoryTrendsForApp(app);
   app.api.changeCalendarMonth(1);
 
   assert.equal(app.api.calendarYear, 2026);
@@ -959,7 +1158,7 @@ test('calendar marks saved entries and date selection shows read-only saved or e
   };
   app.api.calendarYear = 2025;
   app.api.calendarMonthIndex = 5;
-  app.api.renderHistoryTrends();
+  renderHistoryTrendsForApp(app);
 
   const savedDate = findCalendarDateButton(app, '2025-06-10');
   assert.match(savedDate.className, /has-entry/);
@@ -980,7 +1179,7 @@ test('calendar marks saved entries and date selection shows read-only saved or e
 
 test('History and Trends view switch shows the rendered charts and returns to Calendar', () => {
   const app = makeApp();
-  app.api.renderHistoryTrends();
+  renderHistoryTrendsForApp(app);
   const chartsButton = app.elements.get('history-view-charts');
   chartsButton.className = 'history-view-btn';
   chartsButton.dataset.historyView = 'charts';
@@ -1001,7 +1200,7 @@ test('History and Trends view switch shows the rendered charts and returns to Ca
 
 test('charts default to 30 inclusive calendar days with fixed metric scales', () => {
   const app = makeApp();
-  app.api.renderCharts();
+  renderChartsForApp(app);
 
   assert.equal(app.api.trendDayCount, 30);
   assert.equal(app.elements.get('trend-period-30').attributes['aria-pressed'], 'true');
@@ -1024,6 +1223,26 @@ test('charts default to 30 inclusive calendar days with fixed metric scales', ()
   const table = app.elements.get('trend-data-table-container').children[0];
   const tbody = table.children.find(child => child.tagName === 'TBODY');
   assert.equal(tbody.children.length, 30);
+});
+
+test('chart renderer uses its explicit entries, period, and end date', () => {
+  const app = makeApp();
+  app.api.entries = [];
+  const explicitEntries = [
+    { date: '2025-06-10', mood: 4, sleep: 7.5, water: 1.8 },
+  ];
+
+  app.api.renderCharts(explicitEntries, 7, '2025-06-12');
+
+  assert.equal(app.api.trendDayCount, 30);
+  assert.equal(app.elements.get('trend-period-7').attributes['aria-pressed'], 'true');
+  const moodSvg = trendCard(app, 'mood').children.find(child => child.tagName === 'SVG');
+  const point = findDescendants(moodSvg, node => node.className === 'trend-point')[0];
+  assert.equal(point.attributes['data-date'], '2025-06-10');
+  const table = app.elements.get('trend-data-table-container').children[0];
+  const tbody = table.children.find(child => child.tagName === 'TBODY');
+  assert.equal(tbody.children.length, 7);
+  assert.equal(tbody.children.at(-1).children[0].textContent, '2025-06-12');
 });
 
 test('chart period selection is read-only and preserves calendar selection and edit mode', () => {
@@ -1080,7 +1299,7 @@ test('charts show isolated observations and empty periods without joining missin
   assert.equal(findDescendants(moodSvg, node => node.className === 'trend-line').length, 0);
 
   app.api.entries = [];
-  app.api.renderCharts();
+  renderChartsForApp(app);
   const emptyMoodSvg = trendCard(app, 'mood').children.find(child => child.tagName === 'SVG');
   assert.equal(findDescendants(emptyMoodSvg, node => node.className === 'trend-empty-label').length, 1);
   assert.equal(findDescendants(emptyMoodSvg, node => node.className === 'trend-point').length, 0);
@@ -1189,7 +1408,7 @@ test('calendar Edit entry action reuses edit mode, scrolls to the form, and does
   app.api.calendarYear = 2025;
   app.api.calendarMonthIndex = 5;
   app.api.selectedCalendarDate = '2025-06-10';
-  app.api.renderHistoryTrends();
+  renderHistoryTrendsForApp(app);
   const action = findCalendarDetailAction(app);
 
   assert.equal(action.textContent, 'Edit entry');
@@ -1214,7 +1433,7 @@ test('calendar Create entry action sets the chosen date with normal new-entry de
   app.api.calendarYear = 2025;
   app.api.calendarMonthIndex = 5;
   app.api.selectedCalendarDate = '2025-06-12';
-  app.api.renderHistoryTrends();
+  renderHistoryTrendsForApp(app);
   const action = findCalendarDetailAction(app);
 
   assert.equal(action.textContent, 'Create entry');
@@ -1239,7 +1458,7 @@ test('calendar actions preserve unsaved edits when discard confirmation is cance
   app.api.calendarYear = 2025;
   app.api.calendarMonthIndex = 5;
   app.api.selectedCalendarDate = '2025-06-11';
-  app.api.renderHistoryTrends();
+  renderHistoryTrendsForApp(app);
   const action = findCalendarDetailAction(app);
   app.confirms.push(false);
 
@@ -1258,7 +1477,7 @@ test('calendar Create entry action protects a partially completed new form', () 
   app.api.calendarYear = 2025;
   app.api.calendarMonthIndex = 5;
   app.api.selectedCalendarDate = '2025-06-12';
-  app.api.renderHistoryTrends();
+  renderHistoryTrendsForApp(app);
   const action = findCalendarDetailAction(app);
   app.confirms.push(false);
 
@@ -1276,7 +1495,7 @@ test('calendar action buttons are disabled and guarded while busy or locked', ()
   app.api.calendarYear = 2025;
   app.api.calendarMonthIndex = 5;
   app.api.selectedCalendarDate = '2025-06-10';
-  app.api.renderHistoryTrends();
+  renderHistoryTrendsForApp(app);
   const busyAction = findCalendarDetailAction(app);
 
   app.api.setBusyState(true);
@@ -1285,7 +1504,7 @@ test('calendar action buttons are disabled and guarded while busy or locked', ()
   assert.equal(app.api.editingDate, null);
 
   app.api.setBusyState(false);
-  app.api.renderHistoryTrends();
+  renderHistoryTrendsForApp(app);
   app.api.lockApp();
   const lockedAction = findCalendarDetailAction(app);
   assert.equal(lockedAction.disabled, true);

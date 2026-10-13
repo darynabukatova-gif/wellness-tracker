@@ -522,10 +522,60 @@
       btn.disabled = isMutationBlocked() || entries.length === 0;
     }
 
+    function ensureCalendarMonth() {
+      if (calendarYear !== null && calendarMonthIndex !== null) return;
+      const today = new Date();
+      calendarYear = today.getFullYear();
+      calendarMonthIndex = today.getMonth();
+    }
+
+    function calendarMonthKey(year, monthIndex) {
+      return String(year).padStart(4, '0') + '-' + String(monthIndex + 1).padStart(2, '0');
+    }
+
+    function normalizeCalendarSelection() {
+      ensureCalendarMonth();
+      if (selectedCalendarDate &&
+          selectedCalendarDate.slice(0, 7) !== calendarMonthKey(calendarYear, calendarMonthIndex)) {
+        selectedCalendarDate = null;
+      }
+    }
+
+    function getCalendarRenderState(announceMonth) {
+      ensureCalendarMonth();
+      normalizeCalendarSelection();
+      return {
+        year: calendarYear,
+        monthIndex: calendarMonthIndex,
+        selectedDate: selectedCalendarDate,
+        announceMonth,
+        mutationsBlocked: isMutationBlocked(),
+      };
+    }
+
+    function renderCalendarForCurrentState(announceMonth) {
+      renderCalendar(entries, getCalendarRenderState(announceMonth));
+    }
+
+    function renderHistoryTrendsForCurrentState() {
+      renderHistoryTrends(entries, {
+        activeView: historyView,
+        trendDayCount,
+        trendEndDate: localDateString(new Date()),
+        calendar: getCalendarRenderState(false),
+      });
+    }
+
     function setHistoryView(view) {
       if (view !== 'charts' && view !== 'calendar') return;
       historyView = view;
-      renderHistoryTrends();
+      renderHistoryTrendsForCurrentState();
+    }
+
+    function setTrendDayCount(dayCount) {
+      if ([7, 30, 90].indexOf(dayCount) === -1) return;
+      trendDayCount = dayCount;
+      renderCharts(entries, trendDayCount, localDateString(new Date()));
     }
 
     function changeCalendarMonth(offset) {
@@ -541,7 +591,7 @@
         calendarYear += 1;
       }
       selectedCalendarDate = null;
-      renderCalendar(true);
+      renderCalendarForCurrentState(true);
     }
 
     function handleHistoryTrendsClick(event) {
@@ -584,7 +634,7 @@
       const dateButton = event.target.closest('.calendar-day');
       if (!dateButton || !dateButton.dataset.calendarDate) return;
       selectedCalendarDate = dateButton.dataset.calendarDate;
-      renderCalendar(false);
+      renderCalendarForCurrentState(false);
     }
 
     /* ── Render helpers (thin wrappers that also update the views) ── */
@@ -598,7 +648,7 @@
      */
     function render() {
       renderSummary(entries);
-      renderHistoryTrends();
+      renderHistoryTrendsForCurrentState();
       renderTable(entries);
       updateEraseAllBtn();
       if (locked) {
