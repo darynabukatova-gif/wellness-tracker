@@ -22,6 +22,8 @@
     },
     "files": [
       "index.html",
+      "styles/**/*",
+      "js/**/*",
       "electron/**/*",
       "assets/wellness-tracker-512.png",
       "package.json"

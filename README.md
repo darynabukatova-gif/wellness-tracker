@@ -1,9 +1,10 @@
 # Wellness Tracker
 
 A browser application and Linux Electron desktop application for recording daily
-wellness data. The renderer remains a single `index.html` file built with plain
-HTML, embedded CSS, and vanilla JavaScript; Electron and electron-builder provide
-the optional desktop shell and AppImage packaging.
+wellness data. The renderer uses plain HTML, CSS, and vanilla JavaScript: its
+structure is in `index.html`, with CSS and JavaScript loaded from local files.
+Electron and electron-builder provide the optional desktop shell and AppImage
+packaging.
 
 > **Demo only: use fictional data. Not for medical use.**
 
@@ -61,12 +62,22 @@ the optional desktop shell and AppImage packaging.
 
 ## Technology and architecture
 
-The shared renderer lives in **`index.html`**. It contains an embedded `<style>`
-block, an embedded `<script>` block for browser storage, data processing, and
-validation functions, and a second `<script>` block for event handlers and
-initialisation. The Electron desktop shell is deliberately small: its main
-process, restricted preload bridge, and JSON-file storage backend live under
-`electron/`.
+The shared renderer is split into local files:
+
+- `index.html` provides the document structure and references the local assets.
+- `styles/app.css` contains all application styles.
+- `js/core.js` contains data, validation, local-calendar, browser-storage, and
+  backup helpers.
+- `js/views.js` contains DOM rendering for the summary, history, calendar, and
+  charts.
+- `js/app.js` owns mutable application state, event handlers, storage-adapter
+  selection, and initialisation.
+
+`index.html` loads `js/core.js`, `js/views.js`, and `js/app.js` as classic
+deferred scripts in that order. They intentionally share one browser global
+JavaScript environment; they are not ES modules and use no imports, exports, or
+bundler. The Electron desktop shell is deliberately small: its main process,
+restricted preload bridge, and JSON-file storage backend live under `electron/`.
 
 ### Dependencies
 
@@ -78,8 +89,10 @@ process, restricted preload bridge, and JSON-file storage backend live under
 
 ### Code organisation
 
-The JavaScript is split into clearly separated layers.  Each layer has a single
-responsibility and does not reach into another layer's domain.
+The files have separated primary responsibilities. Because the classic scripts
+share globals, rendering functions read controller-owned state, and calendar
+rendering clears a stale selected date. This preserves the original behaviour;
+a future, separate refactor could pass explicit state and callbacks to views.
 
 ```
 Browser localStorage ─┐
@@ -180,8 +193,8 @@ to inspect individual values with a screen reader or keyboard.
 ### CSS design tokens
 
 All colours, spacing values, font sizes, and border radii are defined as CSS custom
-properties in `:root`.  To restyle the application, edit the token values at the top
-of the `<style>` block — no other selectors need changing.
+properties in `:root`. To restyle the application, edit the token values at the top
+of `styles/app.css` — no other selectors need changing.
 
 ---
 
@@ -477,12 +490,14 @@ test/
 npm test
 ```
 
-Expected output: **205 individual tests, 205 pass, 0 fail, 0 skipped.**
+Expected output: **206 individual tests, 206 pass, 0 fail, 0 skipped.**
 
-**How it works:**  `helpers.js` extracts the first `<script>` block from
-`index.html` using a regex, evaluates it in an isolated `vm` context (no
-`eval()`, no code copying), and returns the named functions.  This means
-the tests always exercise the exact code that runs in the browser.
+**How it works:** `helpers.js` reads `js/core.js` and evaluates it in an isolated
+`vm` context (no `eval()`, no code copying). `edit.test.js` evaluates the real
+`js/core.js`, `js/views.js`, and `js/app.js` sources in browser execution order.
+`frontend-assets.test.js` verifies that `index.html` references the stylesheet and
+all three deferred scripts, and that electron-builder includes those asset folders.
+This means the tests exercise the same source files that run in the browser.
 
 **Coverage:**
 
@@ -626,7 +641,7 @@ If you want to change, for example, the maximum water intake from 3 L to 5 L:
 
 ### Changing the localStorage key
 
-The key is defined as a single constant at the top of the first `<script>` block:
+The key is defined as a single constant near the top of `js/core.js`:
 
 ```js
 const STORAGE_KEY = 'wellness-tracker-demo-v1';
@@ -671,8 +686,14 @@ Wellness tracker/
 │   ├── preload.js           # Restricted renderer storage bridge
 │   ├── security.js          # Trusted renderer/navigation and IPC checks
 │   └── storage.js           # JSON-file storage backend
-├── index.html               # Browser and Electron renderer application
-├── package.json             # npm scripts and Electron dependency
+├── index.html               # Browser and Electron renderer document structure
+├── js/
+│   ├── core.js              # Data, validation, storage, date, and backup helpers
+│   ├── views.js             # Summary, history, calendar, and chart rendering
+│   └── app.js               # State, event handlers, storage adapter, and startup
+├── styles/
+│   └── app.css              # Application stylesheet
+├── package.json             # npm scripts and Electron build configuration
 ├── package-lock.json        # Locked npm dependency versions
 ├── scripts/
 │   └── install-linux.sh     # User-local Ubuntu launcher installer
