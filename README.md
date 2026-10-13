@@ -84,6 +84,8 @@ restricted preload bridge, and JSON-file storage backend live under `electron/`.
 - No JavaScript frameworks or libraries
 - No CSS frameworks
 - Electron and electron-builder are development dependencies
+- `playwright-core` is a development-only dependency for optional Electron E2E tests;
+  it launches the project's Electron runtime and does not download a separate browser
 - No backend, accounts, or network calls are required at runtime
 - No cookies
 
@@ -480,6 +482,7 @@ test/
 ├── storage.test.js            — 20 localStorage tests
 ├── file-storage.test.js       — JSON-file storage tests using temporary directories
 ├── electron-security.test.js  — Electron URL/frame and window-focus policy tests
+├── e2e-config.test.js         — Isolated Electron test-profile configuration tests
 ├── install-script.test.js     — Linux installer syntax and ownership tests
 ├── edit.test.js               — DOM-mock integration tests for the renderer workflow
 └── trends-calendar.test.js    — Local-calendar and trend-series helper tests
@@ -491,7 +494,7 @@ test/
 npm test
 ```
 
-Expected output: **214 individual tests, 214 pass, 0 fail, 0 skipped.**
+Expected output: **220 individual tests, 220 pass, 0 fail, 0 skipped.**
 
 **How it works:** `helpers.js` reads `js/core.js` and evaluates it in an isolated
 `vm` context (no `eval()`, no code copying). `edit.test.js` evaluates the real
@@ -519,6 +522,41 @@ The edit tests use a small DOM mock to exercise the event-handler workflow in No
 without adding a dependency. Full browser rendering, responsive layout, native
 focus behavior, keyboard activation, and real localStorage behavior still require
 manual browser testing.
+
+### Optional Electron E2E tests (Linux)
+
+The real Electron UI suite is deliberately separate from the fast Node suite:
+
+```bash
+npm run test:e2e
+```
+
+`npm test` (or `npm run test`) runs the 220 Node unit and integration tests only.
+`npm run test:e2e` runs eight serial, source-Electron tests through `playwright-core`:
+isolated startup, create/edit/delete persistence across restarts, calendar actions,
+charts, backup export, import preview/cancellation, and confirmed replacement restore.
+The existing Node test workflow runs automatically on pushes and pull requests. The
+Electron E2E workflow is deliberately manual at first: in GitHub, open **Actions**,
+select **Wellness Tracker Electron E2E**, choose **Run workflow**, and select the
+branch. It uses `ubuntu-22.04`, `npm ci`, and Xvfb to run `npm run test:e2e`; it does
+not download Playwright-managed browsers or weaken Chromium sandboxing. Keeping this
+separate avoids making every fast pull-request check depend on GUI and sandbox support.
+
+Each E2E test creates a unique direct child of the system temporary directory with a
+`wellness-tracker-e2e-` prefix. Electron accepts that profile only when both explicit
+E2E environment variables are present, validates it before acquiring its
+single-instance lock, and refuses malformed or production-data paths. The test
+rechecks Electron's actual `userData` path before every data mutation and removes only
+the exact test-created profile after Electron exits. E2E entries, fixtures, and
+downloads are fictional test data.
+
+These tests need a Linux graphical display (X11, Wayland, or a correctly configured
+Xvfb environment) and a host where Chromium sandboxing is available; they never use
+`--no-sandbox`. They have passed locally on Ubuntu 20.04, but that release is outside
+Playwright's currently supported Ubuntu baseline, so it is a locally verified setup
+rather than a support guarantee. The suite does not yet cover packaged-AppImage
+launches, a forced storage-write failure, or a deliberate conflict with an already
+running normal desktop instance.
 
 ### Manual browser tests
 
@@ -655,7 +693,8 @@ be found.  If you need to migrate data, do so before changing the key.
 
 ### Regression checklist after any change
 
-- [ ] All automated tests pass (`npm test`)
+- [ ] Node automated tests pass (`npm test`)
+- [ ] Optional Linux Electron E2E tests pass when changing Electron or end-to-end workflows (`npm run test:e2e`)
 - [ ] Form submits a valid entry and it appears in the table
 - [ ] Summary averages recalculate correctly
 - [ ] Entry persists after page reload
@@ -685,6 +724,7 @@ Wellness tracker/
 ├── assets/
 │   └── wellness-tracker-512.png # Linux application icon
 ├── electron/
+│   ├── e2e-config.js       # Validated, isolated userData profile setup for E2E only
 │   ├── main.js              # Electron main process and IPC handlers
 │   ├── preload.js           # Restricted renderer storage bridge
 │   ├── security.js          # Trusted renderer/navigation and IPC checks
@@ -696,6 +736,8 @@ Wellness tracker/
 │   └── app.js               # State, event handlers, storage adapter, and startup
 ├── styles/
 │   └── app.css              # Application stylesheet
+├── e2e/
+│   └── electron-launch.test.js # Serial real-Electron UI and persistence tests
 ├── package.json             # npm scripts and Electron build configuration
 ├── package-lock.json        # Locked npm dependency versions
 ├── scripts/
