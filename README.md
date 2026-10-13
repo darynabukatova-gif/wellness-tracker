@@ -15,6 +15,7 @@ the optional desktop shell and AppImage packaging.
 - [Technology and architecture](#technology-and-architecture)
 - [How to run](#how-to-run)
 - [Data storage](#data-storage)
+- [Backup & Restore](#backup--restore)
 - [Validation rules](#validation-rules)
 - [Testing](#testing)
 - [Maintenance guide](#maintenance-guide)
@@ -40,6 +41,7 @@ the optional desktop shell and AppImage packaging.
 | **Calendar actions** | Create an entry for an empty date or edit its saved entry without leaving the calendar context |
 | **Trend charts** | Responsive SVG charts for mood, sleep, and water over 7, 30, or 90 calendar days ending today |
 | **Exact chart data** | A keyboard-accessible expandable table gives the precise date and value behind each chart point |
+| **Backup & Restore** | Export committed entries, preview a strictly validated JSON backup, then explicitly replace all entries if desired |
 | **Persistence** | Browser entries use `localStorage`; Electron entries use a JSON file in the app data directory |
 | **Offline desktop app** | The Electron version runs locally without a network connection |
 | **Responsive layout** | Usable at desktop widths and at narrow mobile viewports (≥ 320 px) |
@@ -88,6 +90,7 @@ sortByDateDesc() / calcSummary()       ← pure data processing (no DOM, no stor
 localDateString() / addCalendarDays() / buildTrendSeries() / buildCalendarMonth()
                                        ← pure local-calendar helpers
 isValidEntryShape() / validateStoredEntries() / validateEntry()  ← pure validation
+createBackupDocument() / parseBackupDocument()                  ← pure backup envelope handling
     │
     ▼
 renderSummary() / renderTable() / renderCalendar() / renderCharts()
@@ -129,6 +132,15 @@ handleFormSubmit() / handleTableClick() / handleEraseAll() / init()
 3. The storage adapter writes first.  On failure, state is unchanged.
 4. On success: focus is restored to the Delete button at the same row position
    (or the previous row, or the Entry History heading if the table is now empty).
+
+**Restoring a backup**
+1. The selected file is read and fully validated before the app creates an import preview.
+2. **Replace all entries** asks for an explicit confirmation, including the current
+   and backup entry counts and any unsaved form changes.
+3. A detached replacement array is written through the active storage adapter before
+   `entries` changes. If the write fails, the current data, form, and preview remain intact.
+4. On success, the preview is cleared, the form returns to new-entry mode, and all
+   derived views are re-rendered.
 
 ### History & Trends
 
@@ -338,6 +350,76 @@ user-data file, not an encrypted vault. **Use fictional demo data only.**
 
 ---
 
+## Backup & Restore
+
+The **Backup & Restore** section works offline in both the browser and Electron
+desktop application. It uses browser-standard download and file-selection APIs;
+no Electron IPC, network service, or separate storage format is required.
+
+### Export a backup
+
+Select **Export backup** to download every committed entry as a readable JSON file
+named `wellness-tracker-backup-YYYY-MM-DD.json`, where the date is the UTC export
+date. Unsaved form values are never included, and exporting never writes to the
+application's normal storage. A healthy empty dataset can also be exported.
+
+Backup files are **unencrypted**. Store them appropriately and use fictional demo
+data only.
+
+### Import and preview a backup
+
+Select **Import backup** and choose a JSON file. The file's name and MIME type are
+not trusted: its complete contents must be valid JSON and pass strict backup and
+entry validation. Files larger than 5 MiB are rejected before reading. Invalid or
+unreadable files show an error and leave the current entries and form untouched.
+
+For a valid file, the app displays a read-only preview with the backup entry count,
+current saved-entry count, exported timestamp, and date range. A valid empty backup
+is shown as **No entries in backup**. While a preview is active, ordinary data
+mutations, export, and another import are disabled; chart and calendar browsing
+remain available. **Cancel import** clears only the preview and does not change
+saved data.
+
+### Replace all entries
+
+The initial import mode is deliberately **replace all**, not merge. Choose
+**Replace all entries** in the preview and confirm the dialog to overwrite the
+currently saved dataset with the validated backup. The dialog states both entry
+counts, warns that replacement is not a merge, advises exporting current data first,
+and explains that an empty backup deletes all current entries. If the form has
+unsaved changes, the dialog also warns that those values are discarded only after a
+successful save.
+
+The app saves through the same browser `localStorage` or Electron `entries.json`
+adapter used by normal entry changes. It does not update in-memory entries, clear
+the form, or remove the preview until that write succeeds. A failed write preserves
+the existing entries, unsaved form values, and validated preview so the user can
+retry or cancel.
+
+### Version 1 backup format
+
+Backups are separate from Electron's internal `entries.json` array. Version 1 has
+exactly these top-level fields:
+
+```json
+{
+  "application": "wellness-tracker",
+  "backupVersion": 1,
+  "exportedAt": "2026-10-13T12:34:56.789Z",
+  "entries": [
+    { "date": "2026-10-12", "mood": 4, "sleep": 7.5, "water": 1.8 }
+  ]
+}
+```
+
+`exportedAt` must be a canonical ISO 8601 UTC timestamp. Each entry must have
+exactly `date`, `mood`, `sleep`, and `water`, and must meet the normal date, range,
+step, and unique-date rules. Unsupported versions, unexpected fields, malformed
+JSON, invalid entries, and duplicate dates are rejected as a whole; records are
+never repaired, skipped, or partially imported.
+
+---
+
 ## Validation rules
 
 All four fields are required.  The form uses `novalidate` so the browser's
@@ -379,6 +461,7 @@ built-in `node:test` runner (no external test-framework dependency).
 ```
 test/
 ├── helpers.js                 — vm extraction helper and in-memory localStorage stub
+├── backup.test.js              — Backup envelope creation and strict parsing tests
 ├── pure.test.js               — 91 tests covering the pure functions
 ├── storage.test.js            — 20 localStorage tests
 ├── file-storage.test.js       — JSON-file storage tests using temporary directories
@@ -394,7 +477,7 @@ test/
 npm test
 ```
 
-Expected output: **180 individual tests, 180 pass, 0 fail, 0 skipped.**
+Expected output: **205 individual tests, 205 pass, 0 fail, 0 skipped.**
 
 **How it works:**  `helpers.js` extracts the first `<script>` block from
 `index.html` using a regex, evaluates it in an isolated `vm` context (no
@@ -407,11 +490,12 @@ the tests always exercise the exact code that runs in the browser.
 |------|-----------------|
 | `pure.test.js` | `localDateString`, `isValidStep`, `isValidEntryShape`, `validateStoredEntries`, `validateEntry`, `sortByDateDesc`, `calcSummary` |
 | `trends-calendar.test.js` | Local-calendar date arithmetic, inclusive 7/30/90-day series, gaps versus zeroes, and Monday-first calendar months |
+| `backup.test.js` | Version-1 backup envelope creation, strict parsing, timestamps, detached copies, empty backups, zeroes, and invalid records |
 | `storage.test.js` | `loadEntries`, `saveEntries` (round-trip, corrupt data, write failure, read failure) |
 | `file-storage.test.js` | JSON-file load/save behavior, atomic replacement, failures, and serialized writes |
 | `electron-security.test.js` | Expected local URL/main-frame policy and single-instance window restoration helpers |
 | `install-script.test.js` | Shell syntax, atomic replacement safeguards, and legacy-installation adoption checks |
-| `edit.test.js` | Browser/Electron adapters, async startup, edit-mode loading, saving, validation, failed writes, cancellation, deletion conflicts, erase-all mode handling, slider selection, busy/locked controls, calendar actions, and SVG chart rendering |
+| `edit.test.js` | Browser/Electron adapters, async startup, edit-mode loading, saving, validation, failed writes, cancellation, deletion conflicts, erase-all mode handling, sliders, busy/locked controls, calendar actions, charts, and backup export/import/replace workflow |
 
 The edit tests use a small DOM mock to exercise the event-handler workflow in Node.js
 without adding a dependency. Full browser rendering, responsive layout, native
@@ -501,6 +585,20 @@ These behaviours require a live browser and cannot be checked with Node.js:
     calendar, and charts fit without page-level horizontal overflow; the table
     scrolls only within its own data wrapper.
 
+#### Backup & Restore
+32. Export a populated dataset and an empty dataset. Verify the downloaded JSON is
+    readable, has backup version 1, preserves zero values, and does not change the
+    form, calendar selection, charts, or saved entries.
+33. Select a valid backup and verify its preview count, date range, and explicit
+    replace-all warning. Cancel the preview and verify no data changes.
+34. Try malformed JSON, a backup with an unsupported version, duplicate dates, and
+    an invalid field value. Verify each is rejected without changing saved data.
+35. Restore a populated backup, then an empty backup. Check the confirmation text,
+    refreshed history/summary/calendar/charts, form reset, and keyboard focus.
+36. With an edited or partially filled form, begin a restore and cancel the
+    confirmation; verify both the form and import preview remain unchanged. Where
+    practical, simulate a failed write and verify retry/cancel remain available.
+
 ---
 
 ## Maintenance guide
@@ -551,6 +649,9 @@ be found.  If you need to migrate data, do so before changing the key.
 - [ ] Calendar Create/Edit actions preserve unsaved form changes when confirmation is cancelled
 - [ ] Charts show the selected inclusive local-calendar range, with gaps for missing dates and points for zeroes
 - [ ] Charts and calendar refresh only after successful storage writes
+- [ ] Export contains committed entries only and does not write storage
+- [ ] Invalid backups and cancelled imports leave entries and form values unchanged
+- [ ] Restore replaces data only after successful storage persistence; empty backups are confirmed explicitly
 - [ ] App locks and shows the error banner when localStorage contains invalid JSON
 - [ ] All form controls are reachable and operable by keyboard alone
 - [ ] Layout is usable at 320 px viewport width
