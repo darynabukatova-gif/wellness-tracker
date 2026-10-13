@@ -347,36 +347,22 @@
       container.appendChild(table);
     }
 
-    function renderCharts() {
+    function renderCharts(entries, dayCount, endDate) {
       const chartList = document.getElementById('trend-chart-list');
       chartList.replaceChildren();
-      const endDate = localDateString(new Date());
       const seriesByMetric = {};
       TREND_CONFIGS.forEach(function (config) {
-        const series = buildTrendSeries(entries, config.metric, trendDayCount, endDate);
+        const series = buildTrendSeries(entries, config.metric, dayCount, endDate);
         seriesByMetric[config.metric] = series;
         renderTrendChart(chartList, config, series);
       });
       document.querySelectorAll('.trend-period-btn').forEach(function (button) {
-        button.setAttribute('aria-pressed', String(Number(button.dataset.trendDays) === trendDayCount));
+        button.setAttribute('aria-pressed', String(Number(button.dataset.trendDays) === dayCount));
       });
       renderTrendDataTable(seriesByMetric);
     }
 
-    function setTrendDayCount(dayCount) {
-      if ([7, 30, 90].indexOf(dayCount) === -1) return;
-      trendDayCount = dayCount;
-      renderCharts();
-    }
-
     /* ── Calendar ────────────────────────────────────────────────── */
-
-    function ensureCalendarMonth() {
-      if (calendarYear !== null && calendarMonthIndex !== null) return;
-      const today = new Date();
-      calendarYear = today.getFullYear();
-      calendarMonthIndex = today.getMonth();
-    }
 
     function formatCalendarMonth(year, monthIndex) {
       const date = new Date(0);
@@ -404,22 +390,18 @@
       }).format(date);
     }
 
-    function calendarMonthKey(year, monthIndex) {
-      return String(year).padStart(4, '0') + '-' + String(monthIndex + 1).padStart(2, '0');
-    }
-
-    function renderCalendarDetails() {
+    function renderCalendarDetails(entries, selectedDate, mutationsBlocked) {
       const details = document.getElementById('calendar-details');
       details.replaceChildren();
-      if (!selectedCalendarDate) {
+      if (!selectedDate) {
         details.textContent = 'Select a date to view its saved entry.';
         return;
       }
 
       const entry = entries.find(function (candidate) {
-        return candidate.date === selectedCalendarDate;
+        return candidate.date === selectedDate;
       });
-      const readableDate = formatCalendarDate(selectedCalendarDate);
+      const readableDate = formatCalendarDate(selectedDate);
       if (!entry) {
         details.textContent = 'No entry recorded for ' + readableDate + '.';
       } else {
@@ -431,28 +413,24 @@
       actionButton.type = 'button';
       actionButton.className = 'calendar-detail-action ' + (entry ? 'btn-primary' : 'btn-neutral');
       actionButton.dataset.calendarAction = entry ? 'edit' : 'create';
-      actionButton.dataset.calendarDate = selectedCalendarDate;
+      actionButton.dataset.calendarDate = selectedDate;
       actionButton.textContent = entry ? 'Edit entry' : 'Create entry';
       actionButton.setAttribute(
         'aria-label',
         (entry ? 'Edit entry for ' : 'Create entry for ') + readableDate
       );
-      actionButton.disabled = isMutationBlocked();
+      actionButton.disabled = mutationsBlocked;
       details.appendChild(actionButton);
     }
 
-    function renderCalendar(announceMonth) {
-      ensureCalendarMonth();
-      const month = buildCalendarMonth(entries, calendarYear, calendarMonthIndex);
-      const monthKey = calendarMonthKey(calendarYear, calendarMonthIndex);
-      if (selectedCalendarDate && selectedCalendarDate.slice(0, 7) !== monthKey) {
-        selectedCalendarDate = null;
-      }
+    function renderCalendar(entries, calendarState) {
+      const { year, monthIndex, selectedDate, announceMonth, mutationsBlocked } = calendarState;
+      const month = buildCalendarMonth(entries, year, monthIndex);
 
       document.getElementById('calendar-month-heading').textContent =
-        formatCalendarMonth(calendarYear, calendarMonthIndex);
+        formatCalendarMonth(year, monthIndex);
       document.getElementById('calendar-month-status').textContent = announceMonth
-        ? 'Showing ' + formatCalendarMonth(calendarYear, calendarMonthIndex) + '.'
+        ? 'Showing ' + formatCalendarMonth(year, monthIndex) + '.'
         : '';
 
       const grid = document.getElementById('calendar-grid');
@@ -466,7 +444,7 @@
 
       month.days.forEach(function (day) {
         const dateButton = document.createElement('button');
-        const isSelected = day.date === selectedCalendarDate;
+        const isSelected = day.date === selectedDate;
         dateButton.type = 'button';
         dateButton.className = 'calendar-day' +
           (day.hasEntry ? ' has-entry' : '') +
@@ -491,20 +469,21 @@
         grid.appendChild(dateButton);
       });
 
-      renderCalendarDetails();
+      renderCalendarDetails(entries, selectedDate, mutationsBlocked);
     }
 
-    function renderHistoryTrends() {
+    function renderHistoryTrends(entries, viewState) {
+      const { activeView, trendDayCount, trendEndDate, calendar } = viewState;
       const chartsPanel = document.getElementById('history-charts-panel');
       const calendarPanel = document.getElementById('history-calendar-panel');
       const chartsButton = document.getElementById('history-view-charts');
       const calendarButton = document.getElementById('history-view-calendar');
-      const calendarVisible = historyView === 'calendar';
+      const calendarVisible = activeView === 'calendar';
 
       chartsPanel.hidden = calendarVisible;
       calendarPanel.hidden = !calendarVisible;
       chartsButton.setAttribute('aria-pressed', String(!calendarVisible));
       calendarButton.setAttribute('aria-pressed', String(calendarVisible));
-      renderCharts();
-      renderCalendar(false);
+      renderCharts(entries, trendDayCount, trendEndDate);
+      renderCalendar(entries, calendar);
     }

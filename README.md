@@ -69,9 +69,9 @@ The shared renderer is split into local files:
 - `js/core.js` contains data, validation, local-calendar, browser-storage, and
   backup helpers.
 - `js/views.js` contains DOM rendering for the summary, history, calendar, and
-  charts.
+  charts, using explicit entries and view-state inputs.
 - `js/app.js` owns mutable application state, event handlers, storage-adapter
-  selection, and initialisation.
+  selection, initialisation, and view-state assembly.
 
 `index.html` loads `js/core.js`, `js/views.js`, and `js/app.js` as classic
 deferred scripts in that order. They intentionally share one browser global
@@ -89,10 +89,11 @@ restricted preload bridge, and JSON-file storage backend live under `electron/`.
 
 ### Code organisation
 
-The files have separated primary responsibilities. Because the classic scripts
-share globals, rendering functions read controller-owned state, and calendar
-rendering clears a stale selected date. This preserves the original behaviour;
-a future, separate refactor could pass explicit state and callbacks to views.
+The files have separated responsibilities. `app.js` owns and normalises mutable
+state, then passes entries and explicit view-state objects to `views.js`.
+Rendering functions update the DOM only: they do not read or change controller
+state. `core.js` remains a shared dependency because it supplies pure summary,
+sorting, calendar, and trend-series helpers to both layers.
 
 ```
 Browser localStorage ─┐
@@ -107,7 +108,7 @@ createBackupDocument() / parseBackupDocument()                  ← pure backup 
     │
     ▼
 renderSummary() / renderTable() / renderCalendar() / renderCharts()
-                                       ← DOM rendering (reads entries array, writes DOM)
+                                       ← DOM rendering (explicit inputs, writes DOM)
     │
     ▼
 handleFormSubmit() / handleTableClick() / handleEraseAll() / init()
@@ -490,14 +491,16 @@ test/
 npm test
 ```
 
-Expected output: **206 individual tests, 206 pass, 0 fail, 0 skipped.**
+Expected output: **214 individual tests, 214 pass, 0 fail, 0 skipped.**
 
 **How it works:** `helpers.js` reads `js/core.js` and evaluates it in an isolated
 `vm` context (no `eval()`, no code copying). `edit.test.js` evaluates the real
-`js/core.js`, `js/views.js`, and `js/app.js` sources in browser execution order.
-`frontend-assets.test.js` verifies that `index.html` references the stylesheet and
-all three deferred scripts, and that electron-builder includes those asset folders.
-This means the tests exercise the same source files that run in the browser.
+`js/core.js`, `js/views.js`, and `js/app.js` sources in browser execution order for
+controller integration coverage, and evaluates `core.js` plus `views.js` alone for
+isolated renderer-contract coverage. `frontend-assets.test.js` verifies that
+`index.html` references the stylesheet and all three deferred scripts, and that
+electron-builder includes those asset folders. This means the tests exercise the
+same source files that run in the browser.
 
 **Coverage:**
 
@@ -510,7 +513,7 @@ This means the tests exercise the same source files that run in the browser.
 | `file-storage.test.js` | JSON-file load/save behavior, atomic replacement, failures, and serialized writes |
 | `electron-security.test.js` | Expected local URL/main-frame policy and single-instance window restoration helpers |
 | `install-script.test.js` | Shell syntax, atomic replacement safeguards, and legacy-installation adoption checks |
-| `edit.test.js` | Browser/Electron adapters, async startup, edit-mode loading, saving, validation, failed writes, cancellation, deletion conflicts, erase-all mode handling, sliders, busy/locked controls, calendar actions, charts, and backup export/import/replace workflow |
+| `edit.test.js` | Isolated core-plus-view rendering contracts; Browser/Electron adapters, async startup, edit-mode loading, saving, validation, failed writes, cancellation, deletion conflicts, erase-all mode handling, sliders, busy/locked controls, calendar actions, charts, and backup export/import/replace workflow |
 
 The edit tests use a small DOM mock to exercise the event-handler workflow in Node.js
 without adding a dependency. Full browser rendering, responsive layout, native
