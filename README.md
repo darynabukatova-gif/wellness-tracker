@@ -536,11 +536,11 @@ npm run test:e2e
 isolated startup, create/edit/delete persistence across restarts, calendar actions,
 charts, backup export, import preview/cancellation, and confirmed replacement restore.
 The existing Node test workflow runs automatically on pushes and pull requests. The
-Electron E2E workflow is deliberately manual at first: in GitHub, open **Actions**,
-select **Wellness Tracker Electron E2E**, choose **Run workflow**, and select the
-branch. It uses `ubuntu-22.04`, `npm ci`, and Xvfb to run `npm run test:e2e`; it does
-not download Playwright-managed browsers or weaken Chromium sandboxing. Keeping this
-separate avoids making every fast pull-request check depend on GUI and sandbox support.
+Electron E2E workflow runs automatically for pull requests targeting `main`, and can
+also be started manually in GitHub: open **Actions**, select **Wellness Tracker
+Electron E2E**, choose **Run workflow**, and select the branch. It uses
+`ubuntu-22.04`, `npm ci`, and Xvfb to run `npm run test:e2e`; it does not download
+Playwright-managed browsers or weaken Chromium sandboxing.
 
 Each E2E test creates a unique direct child of the system temporary directory with a
 `wellness-tracker-e2e-` prefix. Electron accepts that profile only when both explicit
