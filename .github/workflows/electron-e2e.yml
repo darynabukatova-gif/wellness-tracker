@@ -1,10 +1,13 @@
-# Runs the real Electron UI suite only when explicitly requested from GitHub.
-# It remains separate from the fast, automatic Node.js workflow.
+# Runs the real Electron UI suite for pull requests targeting main and on demand.
+# It remains separate from the fast Node.js workflow.
 
 name: Wellness Tracker Electron E2E
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
