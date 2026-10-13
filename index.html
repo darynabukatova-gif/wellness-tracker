@@ -136,7 +136,8 @@
     #entry-form-section,
     #summary-section,
     #history-trends-section,
-    #entries-section {
+    #entries-section,
+    #backup-section {
       background-color: var(--colour-surface);
       border: 1px solid var(--colour-border);
       border-radius: var(--radius-md);
@@ -146,7 +147,8 @@
     #entry-form-section h2,
     #summary-section h2,
     #history-trends-section h2,
-    #entries-section h2 {
+    #entries-section h2,
+    #backup-section h2 {
       margin-bottom: var(--space-4);
     }
 
@@ -522,6 +524,38 @@
 
     .entries-header h2 {
       margin-bottom: 0;
+    }
+
+    .backup-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-3);
+      margin-top: var(--space-3);
+    }
+
+    .backup-note {
+      color: var(--colour-text-muted);
+      font-size: var(--font-size-sm);
+    }
+
+    .import-preview {
+      margin-top: var(--space-4);
+      padding: var(--space-3);
+      background-color: var(--colour-bg);
+      border: 1px solid var(--colour-border);
+      border-radius: var(--radius-sm);
+    }
+
+    .import-preview-warning {
+      margin-top: var(--space-2);
+      color: var(--colour-danger);
+      font-weight: 600;
+    }
+
+    .backup-status {
+      color: var(--colour-accent-dark);
+      font-size: var(--font-size-sm);
+      margin-top: var(--space-3);
     }
 
     /* Table-level error message — shown for Delete / Erase all storage failures.
@@ -938,6 +972,8 @@
        STORAGE KEY
        ═══════════════════════════════════════════════════════════════ */
     const STORAGE_KEY = 'wellness-tracker-demo-v1';
+    const BACKUP_FORMAT_VERSION = 1;
+    const BACKUP_APPLICATION = 'wellness-tracker';
 
     /* ═══════════════════════════════════════════════════════════════
        STORAGE OPERATIONS
@@ -1417,6 +1453,125 @@
     }
 
     /* ═══════════════════════════════════════════════════════════════
+       BACKUP FORMAT HELPERS
+       (Pure validation and copying; no DOM, storage, or network access.)
+       ═══════════════════════════════════════════════════════════════ */
+
+    function hasExactlyKeys(value, expectedKeys) {
+      if (value === null || Array.isArray(value) || typeof value !== 'object') return false;
+      const actualKeys = Object.keys(value);
+      return actualKeys.length === expectedKeys.length && expectedKeys.every(function (key) {
+        return Object.prototype.hasOwnProperty.call(value, key);
+      });
+    }
+
+    function isCanonicalUtcTimestamp(value) {
+      if (typeof value !== 'string' ||
+          !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
+        return false;
+      }
+      const date = new Date(value);
+      return !isNaN(date.getTime()) && date.toISOString() === value;
+    }
+
+    function validateBackupEntries(entries) {
+      if (!Array.isArray(entries)) return 'Backup entries must be an array.';
+      const expectedEntryKeys = ['date', 'mood', 'sleep', 'water'];
+      for (let index = 0; index < entries.length; index++) {
+        if (!hasExactlyKeys(entries[index], expectedEntryKeys)) {
+          return 'Backup entry at position ' + (index + 1) + ' has an unexpected structure.';
+        }
+      }
+      return validateStoredEntries(entries);
+    }
+
+    function copyEntries(entries) {
+      return entries.map(function (entry) {
+        return {
+          date: entry.date,
+          mood: entry.mood,
+          sleep: entry.sleep,
+          water: entry.water,
+        };
+      });
+    }
+
+    /**
+     * createBackupDocument(entries, exportedAt)
+     *
+     * Creates a detached version-1 backup envelope from an already saved entry
+     * array. Invalid data is rejected rather than being silently exported.
+     *
+     * @throws {TypeError|RangeError} When entries or exportedAt are invalid.
+     * @returns {{application: string, backupVersion: number, exportedAt: string, entries: Array}}
+     */
+    function createBackupDocument(entries, exportedAt) {
+      const entriesError = validateBackupEntries(entries);
+      if (entriesError) {
+        throw new TypeError('Cannot create backup: ' + entriesError);
+      }
+      if (!isCanonicalUtcTimestamp(exportedAt)) {
+        throw new RangeError('Cannot create backup: exportedAt must be a canonical UTC timestamp.');
+      }
+      return {
+        application: BACKUP_APPLICATION,
+        backupVersion: BACKUP_FORMAT_VERSION,
+        exportedAt,
+        entries: copyEntries(entries),
+      };
+    }
+
+    /**
+     * parseBackupDocument(jsonText)
+     *
+     * Parses and validates a complete version-1 backup. It never accepts a
+     * partial backup or coerces values, and returns a detached copy on success.
+     *
+     * @returns {{ok: true, backup: Object}|{ok: false, code: string, error: string}}
+     */
+    function parseBackupDocument(jsonText) {
+      if (typeof jsonText !== 'string') {
+        return { ok: false, code: 'INVALID_JSON', error: 'Backup data must be JSON text.' };
+      }
+
+      let documentValue;
+      try {
+        documentValue = JSON.parse(jsonText);
+      } catch (error) {
+        return { ok: false, code: 'INVALID_JSON', error: 'Backup file is not valid JSON.' };
+      }
+
+      const expectedDocumentKeys = ['application', 'backupVersion', 'exportedAt', 'entries'];
+      if (!hasExactlyKeys(documentValue, expectedDocumentKeys)) {
+        return { ok: false, code: 'INVALID_ENVELOPE', error: 'Backup file has an unexpected structure.' };
+      }
+      if (documentValue.application !== BACKUP_APPLICATION) {
+        return { ok: false, code: 'UNSUPPORTED_APPLICATION', error: 'Backup file is not for Wellness Tracker.' };
+      }
+      if (documentValue.backupVersion !== BACKUP_FORMAT_VERSION) {
+        return { ok: false, code: 'UNSUPPORTED_VERSION', error: 'Backup file version is not supported.' };
+      }
+      if (!isCanonicalUtcTimestamp(documentValue.exportedAt)) {
+        return { ok: false, code: 'INVALID_TIMESTAMP', error: 'Backup export timestamp is invalid.' };
+      }
+
+      const entriesError = validateBackupEntries(documentValue.entries);
+      if (entriesError) {
+        return { ok: false, code: 'INVALID_ENTRIES', error: 'Backup entries are invalid: ' + entriesError };
+      }
+
+      return {
+        ok: true,
+        backup: {
+          application: BACKUP_APPLICATION,
+          backupVersion: BACKUP_FORMAT_VERSION,
+          exportedAt: documentValue.exportedAt,
+          entries: copyEntries(documentValue.entries),
+        },
+      };
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
        VALIDATION
        (Pure function — no DOM or persistence access.)
        ═══════════════════════════════════════════════════════════════ */
@@ -1704,6 +1859,9 @@
     let calendarMonthIndex = null;
     let selectedCalendarDate = null;
     let trendDayCount = 30;
+    let pendingImport = null;
+    let importReading = false;
+    const MAX_BACKUP_FILE_BYTES = 5 * 1024 * 1024;
 
     function getStorageAdapter() {
       if (window.wellnessStorage &&
@@ -1732,10 +1890,15 @@
       updateMutatingControls();
     }
 
+    function isMutationBlocked() {
+      return busy || locked || importReading || pendingImport !== null;
+    }
+
     function updateMutatingControls() {
-      const disabled = busy || locked;
+      const disabled = isMutationBlocked();
       [
         '#entry-date', '#save-btn', '#cancel-edit-btn', '#erase-all-btn',
+        '#export-backup-btn', '#import-backup-btn', '#import-backup-input',
         '#entry-sleep', '#entry-water', '#sleep-minus', '#sleep-plus',
         '#water-minus', '#water-plus'
       ].forEach(function (selector) {
@@ -1749,6 +1912,12 @@
         .forEach(function (button) { button.disabled = disabled; });
       document.querySelectorAll('#calendar-details .calendar-detail-action')
         .forEach(function (button) { button.disabled = disabled; });
+      const cancelImportButton = document.getElementById('cancel-import-btn');
+      if (cancelImportButton) cancelImportButton.disabled = !pendingImport || busy || locked;
+      const replaceImportButton = document.getElementById('replace-import-btn');
+      if (replaceImportButton) {
+        replaceImportButton.disabled = !pendingImport || busy || locked || importReading;
+      }
       if (!disabled) {
         updateSleepControl();
         updateWaterControl();
@@ -1767,8 +1936,8 @@
       const plus = document.getElementById('sleep-plus');
       const value = Number(slider.value);
       if (display) display.textContent = sleepSelected ? value.toFixed(1).replace(/\.0$/, '') + ' h' : 'Choose a value';
-      if (minus) minus.disabled = busy || locked || (sleepSelected && value <= 0);
-      if (plus) plus.disabled = busy || locked || (sleepSelected && value >= 24);
+      if (minus) minus.disabled = isMutationBlocked() || (sleepSelected && value <= 0);
+      if (plus) plus.disabled = isMutationBlocked() || (sleepSelected && value >= 24);
     }
 
     function updateWaterControl() {
@@ -1778,8 +1947,8 @@
       const plus = document.getElementById('water-plus');
       const value = roundWater(slider.value);
       if (display) display.textContent = waterSelected ? value.toFixed(1) + ' L' : 'Choose a value';
-      if (minus) minus.disabled = busy || locked || (waterSelected && value <= 0);
-      if (plus) plus.disabled = busy || locked || (waterSelected && value >= 3);
+      if (minus) minus.disabled = isMutationBlocked() || (waterSelected && value <= 0);
+      if (plus) plus.disabled = isMutationBlocked() || (waterSelected && value >= 3);
     }
 
     function resetValueControls() {
@@ -1803,6 +1972,7 @@
     }
 
     function adjustValueControl(kind, direction) {
+      if (isMutationBlocked()) return;
       const isSleep = kind === 'sleep';
       const slider = document.getElementById(isSleep ? 'entry-sleep' : 'entry-water');
       const selected = isSleep ? sleepSelected : waterSelected;
@@ -1952,6 +2122,226 @@
       el.classList.remove('is-visible');
     }
 
+    function showBackupError(message) {
+      const el = document.getElementById('backup-error');
+      el.classList.add('is-visible');
+      el.textContent = message;
+    }
+
+    function clearBackupError() {
+      const el = document.getElementById('backup-error');
+      el.textContent = '';
+      el.classList.remove('is-visible');
+    }
+
+    function showBackupStatus(message) {
+      document.getElementById('backup-status').textContent = message;
+    }
+
+    function clearBackupStatus() {
+      document.getElementById('backup-status').textContent = '';
+    }
+
+    function handleExportBackup() {
+      if (isMutationBlocked()) return;
+
+      let objectUrl = null;
+      let downloadLink = null;
+      try {
+        const exportedAt = new Date().toISOString();
+        const backup = createBackupDocument(entries, exportedAt);
+        const content = JSON.stringify(backup, null, 2) + '\n';
+        const fileName = 'wellness-tracker-backup-' + exportedAt.slice(0, 10) + '.json';
+        const blob = new Blob([content], { type: 'application/json' });
+        objectUrl = URL.createObjectURL(blob);
+        downloadLink = document.createElement('a');
+        downloadLink.href = objectUrl;
+        downloadLink.download = fileName;
+        downloadLink.hidden = true;
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        clearBackupError();
+      } catch (error) {
+        showBackupError('Could not prepare the backup download. Your saved entries have not changed.');
+      } finally {
+        if (downloadLink && downloadLink.parentNode) {
+          downloadLink.parentNode.removeChild(downloadLink);
+        }
+        if (objectUrl) {
+          const revokeObjectUrl = function () { URL.revokeObjectURL(objectUrl); };
+          if (typeof window.setTimeout === 'function') {
+            window.setTimeout(revokeObjectUrl, 0);
+          } else {
+            revokeObjectUrl();
+          }
+        }
+      }
+    }
+
+    function resetImportFileInput() {
+      const input = document.getElementById('import-backup-input');
+      if (input) input.value = '';
+    }
+
+    function renderImportPreview() {
+      const preview = document.getElementById('import-preview');
+      const summary = document.getElementById('import-preview-summary');
+      const warning = document.getElementById('import-preview-warning');
+      const exportedAt = document.getElementById('import-preview-exported-at');
+      if (!pendingImport) {
+        preview.hidden = true;
+        summary.textContent = '';
+        warning.textContent = '';
+        exportedAt.textContent = '';
+        return;
+      }
+
+      const importedEntries = pendingImport.entries;
+      if (importedEntries.length === 0) {
+        summary.textContent = 'Backup contains 0 entries. No entries in backup. You currently have ' +
+          entries.length + ' saved entries. No data has been changed.';
+        warning.textContent = 'Replacing entries with this empty backup would remove all existing entries.';
+      } else {
+        const dates = importedEntries.map(function (entry) { return entry.date; }).sort();
+        summary.textContent = 'Backup contains ' + importedEntries.length + ' entries, from ' +
+          dates[0] + ' to ' + dates[dates.length - 1] + '. You currently have ' +
+          entries.length + ' saved entries. No data has been changed.';
+        warning.textContent = 'Replacing entries would REPLACE ALL existing entries.';
+      }
+      exportedAt.textContent = 'Backup exported at ' + pendingImport.exportedAt + '.';
+      preview.hidden = false;
+    }
+
+    function handleImportBackup() {
+      if (isMutationBlocked()) return;
+      clearBackupError();
+      clearBackupStatus();
+      const input = document.getElementById('import-backup-input');
+      resetImportFileInput();
+      input.click();
+    }
+
+    async function handleImportFileChange(event) {
+      const input = event.target;
+      const file = input && input.files ? input.files[0] : null;
+      if (!file) {
+        resetImportFileInput();
+        return;
+      }
+      if (isMutationBlocked()) {
+        resetImportFileInput();
+        return;
+      }
+      if (typeof file.size === 'number' && file.size > MAX_BACKUP_FILE_BYTES) {
+        showBackupError('Backup file is too large. Choose a JSON backup smaller than 5 MiB.');
+        resetImportFileInput();
+        return;
+      }
+      if (typeof file.text !== 'function') {
+        showBackupError('This browser cannot read the selected backup file.');
+        resetImportFileInput();
+        return;
+      }
+
+      importReading = true;
+      clearBackupError();
+      clearBackupStatus();
+      updateMutatingControls();
+      try {
+        const text = await file.text();
+        const result = parseBackupDocument(text);
+        if (!result.ok) {
+          showBackupError('Could not validate the backup file: ' + result.error);
+          return;
+        }
+        if (locked || busy || pendingImport !== null) return;
+        pendingImport = result.backup;
+        renderImportPreview();
+      } catch (error) {
+        showBackupError('Could not read the selected backup file. Your saved entries have not changed.');
+      } finally {
+        importReading = false;
+        resetImportFileInput();
+        updateMutatingControls();
+      }
+    }
+
+    function handleCancelImport() {
+      if (!pendingImport || busy || locked) return;
+      pendingImport = null;
+      renderImportPreview();
+      clearBackupError();
+      clearBackupStatus();
+      resetImportFileInput();
+      updateMutatingControls();
+      document.getElementById('import-backup-btn').focus();
+    }
+
+    function copyImportedEntries(importedEntries) {
+      return importedEntries.map(function (entry) {
+        return {
+          date: entry.date,
+          mood: entry.mood,
+          sleep: entry.sleep,
+          water: entry.water,
+        };
+      });
+    }
+
+    async function handleReplaceImport() {
+      if (busy || locked || importReading || !pendingImport || !storageAdapter) return;
+
+      const importToReplace = pendingImport;
+      const candidate = copyImportedEntries(importToReplace.entries);
+      const validationError = validateStoredEntries(candidate);
+      if (validationError) {
+        showBackupError('The selected backup is no longer valid. Cancel the import and select it again.');
+        return;
+      }
+
+      const currentCount = entries.length;
+      const importedCount = candidate.length;
+      let confirmation = 'Replace all ' + currentCount + ' currently saved ' +
+        (currentCount === 1 ? 'entry' : 'entries') + ' with ' + importedCount + ' backup ' +
+        (importedCount === 1 ? 'entry' : 'entries') + '?\n\n' +
+        'All currently saved entries will be replaced, not merged. Export a backup of your current entries first if you want to preserve them.';
+      if (importedCount === 0) {
+        confirmation += '\n\nThis backup is empty, so replacing entries will delete all currently saved entries.';
+      }
+      if (hasUnsavedFormChanges()) {
+        confirmation += '\n\nYou also have unsaved form changes. They will be discarded only after a successful replacement.';
+      }
+      if (!window.confirm(confirmation)) return;
+
+      if (busy || locked || importReading || pendingImport !== importToReplace || !storageAdapter) return;
+
+      let restored = false;
+      setBusyState(true);
+      try {
+        const result = await storageAdapter.saveEntries(candidate);
+        if (!result || !result.ok) {
+          showBackupError('Could not replace saved entries. Your current entries have not changed.');
+          return;
+        }
+
+        entries = candidate;
+        pendingImport = null;
+        resetImportFileInput();
+        exitEditMode();
+        renderImportPreview();
+        clearBackupError();
+        showBackupStatus('Backup restored. ' + candidate.length + ' ' +
+          (candidate.length === 1 ? 'entry is' : 'entries are') + ' now saved.');
+        render();
+        restored = true;
+      } catch (error) {
+        showBackupError('Could not replace saved entries. Your current entries have not changed.');
+      } finally {
+        setBusyState(false);
+        if (restored) document.getElementById('import-backup-btn').focus();
+      }
+    }
+
     /* ── Erase-all button state helper ───────────────────────────── */
 
     /**
@@ -1963,7 +2353,7 @@
      */
     function updateEraseAllBtn() {
       const btn = document.getElementById('erase-all-btn');
-      btn.disabled = busy || locked || entries.length === 0;
+      btn.disabled = isMutationBlocked() || entries.length === 0;
     }
 
     /* ── History and Trends ──────────────────────────────────────── */
@@ -2242,7 +2632,7 @@
         'aria-label',
         (entry ? 'Edit entry for ' : 'Create entry for ') + readableDate
       );
-      actionButton.disabled = busy || locked;
+      actionButton.disabled = isMutationBlocked();
       details.appendChild(actionButton);
     }
 
@@ -2363,7 +2753,7 @@
 
       const actionButton = event.target.closest('.calendar-detail-action');
       if (actionButton) {
-        if (busy || locked) return;
+        if (isMutationBlocked()) return;
         const date = actionButton.dataset.calendarDate;
         if (!date) return;
         const changed = actionButton.dataset.calendarAction === 'edit'
@@ -2437,6 +2827,7 @@
     }
 
     function enterNewEntryModeForDate(date) {
+      if (isMutationBlocked()) return false;
       if (!confirmDiscardUnsavedFormChanges()) return false;
       exitEditMode();
       document.getElementById('entry-date').value = date;
@@ -2444,6 +2835,7 @@
     }
 
     function enterEditMode(date) {
+      if (isMutationBlocked()) return false;
       const entry = entries.find(function (candidate) {
         return candidate.date === date;
       });
@@ -2569,11 +2961,28 @@
       document.getElementById('erase-all-btn')
         .addEventListener('click', handleEraseAll);
 
+      document.getElementById('export-backup-btn')
+        .addEventListener('click', handleExportBackup);
+
+      document.getElementById('import-backup-btn')
+        .addEventListener('click', handleImportBackup);
+
+      document.getElementById('import-backup-input')
+        .addEventListener('change', handleImportFileChange);
+
+      document.getElementById('cancel-import-btn')
+        .addEventListener('click', handleCancelImport);
+
+      document.getElementById('replace-import-btn')
+        .addEventListener('click', handleReplaceImport);
+
       document.getElementById('entry-sleep').addEventListener('input', function () {
+        if (isMutationBlocked()) return;
         sleepSelected = true;
         updateSleepControl();
       });
       document.getElementById('entry-water').addEventListener('input', function () {
+        if (isMutationBlocked()) return;
         waterSelected = true;
         updateWaterControl();
       });
@@ -2592,7 +3001,7 @@
 
       document.getElementById('cancel-edit-btn')
         .addEventListener('click', function () {
-          if (busy || locked) return;
+          if (isMutationBlocked()) return;
           exitEditMode();
           document.getElementById('entry-date').focus();
         });
@@ -2623,7 +3032,7 @@
     async function handleFormSubmit(event) {
       event.preventDefault();
 
-      if (locked || busy || !storageAdapter) return;
+      if (isMutationBlocked() || !storageAdapter) return;
 
       // Read raw values from the DOM
       const dateVal  = document.getElementById('entry-date').value;
@@ -2775,7 +3184,7 @@
      *   5. Only update state and re-render on success.
      */
     async function handleTableClick(event) {
-      if (locked || busy || !storageAdapter) return;
+      if (isMutationBlocked() || !storageAdapter) return;
 
       const editBtn = event.target.closest('.btn-edit');
       if (editBtn) {
@@ -2846,7 +3255,7 @@
      * the same write path and error handling.
      */
     async function handleEraseAll() {
-      if (locked || busy || !storageAdapter) return;
+      if (isMutationBlocked() || !storageAdapter) return;
 
       const confirmed = window.confirm(
         'This will permanently delete all entries. Continue?'
@@ -3102,6 +3511,28 @@
 
       <!-- JS will inject a <table> or a "No entries yet" <p> here -->
       <div id="entries-container" aria-live="polite" aria-relevant="additions removals"></div>
+    </section>
+
+    <!-- ── Backup and Restore ───────────────────────────────────── -->
+    <section id="backup-section" aria-labelledby="backup-heading">
+      <h2 id="backup-heading">Backup &amp; Restore</h2>
+      <p class="backup-note">Export contains all saved entries in an unencrypted JSON backup file.</p>
+      <div class="backup-actions">
+        <button type="button" id="export-backup-btn">Export backup</button>
+        <button type="button" id="import-backup-btn">Import backup</button>
+      </div>
+      <input id="import-backup-input" type="file" accept=".json,application/json" hidden>
+      <p id="backup-error" class="table-error" role="alert"></p>
+      <p id="backup-status" class="backup-status" role="status"></p>
+      <div id="import-preview" class="import-preview" aria-live="polite" hidden>
+        <p id="import-preview-summary"></p>
+        <p id="import-preview-exported-at" class="backup-note"></p>
+        <p id="import-preview-warning" class="import-preview-warning"></p>
+        <div class="backup-actions">
+          <button type="button" id="replace-import-btn" class="btn-danger">Replace all entries</button>
+          <button type="button" id="cancel-import-btn">Cancel import</button>
+        </div>
+      </div>
     </section>
 
   </main>

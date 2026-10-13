@@ -41,7 +41,8 @@
  *       { localDateString, addCalendarDays, buildTrendSeries,
  *         buildCalendarMonth, isValidStep, isValidEntryShape,
  *         validateStoredEntries, validateEntry, sortByDateDesc,
- *         calcSummary, loadEntries, saveEntries, storage }
+ *         calcSummary, createBackupDocument, parseBackupDocument,
+ *         loadEntries, saveEntries, storage }
  *
  *     localStorageStub (optional)
  *       An object with getItem(key) and setItem(key, value) methods.
@@ -77,6 +78,8 @@ const REQUIRED_FUNCTIONS = [
   'validateEntry',
   'sortByDateDesc',
   'calcSummary',
+  'createBackupDocument',
+  'parseBackupDocument',
   'loadEntries',
   'saveEntries',
 ];
@@ -184,7 +187,7 @@ function getScriptSource() {
  * loadContext(localStorageStub?)
  *
  * Evaluates the first <script> block from index.html in a fresh vm context
- * and returns the nine application functions plus the storage stub.
+ * and returns the selected application functions plus the storage stub.
  *
  * A fresh context is created on every call, so each test (or describe block)
  * gets its own isolated scope with no shared state between tests.
@@ -204,6 +207,8 @@ function getScriptSource() {
  *   validateEntry:        function,
  *   sortByDateDesc:       function,
  *   calcSummary:          function,
+ *   createBackupDocument: function,
+ *   parseBackupDocument:  function,
  *   loadEntries:          function,
  *   saveEntries:          function,
  *   storage:              object,   ← the localStorage stub in use
@@ -259,6 +264,8 @@ function loadContext(localStorageStub) {
     validateEntry:         sandbox.validateEntry,
     sortByDateDesc:        sandbox.sortByDateDesc,
     calcSummary:           sandbox.calcSummary,
+    createBackupDocument:  sandbox.createBackupDocument,
+    parseBackupDocument:   sandbox.parseBackupDocument,
     loadEntries:           sandbox.loadEntries,
     saveEntries:           sandbox.saveEntries,
     storage,
