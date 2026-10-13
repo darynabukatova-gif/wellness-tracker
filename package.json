@@ -8,11 +8,13 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.js",
+    "test:e2e": "node --test --test-concurrency=1 e2e/*.test.js",
     "dist": "electron-builder --linux AppImage --x64"
   },
   "devDependencies": {
     "electron": "^40.10.6",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "playwright-core": "1.64.0"
   },
   "build": {
     "appId": "com.wellnesstracker.desktop",

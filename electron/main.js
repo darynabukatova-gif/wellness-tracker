@@ -5,6 +5,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const { createStorage } = require('./storage');
 const { focusWindow, isExpectedAppUrl, isTrustedRenderer } = require('./security');
+const { configureE2EUserData } = require('./e2e-config');
 
 let storage;
 let mainWindow;
@@ -32,40 +33,53 @@ function createWindow() {
   mainWindow.loadURL(appPageUrl);
 }
 
-const hasSingleInstanceLock = app.requestSingleInstanceLock();
-
-if (!hasSingleInstanceLock) {
-  app.quit();
-} else {
-  app.on('second-instance', () => {
-    focusWindow(mainWindow);
+let startupConfiguration;
+try {
+  startupConfiguration = configureE2EUserData({
+    app,
+    productionUserDataDirectory: app.getPath('userData'),
   });
+} catch (error) {
+  console.error(`Wellness Tracker could not start: ${error.message}`);
+  app.exit(1);
+}
 
-  app.whenReady().then(() => {
-    storage = createStorage({ directory: app.getPath('userData') });
+if (startupConfiguration) {
+  const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
-    ipcMain.handle('wellness:loadEntries', event => {
-      if (!isTrustedWellnessRenderer(event)) {
-        throw new Error('Untrusted renderer.');
-      }
-      return storage.loadEntries();
+  if (!hasSingleInstanceLock) {
+    app.quit();
+  } else {
+    app.on('second-instance', () => {
+      focusWindow(mainWindow);
     });
 
-    ipcMain.handle('wellness:saveEntries', (event, entries) => {
-      if (!isTrustedWellnessRenderer(event)) {
-        throw new Error('Untrusted renderer.');
-      }
-      return storage.saveEntries(entries);
+    app.whenReady().then(() => {
+      storage = createStorage({ directory: app.getPath('userData') });
+
+      ipcMain.handle('wellness:loadEntries', event => {
+        if (!isTrustedWellnessRenderer(event)) {
+          throw new Error('Untrusted renderer.');
+        }
+        return storage.loadEntries();
+      });
+
+      ipcMain.handle('wellness:saveEntries', (event, entries) => {
+        if (!isTrustedWellnessRenderer(event)) {
+          throw new Error('Untrusted renderer.');
+        }
+        return storage.saveEntries(entries);
+      });
+
+      createWindow();
+
+      app.on('activate', () => {
+        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      });
     });
 
-    createWindow();
-
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    app.on('window-all-closed', () => {
+      if (process.platform !== 'darwin') app.quit();
     });
-  });
-
-  app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit();
-  });
+  }
 }
