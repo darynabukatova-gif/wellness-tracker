@@ -25,3 +25,12 @@ test('frontend assets are referenced in order and included in Electron packaging
   assert.ok(packageJson.build.files.includes('js/**/*'));
   assert.ok(packageJson.build.files.includes('styles/**/*'));
 });
+
+test('chart axis labels use a narrow-container readability rule without changing the base size', () => {
+  const css = fs.readFileSync(path.join(root, 'styles', 'app.css'), 'utf8');
+  assert.match(css, /\.trend-chart-card\s*\{[\s\S]*?container-type:\s*inline-size/);
+  assert.match(css, /@container\s*\(max-width:\s*400px\)[\s\S]*?\.trend-axis-label\s*\{[\s\S]*?font-size:\s*12px/);
+  assert.match(css, /@container\s*\(max-width:\s*360px\)[\s\S]*?\.trend-axis-label\s*\{[\s\S]*?font-size:\s*13px/);
+  assert.match(css, /@container\s*\(max-width:\s*320px\)[\s\S]*?\.trend-axis-label\s*\{[\s\S]*?font-size:\s*14px/);
+  assert.match(css, /\.trend-axis-label\s*\{[\s\S]*?font-size:\s*10px/);
+});

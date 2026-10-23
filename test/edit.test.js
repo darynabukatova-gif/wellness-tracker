@@ -39,6 +39,11 @@ class Element {
     this.attributes[name] = String(value);
     if (name === 'class') this.className = String(value);
     this[name] = String(value);
+    if (name === 'hidden') this.hidden = true;
+  }
+  removeAttribute(name) {
+    delete this.attributes[name];
+    if (name === 'hidden') this.hidden = false;
   }
   appendChild(child) { this.children.push(child); return child; }
   replaceChildren(...children) { this.children = children; }
@@ -61,6 +66,10 @@ function makeApp() {
    'import-backup-input', 'cancel-import-btn', 'replace-import-btn', 'backup-error', 'backup-status', 'import-preview',
    'import-preview-summary', 'import-preview-exported-at', 'import-preview-warning',
    'entries-container', 'entries-heading', 'entry-form', 'app-error', 'sleep-value',
+   'history-filter-form', 'history-from-date', 'history-to-date', 'show-history-btn',
+   'clear-history-filters-btn', 'history-filter-error', 'history-status',
+   'trend-custom-form', 'trend-custom-start', 'trend-custom-end', 'apply-trend-custom-btn',
+   'trend-custom-error', 'trend-range-status',
    'water-value', 'sleep-minus', 'sleep-plus', 'water-minus', 'water-plus',
    'entry-form-section',
    'stat-count', 'stat-mood', 'stat-sleep', 'stat-water',
@@ -77,6 +86,10 @@ function makeApp() {
     button.className = 'trend-period-btn';
     button.dataset.trendDays = String(dayCount);
   });
+  const customTrendButton = new Element('trend-period-custom');
+  customTrendButton.className = 'trend-period-btn';
+  customTrendButton.dataset.trendDays = 'custom';
+  elements.set('trend-period-custom', customTrendButton);
   const radios = [1, 2, 3, 4, 5].map(value => {
     const radio = new Element('mood-' + value);
     radio.value = String(value);
@@ -111,6 +124,11 @@ function makeApp() {
     querySelector(selector) {
       if (selector === 'input[name="mood"]:checked') return radios.find(r => r.checked) || null;
       if (selector === 'input[name="mood"]') return radios[0];
+      if (selector === '#calendar-details .calendar-detail-action[data-calendar-action="create"]') {
+        return elements.get('calendar-details').children.find(button =>
+          button.dataset && button.dataset.calendarAction === 'create'
+        ) || null;
+      }
       if (selector.startsWith('#')) return elements.get(selector.slice(1)) || null;
       return null;
     },
@@ -120,7 +138,7 @@ function makeApp() {
       if (selector === '#entries-container .btn-delete') return buttons.filter(b => b.className === 'btn-delete');
       if (selector === '#entries-container .btn-edit, #entries-container .btn-delete') return buttons;
       if (selector === '.trend-period-btn') {
-        return [7, 30, 90].map(dayCount => elements.get('trend-period-' + dayCount));
+        return [7, 30, 90].map(dayCount => elements.get('trend-period-' + dayCount)).concat(customTrendButton);
       }
       if (selector === '#calendar-details .calendar-detail-action') {
         return elements.get('calendar-details').children.filter(button =>
@@ -158,7 +176,7 @@ function makeApp() {
     },
   };
   vm.createContext(sandbox);
-  const source = appSource + '\nthis.__api = { init, render, renderHistoryTrends, renderHistoryTrendsForCurrentState, renderCharts, renderCalendar, renderCalendarForCurrentState, renderCalendarDetails, ensureCalendarMonth, normalizeCalendarSelection, setHistoryView, setTrendDayCount, changeCalendarMonth, handleHistoryTrendsClick, hasUnsavedFormChanges, enterNewEntryModeForDate, enterEditMode, exitEditMode, handleFormSubmit, handleTableClick, handleEraseAll, handleExportBackup, handleImportBackup, handleImportFileChange, handleCancelImport, handleReplaceImport, adjustValueControl, resetValueControls, setValueControlValues, updateSleepControl, updateWaterControl, setBusyState, lockApp, getStorageAdapter, get entries() { return entries; }, get editingDate() { return editingDate; }, get sleepSelected() { return sleepSelected; }, get waterSelected() { return waterSelected; }, get busy() { return busy; }, get locked() { return locked; }, get pendingImport() { return pendingImport; }, get importReading() { return importReading; }, get historyView() { return historyView; }, get trendDayCount() { return trendDayCount; }, get calendarYear() { return calendarYear; }, get calendarMonthIndex() { return calendarMonthIndex; }, get selectedCalendarDate() { return selectedCalendarDate; }, set entries(value) { entries = value; }, set editingDate(value) { editingDate = value; }, set storageAdapter(value) { storageAdapter = value; }, set calendarYear(value) { calendarYear = value; }, set calendarMonthIndex(value) { calendarMonthIndex = value; }, set selectedCalendarDate(value) { selectedCalendarDate = value; } };';
+  const source = appSource + '\nthis.__api = { init, render, renderHistoryTrends, renderHistoryTrendsForCurrentState, renderCharts, renderCalendar, renderCalendarForCurrentState, renderCalendarDetails, renderHistoryTable, getHistoryRenderState, handleHistoryFilterSubmit, invalidateAppliedHistoryRange, handleClearHistoryFilters, ensureCalendarMonth, normalizeCalendarSelection, setHistoryView, setTrendDayCount, selectCustomTrendRange, handleCustomTrendSubmit, changeCalendarMonth, handleHistoryTrendsClick, hasUnsavedFormChanges, enterNewEntryModeForDate, enterEditMode, exitEditMode, handleFormSubmit, handleTableClick, handleEraseAll, handleExportBackup, handleImportBackup, handleImportFileChange, handleCancelImport, handleReplaceImport, adjustValueControl, resetValueControls, setValueControlValues, updateSleepControl, updateWaterControl, setBusyState, lockApp, getStorageAdapter, get entries() { return entries; }, get editingDate() { return editingDate; }, get sleepSelected() { return sleepSelected; }, get waterSelected() { return waterSelected; }, get busy() { return busy; }, get locked() { return locked; }, get pendingImport() { return pendingImport; }, get importReading() { return importReading; }, get historyView() { return historyView; }, get trendDayCount() { return trendDayCount; }, get trendMode() { return trendMode; }, get customTrendDraftStart() { return customTrendDraftStart; }, get customTrendDraftEnd() { return customTrendDraftEnd; }, get appliedCustomTrendRange() { return appliedCustomTrendRange; }, get appliedHistoryRange() { return appliedHistoryRange; }, get calendarYear() { return calendarYear; }, get calendarMonthIndex() { return calendarMonthIndex; }, get selectedCalendarDate() { return selectedCalendarDate; }, set entries(value) { entries = value; }, set editingDate(value) { editingDate = value; }, set storageAdapter(value) { storageAdapter = value; }, set calendarYear(value) { calendarYear = value; }, set calendarMonthIndex(value) { calendarMonthIndex = value; }, set selectedCalendarDate(value) { selectedCalendarDate = value; } };';
   new vm.Script(coreSource + '\n' + viewsSource + '\n' + source).runInContext(sandbox);
   const realRender = sandbox.render;
   sandbox.render = () => {};
@@ -269,9 +287,173 @@ function renderHistoryTrendsForApp(app) {
   app.api.renderHistoryTrendsForCurrentState();
 }
 
+function applyHistoryRange(app, startDate, endDate) {
+  app.elements.get('history-from-date').value = startDate;
+  app.elements.get('history-to-date').value = endDate;
+  app.api.handleHistoryFilterSubmit({ preventDefault() {} });
+}
+
+function historyTableRows(app) {
+  const table = app.elements.get('entries-container').children.find(node => node.tagName === 'TABLE');
+  if (!table) return [];
+  const tbody = table.children.find(node => node.tagName === 'TBODY');
+  return tbody ? tbody.children : [];
+}
+
+function historyRowDates(app) {
+  return historyTableRows(app).map(row => row.children[0].textContent);
+}
+
 test('calendar detail container permits its interactive action button', () => {
   assert.match(html, /<div id="calendar-details" class="calendar-details" aria-live="polite"><\/div>/);
   assert.doesNotMatch(html, /<p id="calendar-details"/);
+});
+
+test('history is hidden initially while the total saved-entry count remains visible', () => {
+  const app = makeApp();
+  app.api.renderHistoryTable();
+
+  assert.equal(app.api.appliedHistoryRange, null);
+  assert.match(app.elements.get('entries-container').children[0].textContent, /Select both dates/);
+  assert.equal(app.elements.get('history-status').textContent, '2 saved entries.');
+  assert.equal(historyTableRows(app).length, 0);
+});
+
+test('history applies an inclusive range with newest-first entries and no storage write', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+
+  applyHistoryRange(app, '2025-06-10', '2025-06-11');
+
+  assert.deepEqual(historyRowDates(app), ['2025-06-11', '2025-06-10']);
+  assert.match(app.elements.get('history-status').textContent, /Showing 2 matching entries/);
+  assert.equal(saveCalls, 0);
+});
+
+test('history rejects incomplete and reversed ranges without showing stale results', () => {
+  const app = makeApp();
+  applyHistoryRange(app, '2025-06-10', '2025-06-11');
+  app.elements.get('history-to-date').value = '';
+  app.api.invalidateAppliedHistoryRange();
+  app.api.handleHistoryFilterSubmit({ preventDefault() {} });
+
+  assert.equal(app.api.appliedHistoryRange, null);
+  assert.match(app.elements.get('history-filter-error').textContent, /both a start date and an end date/);
+  assert.equal(historyTableRows(app).length, 0);
+
+  applyHistoryRange(app, '2025-06-11', '2025-06-10');
+  assert.match(app.elements.get('history-filter-error').textContent, /on or after/);
+  assert.equal(historyTableRows(app).length, 0);
+});
+
+test('changing or clearing history filters hides applied results without changing entries', () => {
+  const app = makeApp();
+  const original = JSON.stringify(app.api.entries);
+  applyHistoryRange(app, '2025-06-10', '2025-06-11');
+  app.elements.get('history-from-date').value = '2025-06-11';
+  app.api.invalidateAppliedHistoryRange();
+
+  assert.equal(app.api.appliedHistoryRange, null);
+  assert.equal(historyTableRows(app).length, 0);
+  assert.match(app.elements.get('entries-container').children[0].textContent, /Select both dates/);
+
+  app.api.handleClearHistoryFilters();
+  assert.equal(app.elements.get('history-from-date').value, '');
+  assert.equal(app.elements.get('history-to-date').value, '');
+  assert.equal(JSON.stringify(app.api.entries), original);
+});
+
+test('history renders an empty selected range and limits large result sets to the newest 100', () => {
+  const app = makeApp();
+  applyHistoryRange(app, '2026-01-01', '2026-01-02');
+  assert.match(app.elements.get('entries-container').children[0].textContent, /No entries match/);
+
+  app.api.entries = Array.from({ length: 102 }, (_, index) => ({
+    date: '2025-01-' + String(index + 1).padStart(2, '0'),
+    mood: 3,
+    sleep: 6,
+    water: 1,
+  })).filter(entry => Number(entry.date.slice(-2)) <= 31);
+  app.api.entries = Array.from({ length: 102 }, (_, index) => ({
+    date: String(2025 + Math.floor(index / 31)).padStart(4, '0') + '-01-' + String((index % 31) + 1).padStart(2, '0'),
+    mood: 3,
+    sleep: 6,
+    water: 1,
+  }));
+  applyHistoryRange(app, '2025-01-01', '2028-01-31');
+
+  assert.equal(historyTableRows(app).length, 100);
+  assert.match(app.elements.get('entries-container').children[0].textContent, /newest 100 of 102/);
+  assert.match(app.elements.get('history-status').textContent, /Showing 102 matching entries/);
+});
+
+test('history edit and delete actions continue to operate on filtered rows', async () => {
+  const app = makeApp();
+  app.sandbox.render = app.realRender;
+  applyHistoryRange(app, '2025-06-10', '2025-06-11');
+  const firstRow = historyTableRows(app)[0];
+  const editButton = firstRow.children[4].children[0];
+  const deleteButton = firstRow.children[4].children[1];
+
+  await app.api.handleTableClick({ target: editButton });
+  assert.equal(app.api.editingDate, '2025-06-11');
+  await app.api.handleTableClick({ target: deleteButton });
+  assert.equal(app.api.entries.length, 1);
+  assert.deepEqual(historyRowDates(app), ['2025-06-10']);
+});
+
+test('applied history ranges refresh only after successful writes and backup replacement', async () => {
+  const app = makeApp();
+  app.sandbox.render = app.realRender;
+  applyHistoryRange(app, '2025-06-10', '2025-06-12');
+
+  app.api.storageAdapter = { async saveEntries() { return { ok: false }; } };
+  app.api.enterEditMode('2025-06-10');
+  await submit(app);
+  assert.deepEqual(historyRowDates(app), ['2025-06-11', '2025-06-10']);
+
+  app.api.storageAdapter = { async saveEntries() { return { ok: true }; } };
+  await selectImport(app, importFile(backupText([
+    { date: '2025-06-12', mood: 5, sleep: 8, water: 2.4 },
+  ])));
+  await app.api.handleReplaceImport();
+  assert.deepEqual(historyRowDates(app), ['2025-06-12']);
+  assert.deepEqual(JSON.parse(JSON.stringify(app.api.appliedHistoryRange)), {
+    startDate: '2025-06-10', endDate: '2025-06-12',
+  });
+});
+
+test('history filtering remains read-only while busy, locked, or an import preview is pending', async () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.api.setBusyState(true);
+  applyHistoryRange(app, '2025-06-10', '2025-06-11');
+  assert.deepEqual(historyRowDates(app), ['2025-06-11', '2025-06-10']);
+  app.api.setBusyState(false);
+  app.api.lockApp();
+  applyHistoryRange(app, '2025-06-10', '2025-06-10');
+  assert.deepEqual(historyRowDates(app), ['2025-06-10']);
+  assert.equal(saveCalls, 0);
+
+  const pendingApp = makeApp();
+  await selectImport(pendingApp, importFile(backupText([])));
+  applyHistoryRange(pendingApp, '2025-06-10', '2025-06-11');
+  assert.ok(pendingApp.api.pendingImport);
+  assert.deepEqual(historyRowDates(pendingApp), ['2025-06-11', '2025-06-10']);
+});
+
+test('erase all deletes the full dataset rather than only the applied history range', async () => {
+  const app = makeApp();
+  app.sandbox.render = app.realRender;
+  applyHistoryRange(app, '2025-06-10', '2025-06-10');
+
+  await app.api.handleEraseAll();
+
+  assert.equal(app.api.entries.length, 0);
+  assert.match(app.confirmationMessages[0], /ALL saved entries, not only displayed history results/);
+  assert.match(app.elements.get('entries-container').children[0].textContent, /No entries match/);
 });
 
 test('calendar detail renderer uses explicit entries, selected date, and mutation state', () => {
@@ -1225,6 +1407,17 @@ test('charts default to 30 inclusive calendar days with fixed metric scales', ()
   assert.equal(tbody.children.length, 30);
 });
 
+test('chart endpoint date labels use inward-facing anchors', () => {
+  const app = makeApp();
+  renderChartsForApp(app);
+  const svg = trendCard(app, 'mood').children.find(child => child.tagName === 'SVG');
+  const dateLabels = findDescendants(svg, node => node.className === 'trend-axis-label')
+    .filter(node => !/^(5|1)$/.test(node.textContent));
+  assert.equal(dateLabels[0].attributes['text-anchor'], 'start');
+  assert.equal(dateLabels[1].attributes['text-anchor'], 'middle');
+  assert.equal(dateLabels[2].attributes['text-anchor'], 'end');
+});
+
 test('chart renderer uses its explicit entries, period, and end date', () => {
   const app = makeApp();
   app.api.entries = [];
@@ -1260,6 +1453,85 @@ test('chart period selection is read-only and preserves calendar selection and e
   assert.equal(app.api.selectedCalendarDate, '2025-06-11');
   assert.equal(app.api.editingDate, '2025-06-10');
   assert.equal(saveCalls, 0);
+});
+
+test('custom chart ranges validate inclusively and use explicit historical data without saving', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.api.entries = [
+    { date: '2020-02-28', mood: 2, sleep: 6, water: 0 },
+    { date: '2020-03-01', mood: 5, sleep: 8, water: 2.4 },
+  ];
+  app.api.setTrendDayCount(30);
+  assert.equal(app.elements.get('trend-custom-form').hidden, true);
+  const customButton = app.elements.get('trend-period-custom');
+  app.api.handleHistoryTrendsClick({ target: customButton });
+  assert.equal(app.elements.get('trend-custom-form').hidden, false);
+  app.elements.get('trend-custom-start').value = '2020-02-28';
+  app.elements.get('trend-custom-end').value = '2020-03-01';
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+
+  assert.equal(app.api.trendMode, 'custom');
+  assert.deepEqual(JSON.parse(JSON.stringify(app.api.appliedCustomTrendRange)), {
+    startDate: '2020-02-28',
+    endDate: '2020-03-01',
+  });
+  assert.equal(app.elements.get('trend-custom-error').textContent, '');
+  assert.match(app.elements.get('trend-range-status').textContent, /2020-02-28 to 2020-03-01/);
+  assert.equal(saveCalls, 0);
+  assert.equal(app.api.entries[0].water, 0);
+});
+
+test('invalid custom chart drafts do not replace the last applied range', () => {
+  const app = makeApp();
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  app.elements.get('trend-custom-start').value = '2020-01-01';
+  app.elements.get('trend-custom-end').value = '2020-01-03';
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+  app.elements.get('trend-custom-start').value = '2020-01-05';
+  app.elements.get('trend-custom-end').value = '2020-01-01';
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(app.api.appliedCustomTrendRange)), {
+    startDate: '2020-01-01',
+    endDate: '2020-01-03',
+  });
+  assert.match(app.elements.get('trend-custom-error').textContent, /on or after/);
+  assert.equal(app.elements.get('trend-custom-form').hidden, false);
+  assert.equal(app.elements.get('trend-custom-start').attributes['aria-invalid'], 'true');
+  app.api.setTrendDayCount(30);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  assert.equal(app.elements.get('trend-custom-error').textContent, '');
+  assert.equal(app.elements.get('trend-custom-start').attributes['aria-invalid'], undefined);
+  assert.equal(app.elements.get('trend-custom-end').attributes['aria-invalid'], undefined);
+  app.elements.get('trend-custom-start').value = '2020-01-05';
+  app.elements.get('trend-custom-end').value = '2020-01-01';
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+  assert.match(app.elements.get('trend-custom-error').textContent, /on or after/);
+});
+
+test('a fresh custom mode clears invalid drafts when no custom range was applied', () => {
+  const app = makeApp();
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  app.elements.get('trend-custom-start').value = '2026-10-20';
+  app.elements.get('trend-custom-end').value = '2026-10-10';
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+  assert.match(app.elements.get('trend-custom-error').textContent, /on or after/);
+
+  app.api.setTrendDayCount(30);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+
+  assert.equal(app.elements.get('trend-custom-start').value, '');
+  assert.equal(app.elements.get('trend-custom-end').value, '');
+  assert.equal(app.elements.get('trend-custom-error').textContent, '');
+  assert.equal(app.elements.get('trend-custom-start').attributes['aria-invalid'], undefined);
+  assert.equal(app.elements.get('trend-custom-end').attributes['aria-invalid'], undefined);
+
+  app.elements.get('trend-custom-start').value = '2026-10-20';
+  app.elements.get('trend-custom-end').value = '2026-10-10';
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+  assert.match(app.elements.get('trend-custom-error').textContent, /on or after/);
 });
 
 test('charts preserve zero values and break line segments across missing dates', () => {
@@ -1380,6 +1652,55 @@ test('calendar removes an entry indicator after a successful deletion', async ()
 
   assert.doesNotMatch(findCalendarDateButton(app, '2025-06-11').className, /has-entry/);
   assert.match(app.elements.get('calendar-details').textContent, /No entry recorded/);
+});
+
+test('calendar delete keeps the selected date, shows Create entry, and restores focus', async () => {
+  const app = makeApp();
+  app.sandbox.render = app.realRender;
+  app.api.calendarYear = 2025;
+  app.api.calendarMonthIndex = 5;
+  app.api.selectedCalendarDate = '2025-06-10';
+  app.api.renderCalendarDetails(app.api.entries, app.api.selectedCalendarDate, false);
+  const deleteButton = app.elements.get('calendar-details').children.find(button =>
+    button.dataset.calendarAction === 'delete'
+  );
+  assert.ok(deleteButton);
+  assert.equal(deleteButton.disabled, false);
+
+  app.api.handleHistoryTrendsClick({ target: deleteButton });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(app.api.entries.some(entry => entry.date === '2025-06-10'), false);
+  assert.equal(app.api.selectedCalendarDate, '2025-06-10');
+  const createButton = app.elements.get('calendar-details').children.find(button =>
+    button.dataset.calendarAction === 'create'
+  );
+  assert.ok(createButton);
+  assert.equal(createButton.disabled, false);
+  assert.equal(createButton.focused, true);
+});
+
+test('calendar delete cancellation and storage failure preserve the entry and selection', async () => {
+  const app = makeApp();
+  app.sandbox.render = app.realRender;
+  app.api.selectedCalendarDate = '2025-06-10';
+  app.api.renderCalendarDetails(app.api.entries, app.api.selectedCalendarDate, false);
+  const deleteButton = app.elements.get('calendar-details').children.find(button =>
+    button.dataset.calendarAction === 'delete'
+  );
+
+  app.confirms.push(false);
+  app.api.handleHistoryTrendsClick({ target: deleteButton });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.api.entries.length, 2);
+  assert.equal(app.api.selectedCalendarDate, '2025-06-10');
+
+  app.confirms.push(true);
+  app.api.storageAdapter = { async saveEntries() { return { ok: false }; } };
+  app.api.handleHistoryTrendsClick({ target: deleteButton });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.api.entries.length, 2);
+  assert.equal(app.api.selectedCalendarDate, '2025-06-10');
 });
 
 test('calendar removes all entry indicators after a successful erase-all', async () => {

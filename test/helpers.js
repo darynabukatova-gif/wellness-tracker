@@ -37,7 +37,9 @@
  * EXPORTED API
  *   loadContext(localStorageStub?)
  *     Returns an object containing:
- *       { localDateString, addCalendarDays, buildTrendSeries,
+ *       { localDateString, addCalendarDays, countCalendarDaysInclusive,
+ *         validateCalendarDateRange, filterEntriesByDateRange,
+ *         buildTrendSeries, buildTrendSeriesForRange,
  *         buildCalendarMonth, isValidStep, isValidEntryShape,
  *         validateStoredEntries, validateEntry, sortByDateDesc,
  *         calcSummary, createBackupDocument, parseBackupDocument,
@@ -69,7 +71,11 @@ const CORE_JS = path.resolve(__dirname, '..', 'js', 'core.js');
 const REQUIRED_FUNCTIONS = [
   'localDateString',
   'addCalendarDays',
+  'countCalendarDaysInclusive',
+  'validateCalendarDateRange',
+  'filterEntriesByDateRange',
   'buildTrendSeries',
+  'buildTrendSeriesForRange',
   'buildCalendarMonth',
   'isValidStep',
   'isValidEntryShape',
@@ -166,7 +172,11 @@ function getScriptSource() {
  * @returns {{
  *   localDateString:      function,
  *   addCalendarDays:      function,
+ *   countCalendarDaysInclusive: function,
+ *   validateCalendarDateRange: function,
+ *   filterEntriesByDateRange: function,
  *   buildTrendSeries:     function,
+ *   buildTrendSeriesForRange: function,
  *   buildCalendarMonth:   function,
  *   isValidStep:          function,
  *   isValidEntryShape:    function,
@@ -223,7 +233,11 @@ function loadContext(localStorageStub) {
   return {
     localDateString:       sandbox.localDateString,
     addCalendarDays:       sandbox.addCalendarDays,
+    countCalendarDaysInclusive: sandbox.countCalendarDaysInclusive,
+    validateCalendarDateRange: sandbox.validateCalendarDateRange,
+    filterEntriesByDateRange: sandbox.filterEntriesByDateRange,
     buildTrendSeries:      sandbox.buildTrendSeries,
+    buildTrendSeriesForRange: sandbox.buildTrendSeriesForRange,
     buildCalendarMonth:    sandbox.buildCalendarMonth,
     isValidStep:           sandbox.isValidStep,
     isValidEntryShape:     sandbox.isValidEntryShape,

@@ -25,9 +25,15 @@
     let calendarMonthIndex = null;
     let selectedCalendarDate = null;
     let trendDayCount = 30;
+    let trendMode = 'preset';
+    let customTrendDraftStart = '';
+    let customTrendDraftEnd = '';
+    let appliedCustomTrendRange = null;
+    let appliedHistoryRange = null;
     let pendingImport = null;
     let importReading = false;
     const MAX_BACKUP_FILE_BYTES = 5 * 1024 * 1024;
+    const HISTORY_RESULT_LIMIT = 100;
 
     function getStorageAdapter() {
       if (window.wellnessStorage &&
@@ -557,11 +563,89 @@
       renderCalendar(entries, getCalendarRenderState(announceMonth));
     }
 
+    function getHistoryRenderState() {
+      if (!appliedHistoryRange) {
+        return {
+          totalEntryCount: entries.length,
+          appliedRange: null,
+          matchingCount: 0,
+          visibleEntries: [],
+        };
+      }
+
+      const matchingEntries = filterEntriesByDateRange(
+        entries, appliedHistoryRange.startDate, appliedHistoryRange.endDate
+      );
+      return {
+        totalEntryCount: entries.length,
+        appliedRange: appliedHistoryRange,
+        matchingCount: matchingEntries.length,
+        visibleEntries: matchingEntries.slice(0, HISTORY_RESULT_LIMIT),
+      };
+    }
+
+    function renderHistoryTable() {
+      renderTable(getHistoryRenderState());
+    }
+
+    function showHistoryFilterError(message) {
+      const error = document.getElementById('history-filter-error');
+      error.classList.add('is-visible');
+      error.textContent = message;
+    }
+
+    function clearHistoryFilterError() {
+      const error = document.getElementById('history-filter-error');
+      error.textContent = '';
+      error.classList.remove('is-visible');
+    }
+
+    function handleHistoryFilterSubmit(event) {
+      event.preventDefault();
+      const startDate = document.getElementById('history-from-date').value;
+      const endDate = document.getElementById('history-to-date').value;
+      const result = validateCalendarDateRange(startDate, endDate);
+      if (!result.ok) {
+        appliedHistoryRange = null;
+        renderHistoryTable();
+        showHistoryFilterError(result.error);
+        return;
+      }
+
+      appliedHistoryRange = { startDate: result.startDate, endDate: result.endDate };
+      clearHistoryFilterError();
+      renderHistoryTable();
+    }
+
+    function invalidateAppliedHistoryRange() {
+      if (!appliedHistoryRange) return;
+      appliedHistoryRange = null;
+      renderHistoryTable();
+    }
+
+    function handleHistoryFilterInput() {
+      clearHistoryFilterError();
+      invalidateAppliedHistoryRange();
+    }
+
+    function handleClearHistoryFilters() {
+      document.getElementById('history-from-date').value = '';
+      document.getElementById('history-to-date').value = '';
+      appliedHistoryRange = null;
+      clearHistoryFilterError();
+      renderHistoryTable();
+      document.getElementById('history-from-date').focus();
+    }
+
     function renderHistoryTrendsForCurrentState() {
       renderHistoryTrends(entries, {
         activeView: historyView,
         trendDayCount,
         trendEndDate: localDateString(new Date()),
+        trendMode,
+        customTrendDraftStart,
+        customTrendDraftEnd,
+        appliedCustomTrendRange,
         calendar: getCalendarRenderState(false),
       });
     }
@@ -574,8 +658,67 @@
 
     function setTrendDayCount(dayCount) {
       if ([7, 30, 90].indexOf(dayCount) === -1) return;
+      clearCustomTrendError();
+      trendMode = 'preset';
       trendDayCount = dayCount;
-      renderCharts(entries, trendDayCount, localDateString(new Date()));
+      renderCharts(entries, trendDayCount, localDateString(new Date()), null, trendMode);
+      const customForm = document.getElementById('trend-custom-form');
+      if (customForm) {
+        customForm.hidden = true;
+        customForm.setAttribute('hidden', '');
+      }
+    }
+
+    function selectCustomTrendRange() {
+      clearCustomTrendError();
+      trendMode = 'custom';
+      if (appliedCustomTrendRange) {
+        customTrendDraftStart = appliedCustomTrendRange.startDate;
+        customTrendDraftEnd = appliedCustomTrendRange.endDate;
+      } else {
+        customTrendDraftStart = '';
+        customTrendDraftEnd = '';
+      }
+      const form = document.getElementById('trend-custom-form');
+      if (form) form.hidden = false;
+      renderHistoryTrendsForCurrentState();
+    }
+
+    function handleCustomTrendSubmit(event) {
+      event.preventDefault();
+      if (isMutationBlocked()) return;
+      trendMode = 'custom';
+      const startDate = document.getElementById('trend-custom-start').value;
+      const endDate = document.getElementById('trend-custom-end').value;
+      customTrendDraftStart = startDate;
+      customTrendDraftEnd = endDate;
+      const result = validateCalendarDateRange(startDate, endDate, { maximumDays: 366 });
+      const error = document.getElementById('trend-custom-error');
+      if (!result.ok) {
+        error.textContent = result.error;
+        error.classList.add('is-visible');
+        document.getElementById('trend-custom-start').setAttribute('aria-invalid', 'true');
+        document.getElementById('trend-custom-end').setAttribute('aria-invalid', 'true');
+        return;
+      }
+      error.textContent = '';
+      error.classList.remove('is-visible');
+      document.getElementById('trend-custom-start').removeAttribute('aria-invalid');
+      document.getElementById('trend-custom-end').removeAttribute('aria-invalid');
+      appliedCustomTrendRange = { startDate, endDate };
+      renderHistoryTrendsForCurrentState();
+    }
+
+    function clearCustomTrendError() {
+      const error = document.getElementById('trend-custom-error');
+      if (error) {
+        error.textContent = '';
+        error.classList.remove('is-visible');
+      }
+      ['trend-custom-start', 'trend-custom-end'].forEach(function (id) {
+        const input = document.getElementById(id);
+        if (input && typeof input.removeAttribute === 'function') input.removeAttribute('aria-invalid');
+      });
     }
 
     function changeCalendarMonth(offset) {
@@ -603,7 +746,8 @@
 
       const periodButton = event.target.closest('.trend-period-btn');
       if (periodButton) {
-        setTrendDayCount(Number(periodButton.dataset.trendDays));
+        if (periodButton.dataset.trendDays === 'custom') selectCustomTrendRange();
+        else setTrendDayCount(Number(periodButton.dataset.trendDays));
         return;
       }
 
@@ -624,6 +768,10 @@
         if (isMutationBlocked()) return;
         const date = actionButton.dataset.calendarDate;
         if (!date) return;
+        if (actionButton.dataset.calendarAction === 'delete') {
+          deleteEntry(date, { source: 'calendar' });
+          return;
+        }
         const changed = actionButton.dataset.calendarAction === 'edit'
           ? enterEditMode(date)
           : enterNewEntryModeForDate(date);
@@ -649,7 +797,7 @@
     function render() {
       renderSummary(entries);
       renderHistoryTrendsForCurrentState();
-      renderTable(entries);
+      renderHistoryTable();
       updateEraseAllBtn();
       if (locked) {
         lockDeleteBtns();
@@ -753,7 +901,8 @@
      *      This uses the local date helpers already defined, keeping the
      *      timezone handling consistent across the whole app.
      *   2. Await the selected storage adapter.
-     *      • failed result → lock the app, show an error, and render an empty table.
+     *      • failed result → lock the app, show an error, and render the
+     *        unapplied-history instruction.
      *      • successful result → validate shape and duplicate dates with
      *                validateStoredEntries().  If validation fails, lock
      *                the app and show the integrity error.
@@ -823,8 +972,21 @@
       document.getElementById('entries-container')
         .addEventListener('click', handleTableClick);
 
+      document.getElementById('history-filter-form')
+        .addEventListener('submit', handleHistoryFilterSubmit);
+
+      document.getElementById('clear-history-filters-btn')
+        .addEventListener('click', handleClearHistoryFilters);
+
+      ['history-from-date', 'history-to-date'].forEach(function (id) {
+        document.getElementById(id).addEventListener('input', handleHistoryFilterInput);
+      });
+
       document.getElementById('history-trends-section')
         .addEventListener('click', handleHistoryTrendsClick);
+
+      document.getElementById('trend-custom-form')
+        .addEventListener('submit', handleCustomTrendSubmit);
 
       document.getElementById('erase-all-btn')
         .addEventListener('click', handleEraseAll);
@@ -1066,15 +1228,6 @@
       const dateToDelete = btn.dataset.date;
       if (!dateToDelete) return;
 
-      const confirmed = window.confirm(
-        'Delete entry for ' + dateToDelete + '?'
-      );
-      if (!confirmed) return;
-
-      const updated = entries.filter(function (e) {
-        return e.date !== dateToDelete;
-      });
-
       // Record the deleted row's position before the table is rebuilt so
       // focus can be restored to the equivalent row (or heading) afterwards.
       const allBtns     = Array.from(
@@ -1083,8 +1236,22 @@
       const deletedIndex = allBtns.findIndex(function (b) {
         return b.dataset.date === dateToDelete;
       });
+      await deleteEntry(dateToDelete, { source: 'history', deletedIndex });
+    }
 
-      let restoreDeleteFocus = false;
+    async function deleteEntry(dateToDelete, options = {}) {
+      if (isMutationBlocked() || !storageAdapter || !entries.some(entry => entry.date === dateToDelete)) return;
+
+      let confirmation = 'Delete entry for ' + dateToDelete + '?';
+      if (editingDate === dateToDelete && hasUnsavedFormChanges()) {
+        confirmation += ' Any unsaved changes to this entry will be lost if deletion succeeds.';
+      }
+      if (!window.confirm(confirmation)) return;
+
+      const updated = entries.filter(entry => entry.date !== dateToDelete);
+      const source = options.source || 'history';
+      const deletedIndex = options.deletedIndex ?? -1;
+      let restored = false;
       setBusyState(true);
       try {
         const saved = await storageAdapter.saveEntries(updated);
@@ -1092,24 +1259,27 @@
           showTableError('Could not delete the entry — storage may be unavailable. Please try again.');
           return;
         }
-
         entries = updated;
         clearTableError();
         if (editingDate === dateToDelete) exitEditMode();
         render();
-        restoreDeleteFocus = true;
+        restored = true;
       } catch (error) {
         showTableError('Could not delete the entry — storage may be unavailable. Please try again.');
       } finally {
         setBusyState(false);
-        if (restoreDeleteFocus) {
-          const newBtns = Array.from(document.querySelectorAll('#entries-container .btn-delete'));
-          if (newBtns.length > 0) {
-            const focusIndex = Math.min(deletedIndex, newBtns.length - 1);
-            newBtns[focusIndex].focus();
-          } else {
-            document.getElementById('entries-heading').focus();
-          }
+        if (!restored) return;
+        if (source === 'calendar') {
+          const createButton = document.querySelector('#calendar-details .calendar-detail-action[data-calendar-action="create"]');
+          if (createButton && !createButton.disabled) createButton.focus();
+          return;
+        }
+        const newBtns = Array.from(document.querySelectorAll('#entries-container .btn-delete'));
+        if (newBtns.length > 0) {
+          const focusIndex = Math.min(Math.max(deletedIndex, 0), newBtns.length - 1);
+          newBtns[focusIndex].focus();
+        } else {
+          document.getElementById('entries-heading').focus();
         }
       }
     }
@@ -1126,7 +1296,7 @@
       if (isMutationBlocked() || !storageAdapter) return;
 
       const confirmed = window.confirm(
-        'This will permanently delete all entries. Continue?'
+        'This will permanently delete ALL saved entries, not only displayed history results. Continue?'
       );
       if (!confirmed) return;
 

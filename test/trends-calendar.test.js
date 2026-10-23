@@ -4,7 +4,11 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const {
   addCalendarDays,
+  countCalendarDaysInclusive,
+  validateCalendarDateRange,
+  filterEntriesByDateRange,
   buildTrendSeries,
+  buildTrendSeriesForRange,
   buildCalendarMonth,
 } = require('./helpers.js').loadContext();
 
@@ -24,6 +28,56 @@ test('addCalendarDays preserves local calendar arithmetic across DST-adjacent da
   assert.equal(addCalendarDays('2025-03-30', 1), '2025-03-31');
   assert.equal(addCalendarDays('2025-10-25', 1), '2025-10-26');
   assert.equal(addCalendarDays('2025-10-26', 1), '2025-10-27');
+});
+
+test('calendar date ranges are inclusive across month, year, leap-year, and DST boundaries', () => {
+  assert.equal(countCalendarDaysInclusive('2024-02-28', '2024-03-01'), 3);
+  assert.equal(countCalendarDaysInclusive('2025-12-31', '2026-01-01'), 2);
+  assert.equal(countCalendarDaysInclusive('0001-12-31', '0002-01-01'), 2);
+  assert.equal(countCalendarDaysInclusive('2025-03-29', '2025-03-31'), 3);
+  assert.equal(countCalendarDaysInclusive('2025-10-25', '2025-10-27'), 3);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(validateCalendarDateRange('2025-06-10', '2025-06-12'))),
+    { ok: true, startDate: '2025-06-10', endDate: '2025-06-12', dayCount: 3 }
+  );
+});
+
+test('calendar date range validation rejects missing, invalid, reversed, and over-limit ranges', () => {
+  assert.equal(validateCalendarDateRange('', '2025-06-12').ok, false);
+  assert.equal(validateCalendarDateRange('2025-02-30', '2025-03-01').ok, false);
+  assert.match(validateCalendarDateRange('2025-06-12', '2025-06-10').error, /on or after/);
+  assert.equal(validateCalendarDateRange('2025-01-01', '2025-01-03', { maximumDays: 2 }).ok, false);
+  assert.equal(validateCalendarDateRange('2025-01-01', '2025-01-03', { maximumDays: 3 }).ok, true);
+  assert.equal(validateCalendarDateRange('2025-01-01', '2025-01-01', { maximumDays: 0 }).ok, false);
+});
+
+test('calendar date range validation allows very long and future intervals without a maximum', () => {
+  const result = validateCalendarDateRange('1900-01-01', '2500-12-31');
+  assert.equal(result.ok, true);
+  assert.ok(result.dayCount > 200000);
+  assert.equal(result.endDate, '2500-12-31');
+});
+
+test('filterEntriesByDateRange includes boundaries, sorts newest-first, preserves zeroes, and does not mutate', () => {
+  const entries = [
+    entry('2025-06-13', 5, 8, 2.2),
+    entry('2025-06-10', 1, 0, 0),
+    entry('2025-06-12', 3, 6.5, 1.5),
+    entry('2025-06-09', 2, 7, 1),
+  ];
+  const original = JSON.stringify(entries);
+  const filtered = filterEntriesByDateRange(entries, '2025-06-10', '2025-06-12');
+
+  assert.deepEqual(filtered.map(candidate => candidate.date), ['2025-06-12', '2025-06-10']);
+  assert.equal(filtered[1].sleep, 0);
+  assert.equal(filtered[1].water, 0);
+  assert.notEqual(filtered, entries);
+  assert.equal(JSON.stringify(entries), original);
+  assert.deepEqual(filterEntriesByDateRange(entries, '2026-01-01', '2026-01-02'), []);
+  assert.throws(
+    () => filterEntriesByDateRange(entries, '2025-06-12', '2025-06-10'),
+    error => error.name === 'RangeError'
+  );
 });
 
 test('buildTrendSeries creates an inclusive chronological seven-day range with gaps', () => {
@@ -91,6 +145,30 @@ test('buildTrendSeries rejects unsupported metrics and periods', () => {
   );
   assert.throws(
     () => buildTrendSeries([], 'mood', 14, '2025-06-14'),
+    error => error.name === 'RangeError'
+  );
+});
+
+test('buildTrendSeriesForRange supports historical ranges, gaps, zeroes, and does not mutate inputs', () => {
+  const entries = [
+    entry('2020-01-03', 4, 7.5, 2),
+    entry('2020-01-01', 1, 0, 0),
+    entry('2020-01-05', 5, 8, 2.5),
+  ];
+  const original = JSON.stringify(entries);
+  const series = buildTrendSeriesForRange(entries, 'water', '2020-01-01', '2020-01-05');
+
+  assert.equal(series.dayCount, 5);
+  assert.deepEqual(JSON.parse(JSON.stringify(series.points)), [
+    { date: '2020-01-01', value: 0 },
+    { date: '2020-01-02', value: null },
+    { date: '2020-01-03', value: 2 },
+    { date: '2020-01-04', value: null },
+    { date: '2020-01-05', value: 2.5 },
+  ]);
+  assert.equal(JSON.stringify(entries), original);
+  assert.throws(
+    () => buildTrendSeriesForRange(entries, 'mood', '2020-01-05', '2020-01-01'),
     error => error.name === 'RangeError'
   );
 });

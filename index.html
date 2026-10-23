@@ -199,8 +199,21 @@
           <button type="button" class="trend-period-btn" data-trend-days="7" aria-pressed="false">7 days</button>
           <button type="button" class="trend-period-btn" data-trend-days="30" aria-pressed="true">30 days</button>
           <button type="button" class="trend-period-btn" data-trend-days="90" aria-pressed="false">90 days</button>
+          <button type="button" class="trend-period-btn" data-trend-days="custom" aria-pressed="false">Custom</button>
         </div>
-        <p class="history-placeholder">Calendar days ending today. Missing dates appear as gaps.</p>
+        <form id="trend-custom-form" class="trend-custom-controls" hidden novalidate>
+          <div class="trend-custom-field">
+            <label for="trend-custom-start">Start date</label>
+            <input id="trend-custom-start" type="date" aria-describedby="trend-custom-error">
+          </div>
+          <div class="trend-custom-field">
+            <label for="trend-custom-end">End date</label>
+            <input id="trend-custom-end" type="date" aria-describedby="trend-custom-error">
+          </div>
+          <button type="submit" id="apply-trend-custom-btn">Apply custom range</button>
+          <p id="trend-custom-error" class="table-error" role="alert"></p>
+        </form>
+        <p id="trend-range-status" class="history-placeholder" role="status">Calendar days ending today. Missing dates appear as gaps.</p>
         <div id="trend-chart-list" class="trend-chart-list"></div>
         <details class="trend-data-details">
           <summary>Show exact chart data</summary>
@@ -236,7 +249,24 @@
       <!-- Storage-failure message for Delete / Erase all actions -->
       <p id="table-error" class="table-error" role="alert"></p>
 
-      <!-- JS will inject a <table> or a "No entries yet" <p> here -->
+      <form id="history-filter-form" class="history-filter-form" novalidate>
+        <div class="history-filter-field">
+          <label for="history-from-date">From date</label>
+          <input id="history-from-date" type="date">
+        </div>
+        <div class="history-filter-field">
+          <label for="history-to-date">To date</label>
+          <input id="history-to-date" type="date">
+        </div>
+        <div class="history-filter-actions">
+          <button type="submit" id="show-history-btn">Show entries</button>
+          <button type="button" id="clear-history-filters-btn" class="btn-neutral">Clear filters</button>
+        </div>
+      </form>
+      <p id="history-filter-error" class="table-error" role="alert"></p>
+      <p id="history-status" class="history-status" role="status"></p>
+
+      <!-- JS injects applied-range results only; saved entries remain available elsewhere. -->
       <div id="entries-container" aria-live="polite" aria-relevant="additions removals"></div>
     </section>
 

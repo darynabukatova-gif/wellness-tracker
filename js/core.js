@@ -288,6 +288,133 @@
     }
 
     /**
+     * countCalendarDaysInclusive(startDate, endDate)
+     *
+     * Counts local calendar dates from startDate through endDate, including
+     * both boundaries. Date.UTC is used only with already-validated local
+     * calendar components, so daylight-saving offset changes cannot affect
+     * the result.
+     *
+     * @returns {number}
+     * @throws {RangeError} When either date is invalid or endDate is earlier.
+     */
+    function countCalendarDaysInclusive(startDate, endDate) {
+      const start = localCalendarDate(startDate);
+      const end = localCalendarDate(endDate);
+      const calendarValue = function (date) {
+        const value = new Date(0);
+        value.setUTCHours(0, 0, 0, 0);
+        value.setUTCFullYear(date.getFullYear(), date.getMonth(), date.getDate());
+        return value.getTime();
+      };
+      const startCalendarValue = calendarValue(start);
+      const endCalendarValue = calendarValue(end);
+      if (endCalendarValue < startCalendarValue) {
+        throw new RangeError('End date must be on or after start date.');
+      }
+      return (endCalendarValue - startCalendarValue) / 86400000 + 1;
+    }
+
+    /**
+     * validateCalendarDateRange(startDate, endDate, options)
+     *
+     * Validates an inclusive pair of local calendar dates. This helper is
+     * deliberately policy-neutral unless options.maximumDays is supplied.
+     *
+     * @returns {{ok: true, startDate: string, endDate: string, dayCount: number}|
+     *           {ok: false, error: string}}
+     */
+    function validateCalendarDateRange(startDate, endDate, options) {
+      if (!startDate || !endDate) {
+        return { ok: false, error: 'Please select both a start date and an end date.' };
+      }
+
+      let dayCount;
+      try {
+        dayCount = countCalendarDaysInclusive(startDate, endDate);
+      } catch (error) {
+        return { ok: false, error: error.message };
+      }
+
+      const maximumDays = options && options.maximumDays;
+      if (maximumDays !== undefined) {
+        if (!Number.isInteger(maximumDays) || maximumDays < 1) {
+          return { ok: false, error: 'Maximum days must be a positive integer.' };
+        }
+        if (dayCount > maximumDays) {
+          return {
+            ok: false,
+            error: 'Date range cannot exceed ' + maximumDays + ' inclusive calendar days.',
+          };
+        }
+      }
+
+      return { ok: true, startDate, endDate, dayCount };
+    }
+
+    /**
+     * filterEntriesByDateRange(entries, startDate, endDate)
+     *
+     * Filters existing entries without expanding the requested range into
+     * individual dates, so long history searches remain proportional to the
+     * number of saved entries. YYYY-MM-DD keys compare chronologically as
+     * strings after range validation.
+     *
+     * @returns {Array} New newest-first array; entries and entry objects are
+     *                  not modified or copied.
+     * @throws {RangeError} When the requested range is invalid.
+     */
+    function filterEntriesByDateRange(entries, startDate, endDate) {
+      const range = validateCalendarDateRange(startDate, endDate);
+      if (!range.ok) throw new RangeError(range.error);
+      return sortByDateDesc(entries.filter(function (entry) {
+        return entry.date >= range.startDate && entry.date <= range.endDate;
+      }));
+    }
+
+    function validateTrendMetric(metric) {
+      if (['mood', 'sleep', 'water'].indexOf(metric) === -1) {
+        throw new RangeError('Unsupported trend metric.');
+      }
+    }
+
+    /**
+     * buildTrendSeriesForRange(entries, metric, startDate, endDate)
+     *
+     * Builds a chronological, inclusive local-calendar series for an
+     * arbitrary valid range. Missing entries become null while stored zeroes
+     * remain zero.
+     */
+    function buildTrendSeriesForRange(entries, metric, startDate, endDate) {
+      validateTrendMetric(metric);
+      const range = validateCalendarDateRange(startDate, endDate);
+      if (!range.ok) throw new RangeError(range.error);
+
+      const entriesByDate = new Map();
+      entries.forEach(function (entry) {
+        entriesByDate.set(entry.date, entry);
+      });
+
+      const points = [];
+      for (let offset = 0; offset < range.dayCount; offset++) {
+        const date = addCalendarDays(range.startDate, offset);
+        const entry = entriesByDate.get(date);
+        points.push({
+          date,
+          value: entry ? entry[metric] : null,
+        });
+      }
+
+      return {
+        metric,
+        dayCount: range.dayCount,
+        startDate: range.startDate,
+        endDate: range.endDate,
+        points,
+      };
+    }
+
+    /**
      * buildTrendSeries(entries, metric, dayCount, endDate)
      *
      * Builds an inclusive, chronological calendar-day series ending on
@@ -302,34 +429,15 @@
      *             endDate: string, points: Array<{date: string, value: number|null}> }}
      */
     function buildTrendSeries(entries, metric, dayCount, endDate) {
-      const allowedMetrics = ['mood', 'sleep', 'water'];
       const allowedDayCounts = [7, 30, 90];
-      if (allowedMetrics.indexOf(metric) === -1) {
-        throw new RangeError('Unsupported trend metric.');
-      }
+      validateTrendMetric(metric);
       if (allowedDayCounts.indexOf(dayCount) === -1) {
         throw new RangeError('Trend day count must be 7, 30, or 90.');
       }
 
-      // Validate the end date before calculating the range.
       localCalendarDate(endDate);
-      const entriesByDate = new Map();
-      entries.forEach(function (entry) {
-        entriesByDate.set(entry.date, entry);
-      });
-
       const startDate = addCalendarDays(endDate, 1 - dayCount);
-      const points = [];
-      for (let offset = 0; offset < dayCount; offset++) {
-        const date = addCalendarDays(startDate, offset);
-        const entry = entriesByDate.get(date);
-        points.push({
-          date,
-          value: entry ? entry[metric] : null,
-        });
-      }
-
-      return { metric, dayCount, startDate, endDate, points };
+      return buildTrendSeriesForRange(entries, metric, startDate, endDate);
     }
 
     /**
