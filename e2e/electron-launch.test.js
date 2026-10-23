@@ -86,6 +86,15 @@ async function assertHistoryRow(window, entry) {
   return row;
 }
 
+async function showHistoryRange(window, startDate, endDate) {
+  await window.locator('#history-from-date').fill(startDate);
+  await window.locator('#history-to-date').fill(endDate);
+  await window.locator('#show-history-btn').click();
+  await window.locator('#history-status').filter({
+    hasText: `from ${startDate} to ${endDate}`,
+  }).waitFor({ state: 'visible', timeout: 15_000 });
+}
+
 async function createEntryThroughForm(window, entry) {
   await window.locator('#entry-date').fill(entry.date);
   await window.locator(`input[name="mood"][value="${entry.mood}"]`).check();
@@ -100,7 +109,6 @@ async function createEntryThroughForm(window, entry) {
     await window.locator('#water-plus').click({ clickCount: Math.round(entry.water / 0.1) });
   }
   await window.locator('#save-btn').click();
-  await assertHistoryRow(window, entry);
 }
 
 function localDateKey(offset) {
@@ -251,6 +259,7 @@ test('Electron E2E: saves a real form entry and reloads it after restart', { tim
     assert.equal(await firstWindow.locator('#water-value').textContent(), '1.8 L');
 
     await firstWindow.locator('#save-btn').click();
+    await showHistoryRange(firstWindow, entry.date, entry.date);
     await assertHistoryRow(firstWindow, entry);
 
     await firstApplication.close();
@@ -261,6 +270,7 @@ test('Electron E2E: saves a real form entry and reloads it after restart', { tim
     const secondWindow = await getReadyWindow(secondApplication);
     await assertIsolatedUserData(secondApplication, isolatedUserDataDirectory);
 
+    await showHistoryRange(secondWindow, entry.date, entry.date);
     await assertHistoryRow(secondWindow, entry);
     assert.equal(await secondWindow.locator('#entries-container tbody tr').count(), 1);
   } catch (error) {
@@ -296,6 +306,7 @@ test('Electron E2E: edits and deletes an entry with persistence across restarts'
     await assertIsolatedUserData(firstApplication, isolatedUserDataDirectory);
 
     await createEntryThroughForm(firstWindow, initialEntry);
+    await showHistoryRange(firstWindow, initialEntry.date, initialEntry.date);
     await firstWindow.locator(`.btn-edit[data-date="${initialEntry.date}"]`).click();
     assert.equal(await firstWindow.locator('#form-heading').textContent(), 'Edit Wellness Entry');
     assert.equal(await firstWindow.locator('#save-btn').textContent(), 'Save changes');
@@ -317,6 +328,7 @@ test('Electron E2E: edits and deletes an entry with persistence across restarts'
     applications.push(secondApplication);
     const secondWindow = await getReadyWindow(secondApplication);
     await assertIsolatedUserData(secondApplication, isolatedUserDataDirectory);
+    await showHistoryRange(secondWindow, editedEntry.date, editedEntry.date);
     await assertHistoryRow(secondWindow, editedEntry);
     assert.equal(await secondWindow.locator('#entries-container tbody tr').count(), 1);
 
@@ -345,8 +357,9 @@ test('Electron E2E: edits and deletes an entry with persistence across restarts'
     applications.push(thirdApplication);
     const thirdWindow = await getReadyWindow(thirdApplication);
     await assertIsolatedUserData(thirdApplication, isolatedUserDataDirectory);
+    await showHistoryRange(thirdWindow, editedEntry.date, editedEntry.date);
     await thirdWindow.locator('#entries-container .empty-state').waitFor({ state: 'visible', timeout: 15_000 });
-    assert.equal(await thirdWindow.locator('#entries-container .empty-state').textContent(), 'No entries yet.');
+    assert.equal(await thirdWindow.locator('#entries-container .empty-state').textContent(), 'No entries match this date range.');
     assert.equal(await thirdWindow.locator('#entries-container tbody tr').count(), 0);
   } catch (error) {
     testFailure = error;
@@ -381,6 +394,7 @@ test('Electron E2E: calendar details and calendar edit actions reflect saved cha
     await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
 
     await createEntryThroughForm(window, initialEntry);
+    await showHistoryRange(window, initialEntry.date, initialEntry.date);
     const dateButton = await navigateCalendarToDate(window, initialEntry.date);
     assert.match(await dateButton.getAttribute('class'), /has-entry/);
     await dateButton.click();
@@ -394,6 +408,7 @@ test('Electron E2E: calendar details and calendar edit actions reflect saved cha
     assert.equal(await window.locator('#form-heading').textContent(), 'Edit Wellness Entry');
     await window.locator('input[name="mood"][value="5"]').check();
     await window.locator('#save-btn').click();
+    await showHistoryRange(window, editedEntry.date, editedEntry.date);
     await assertHistoryRow(window, editedEntry);
     assert.match(
       await window.locator('#calendar-details').textContent(),
@@ -436,7 +451,7 @@ test('Electron E2E: charts show local-date values, gaps, zeroes, and successful 
     await createEntryThroughForm(window, todayEntry);
     await window.locator('#history-view-charts').click();
     assert.equal(await window.locator('#history-charts-panel').isHidden(), false);
-    assert.equal(await window.locator('.trend-period-btn').count(), 3);
+    assert.equal(await window.locator('.trend-period-btn').count(), 4);
     assert.equal(await window.locator('.trend-period-btn[data-trend-days="30"]').getAttribute('aria-pressed'), 'true');
 
     await window.locator('.trend-data-details summary').click();
@@ -460,6 +475,7 @@ test('Electron E2E: charts show local-date values, gaps, zeroes, and successful 
     await window.locator('.trend-period-btn[data-trend-days="90"]').click();
     assert.equal(await window.locator('.trend-period-btn[data-trend-days="90"]').getAttribute('aria-pressed'), 'true');
     assert.equal(await window.locator('#trend-data-table-container tbody tr').count(), 90);
+    await showHistoryRange(window, earlierEntry.date, todayEntry.date);
     await assertHistoryRow(window, earlierEntry);
     await assertHistoryRow(window, todayEntry);
 
@@ -509,6 +525,7 @@ test('Electron E2E: exports a versioned JSON backup through the real download fl
     assert.equal(new Date(backup.exportedAt).toISOString(), backup.exportedAt);
     assert.equal(downloaded.fileName, `wellness-tracker-backup-${backup.exportedAt.slice(0, 10)}.json`);
     assert.deepEqual(backup.entries, entries);
+    await showHistoryRange(window, entries[0].date, entries[1].date);
     await assertHistoryRow(window, entries[0]);
     await assertHistoryRow(window, entries[1]);
     assert.equal(await window.locator('#entries-container tbody tr').count(), 2);
@@ -537,6 +554,7 @@ test('Electron E2E: previews, rejects, and cancels backup imports without data l
     const window = await getReadyWindow(electronApplication);
     await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
     await createEntryThroughForm(window, existingEntry);
+    await showHistoryRange(window, existingEntry.date, existingEntry.date);
 
     const previewFixture = await writeBackupFixture(
       temporaryDirectory,
@@ -556,12 +574,14 @@ test('Electron E2E: previews, rejects, and cancels backup imports without data l
     assert.equal(await window.locator('#export-backup-btn').isDisabled(), true);
     assert.equal(await window.locator('#import-backup-btn').isDisabled(), true);
     assert.equal(await window.locator('#cancel-import-btn').isDisabled(), false);
+    await showHistoryRange(window, existingEntry.date, existingEntry.date);
     await assertHistoryRow(window, existingEntry);
 
     await window.locator('#cancel-import-btn').click();
     assert.equal(await window.locator('#import-preview').isHidden(), true);
     assert.equal(await window.locator('#save-btn').isDisabled(), false);
     assert.equal(await window.locator('#import-backup-btn').isDisabled(), false);
+    await showHistoryRange(window, existingEntry.date, existingEntry.date);
     await assertHistoryRow(window, existingEntry);
 
     const malformedFixture = await writeBackupFixture(temporaryDirectory, 'malformed.json', '{not json');
@@ -569,6 +589,7 @@ test('Electron E2E: previews, rejects, and cancels backup imports without data l
     await window.locator('#backup-error').waitFor({ state: 'visible', timeout: 15_000 });
     assert.match(await window.locator('#backup-error').textContent(), /Could not validate the backup file/);
     assert.equal(await window.locator('#import-preview').isHidden(), true);
+    await showHistoryRange(window, existingEntry.date, existingEntry.date);
     await assertHistoryRow(window, existingEntry);
 
     const unsupportedFixture = await writeBackupFixture(
@@ -582,6 +603,7 @@ test('Electron E2E: previews, rejects, and cancels backup imports without data l
     await selectBackupFile(window, unsupportedFixture);
     await window.locator('#backup-error').waitFor({ state: 'visible', timeout: 15_000 });
     assert.match(await window.locator('#backup-error').textContent(), /version is not supported/);
+    await showHistoryRange(window, existingEntry.date, existingEntry.date);
     await assertHistoryRow(window, existingEntry);
 
     const emptyFixture = await writeBackupFixture(temporaryDirectory, 'empty.json', backupDocument([]));
@@ -598,10 +620,12 @@ test('Electron E2E: previews, rejects, and cancels backup imports without data l
       false
     );
     await Promise.all([confirmationHandled, window.locator('#replace-import-btn').click()]);
+    await showHistoryRange(window, existingEntry.date, existingEntry.date);
     await assertHistoryRow(window, existingEntry);
     assert.equal(await window.locator('#import-preview').isHidden(), false);
     await window.locator('#cancel-import-btn').click();
     assert.equal(await window.locator('#import-preview').isHidden(), true);
+    await showHistoryRange(window, existingEntry.date, existingEntry.date);
     await assertHistoryRow(window, existingEntry);
   } catch (error) {
     testFailure = error;
@@ -649,6 +673,7 @@ test('Electron E2E: restores a replacement backup and persists its visual data a
     await Promise.all([confirmationHandled, firstWindow.locator('#replace-import-btn').click()]);
     await firstWindow.locator('#backup-status').waitFor({ state: 'visible', timeout: 15_000 });
     assert.equal(await firstWindow.locator('#backup-status').textContent(), 'Backup restored. 2 entries are now saved.');
+    await showHistoryRange(firstWindow, importedEntries[0].date, importedEntries[1].date);
     await assertHistoryRow(firstWindow, importedEntries[0]);
     await assertHistoryRow(firstWindow, importedEntries[1]);
     assert.equal(await firstWindow.locator('#entries-container tbody tr').count(), 2);
@@ -673,10 +698,159 @@ test('Electron E2E: restores a replacement backup and persists its visual data a
     applications.push(secondApplication);
     const secondWindow = await getReadyWindow(secondApplication);
     await assertIsolatedUserData(secondApplication, isolatedUserDataDirectory);
+    await showHistoryRange(secondWindow, importedEntries[0].date, importedEntries[1].date);
     await assertHistoryRow(secondWindow, importedEntries[0]);
     await assertHistoryRow(secondWindow, importedEntries[1]);
     assert.equal(await secondWindow.locator('#entries-container tbody tr').count(), 2);
     assert.equal(await secondWindow.locator('#stat-count').textContent(), '2');
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: history filters are hidden until applied and can be cleared', { timeout: 60_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const entry = { date: '2025-05-20', mood: 4, sleep: 7, water: 1.7 };
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+
+    assert.equal(await window.locator('#entries-container tbody tr').count(), 0);
+    assert.match(await window.locator('#entries-container').textContent(), /Select both dates/);
+
+    await createEntryThroughForm(window, entry);
+    const dataPath = path.join(isolatedUserDataDirectory, 'entries.json');
+    const beforeClear = await fsp.readFile(dataPath, 'utf8');
+
+    await window.locator('#clear-history-filters-btn').click();
+    await window.locator('#entries-container tbody').waitFor({ state: 'detached', timeout: 15_000 });
+    assert.equal(await window.locator('#history-from-date').inputValue(), '');
+    assert.equal(await window.locator('#history-to-date').inputValue(), '');
+    assert.match(await window.locator('#entries-container').textContent(), /Select both dates/);
+    assert.equal(await fsp.readFile(dataPath, 'utf8'), beforeClear);
+
+    await showHistoryRange(window, entry.date, entry.date);
+    await assertHistoryRow(window, entry);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: calendar deletion keeps the date selected and persists after restart', { timeout: 75_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const entry = { date: localDateKey(-2), mood: 4, sleep: 7, water: 1.7 };
+
+  try {
+    const firstApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(firstApplication);
+    const firstWindow = await getReadyWindow(firstApplication);
+    await assertIsolatedUserData(firstApplication, isolatedUserDataDirectory);
+    await createEntryThroughForm(firstWindow, entry);
+
+    const dateButton = await navigateCalendarToDate(firstWindow, entry.date);
+    await dateButton.click();
+    await firstWindow.locator('#calendar-details .calendar-detail-action[data-calendar-action="delete"]')
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    const confirmationHandled = handleConfirmation(
+      firstWindow,
+      dialog => {
+        assert.equal(dialog.type(), 'confirm');
+        assert.equal(dialog.message(), `Delete entry for ${entry.date}?`);
+      },
+      true
+    );
+    await Promise.all([
+      confirmationHandled,
+      firstWindow.locator('#calendar-details .calendar-detail-action[data-calendar-action="delete"]').click(),
+    ]);
+    const createButton = firstWindow.locator('#calendar-details .calendar-detail-action[data-calendar-action="create"]');
+    await createButton.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await firstWindow.locator(`#calendar-grid .calendar-day[data-calendar-date="${entry.date}"]`).getAttribute('aria-pressed'), 'true');
+    assert.match(await firstWindow.locator('#calendar-details').textContent(), /No entry recorded/);
+    assert.equal(await firstWindow.locator('#calendar-details .calendar-detail-action[data-calendar-action="edit"]').count(), 0);
+
+    await firstApplication.close();
+    applications.pop();
+
+    const secondApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(secondApplication);
+    const secondWindow = await getReadyWindow(secondApplication);
+    await assertIsolatedUserData(secondApplication, isolatedUserDataDirectory);
+    const secondDateButton = await navigateCalendarToDate(secondWindow, entry.date);
+    await secondDateButton.click();
+    await secondWindow.locator('#calendar-details .calendar-detail-action[data-calendar-action="create"]')
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await secondWindow.locator('#calendar-details').textContent(), /No entry recorded/);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: custom chart ranges preserve historical gaps and survive preset switching', { timeout: 75_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const firstEntry = { date: localDateKey(-40), mood: 2, sleep: 6, water: 0 };
+  const secondEntry = { date: localDateKey(-38), mood: 5, sleep: 8, water: 2.4 };
+  const missingDate = localDateKey(-39);
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    await createEntryThroughForm(window, firstEntry);
+    await createEntryThroughForm(window, secondEntry);
+
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="30"]').click();
+    assert.equal(await window.locator('#trend-custom-form').isHidden(), true);
+    await window.locator('.trend-period-btn[data-trend-days="custom"]').click();
+    assert.equal(await window.locator('#trend-custom-form').isHidden(), false);
+    await window.locator('#trend-custom-start').fill(firstEntry.date);
+    await window.locator('#trend-custom-end').fill(secondEntry.date);
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-range-status').filter({
+      hasText: `from ${firstEntry.date} to ${secondEntry.date}`,
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+    await window.locator('.trend-data-details summary').click();
+    assert.equal(await window.locator('#trend-data-table-container tbody tr').count(), 3);
+    await assertTrendDataRow(window, firstEntry.date, ['2', '6 h', '0 L']);
+    await assertTrendDataRow(window, missingDate, ['— Missing', '— Missing', '— Missing']);
+    await assertTrendDataRow(window, secondEntry.date, ['5', '8 h', '2.4 L']);
+
+    await window.locator('#trend-custom-start').fill(secondEntry.date);
+    await window.locator('#trend-custom-end').fill(firstEntry.date);
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-custom-error').filter({ hasText: /on or after/ })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await window.locator('#trend-range-status').textContent(), new RegExp(`from ${firstEntry.date} to ${secondEntry.date}`));
+
+    await window.locator('.trend-period-btn[data-trend-days="7"]').click();
+    assert.equal(await window.locator('.trend-period-btn[data-trend-days="7"]').getAttribute('aria-pressed'), 'true');
+    await window.locator('.trend-period-btn[data-trend-days="custom"]').click();
+    assert.equal(await window.locator('#trend-custom-start').inputValue(), firstEntry.date);
+    assert.equal(await window.locator('#trend-custom-end').inputValue(), secondEntry.date);
+    assert.equal(await window.locator('.trend-period-btn[data-trend-days="custom"]').getAttribute('aria-pressed'), 'true');
   } catch (error) {
     testFailure = error;
     throw error;

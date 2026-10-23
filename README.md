@@ -31,7 +31,7 @@ packaging.
 | **Slider controls** | Adjust sleep in 0.5-hour steps and water in 0.1-litre steps with range sliders or minus/plus buttons |
 | **Unselected values** | Sleep and water begin with "Choose a value"; explicitly selected zero is valid |
 | **One entry per day** | Each calendar date can hold exactly one entry |
-| **Entry history** | All entries displayed in a table, newest first |
+| **Entry history** | Filter by an inclusive From/To date range; newest 100 matching records are displayed |
 | **Edit an entry** | Load an existing entry and save updated mood, sleep, or water values |
 | **Cancel editing** | Leave edit mode without changing stored data |
 | **Delete an entry** | Remove any row with a confirmation prompt |
@@ -39,8 +39,8 @@ packaging.
 | **7-entry summary** | Rolling averages for mood, sleep, and water across the seven most recent entries |
 | **History & Trends** | Switch between a monthly calendar and three read-only trend charts |
 | **Monthly calendar** | Monday-first month navigation, saved-entry indicators, and selectable date details |
-| **Calendar actions** | Create an entry for an empty date or edit its saved entry without leaving the calendar context |
-| **Trend charts** | Responsive SVG charts for mood, sleep, and water over 7, 30, or 90 calendar days ending today |
+| **Calendar actions** | Create, edit, or delete an entry from the selected calendar date with confirmation and focus restoration |
+| **Trend charts** | Responsive SVG charts for mood, sleep, and water over 7, 30, 90, or a custom range of up to 366 calendar days |
 | **Exact chart data** | A keyboard-accessible expandable table gives the precise date and value behind each chart point |
 | **Backup & Restore** | Export committed entries, preview a strictly validated JSON backup, then explicitly replace all entries if desired |
 | **Persistence** | Browser entries use `localStorage`; Electron entries use a JSON file in the app data directory |
@@ -183,8 +183,11 @@ date and month navigation remain read-only operations.
 **Charts** contains separate responsive SVG line charts for Mood (1–5), Sleep
 (0–24 h), and Water (0–3 L). Select **7 days**, **30 days** (the default), or
 **90 days** to show that inclusive number of local calendar days ending today.
-Charts use saved data only: they refresh after a successful create, edit, delete,
-or erase operation, never after a failed write or from unsaved form values.
+Choose **Custom** to enter an inclusive local-calendar start and end date. Custom
+ranges are limited to 366 days and apply only after validation. Draft changes do
+not alter the currently rendered charts; switching to a preset and back preserves
+the last valid custom range. Charts use saved data only and refresh after
+successful writes, never after failed writes or from unsaved form values.
 
 A date with no saved entry is represented as a gap, never as zero; lines are not
 drawn across that gap. A recorded zero is retained as a plotted point. Use
@@ -192,6 +195,18 @@ drawn across that gap. A recorded zero is retained as a plotted point. Use
 each date and marks absent entries as **Missing**. The SVG charts have titles
 and descriptions for assistive technology; the exact-data table is the best way
 to inspect individual values with a screen reader or keyboard.
+
+**Entry History** is independent of Calendar and Charts. It is hidden initially;
+enter both From and To dates and choose **Show entries** to apply an inclusive
+range. Changing either date hides previous results until the range is applied
+again. **Clear filters** restores the hidden initial state. Matching entries are
+sorted newest first, with the newest 100 shown when more records match; the total
+saved-entry count remains visible. Filtering never writes storage.
+
+Calendar **Delete entry** uses the same confirmation and storage-safe deletion path
+as History Delete. After successful deletion, the selected date remains selected
+and shows **Create entry**. Cancelling or a failed write preserves the entry and
+form state; deleting the currently edited entry warns about unsaved changes.
 
 ### CSS design tokens
 
@@ -494,7 +509,7 @@ test/
 npm test
 ```
 
-Expected output: **220 individual tests, 220 pass, 0 fail, 0 skipped.**
+Expected output: **238 individual tests, 238 pass, 0 fail, 0 skipped.**
 
 **How it works:** `helpers.js` reads `js/core.js` and evaluates it in an isolated
 `vm` context (no `eval()`, no code copying). `edit.test.js` evaluates the real
@@ -531,10 +546,11 @@ The real Electron UI suite is deliberately separate from the fast Node suite:
 npm run test:e2e
 ```
 
-`npm test` (or `npm run test`) runs the 220 Node unit and integration tests only.
-`npm run test:e2e` runs eight serial, source-Electron tests through `playwright-core`:
+`npm test` (or `npm run test`) runs the 238 Node unit and integration tests only.
+`npm run test:e2e` runs eleven serial, source-Electron tests through `playwright-core`:
 isolated startup, create/edit/delete persistence across restarts, calendar actions,
-charts, backup export, import preview/cancellation, and confirmed replacement restore.
+calendar deletion, preset and custom charts, on-demand history filtering, backup
+export, import preview/cancellation, and confirmed replacement restore.
 The existing Node test workflow runs automatically on pushes and pull requests. The
 Electron E2E workflow runs automatically for pull requests targeting `main`, and can
 also be started manually in GitHub: open **Actions**, select **Wellness Tracker
@@ -630,10 +646,21 @@ These behaviours require a live browser and cannot be checked with Node.js:
 28. Use **Edit entry** and **Create entry** from the calendar. With a changed form,
     cancel the discard confirmation and verify the form and selected date remain
     unchanged. Confirm once and verify focus moves to the form.
-29. In **Charts**, switch among 7, 30, and 90 days. Verify the range ends on
+29. In **Entry History**, verify no rows appear initially. Apply an inclusive
+    From/To range, confirm newest-first matching rows and the count, then change a
+    date input and verify results hide until Show entries is selected again. Test
+    Clear filters and a filtered Edit/Delete action.
+30. In **Calendar**, select a saved date, choose **Delete entry**, cancel and then
+    confirm. Verify the date remains selected, Create entry appears, focus is
+    restored, and the deletion persists after restart.
+31. In **Charts**, switch among 7, 30, and 90 days. Verify the range ends on
     today, a deliberately missing date creates a visible line gap, and a saved
     zero appears as a point at the baseline rather than as a gap.
-30. Open **Show exact chart data** and navigate the table with a keyboard and a
+32. Choose **Custom**, apply a historical nonconsecutive range, verify inclusive
+    endpoints, missing gaps, and zero values, then switch to a preset and back.
+    Try incomplete, reversed, and over-366-day ranges and verify the last valid
+    chart data remains displayed.
+33. Open **Show exact chart data** and navigate the table with a keyboard and a
     screen reader. Verify it distinguishes **Missing** from zero values.
 
 #### Responsive layout

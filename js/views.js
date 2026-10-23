@@ -45,12 +45,12 @@
     }
 
     /**
-     * renderTable(entries)
+     * renderTable(historyState)
      *
      * Clears #entries-container and replaces its content with either:
-     *   • a fully built <table> containing one row per entry (sorted
-     *     newest-first), or
-     *   • a "No entries yet" paragraph when the array is empty.
+     *   • an instruction until a range is applied,
+     *   • a fully built table containing supplied newest-first results, or
+     *   • an empty-range message.
      *
      * All entry values are written via textContent, never concatenated
      * into innerHTML, so user-supplied strings cannot inject HTML.
@@ -66,10 +66,16 @@
      * No event listeners are attached here; the app uses a single
      * delegated listener on #entries-container instead.
      *
-     * @param {Array} entries  The current entries array (not modified).
+     * @param {{totalEntryCount: number, appliedRange: Object|null,
+     *           matchingCount: number, visibleEntries: Array}} historyState
      */
-    function renderTable(entries) {
+    function renderTable(historyState) {
       const container = document.getElementById('entries-container');
+      const status = document.getElementById('history-status');
+      const totalEntryCount = historyState.totalEntryCount;
+      const appliedRange = historyState.appliedRange;
+      const matchingCount = historyState.matchingCount;
+      const visibleEntries = historyState.visibleEntries;
 
       // Always start with an empty container so stale content is never
       // left behind after a deletion or erase-all.
@@ -77,18 +83,38 @@
       // touching innerHTML — it avoids any parse-and-serialise round-trip.
       container.replaceChildren();
 
-      if (entries.length === 0) {
-        // ── Empty state ───────────────────────────────────────────
+      if (!appliedRange) {
         const empty = document.createElement('p');
         empty.className   = 'empty-state';
-        empty.textContent = 'No entries yet.';
+        empty.textContent = 'Select both dates and choose Show entries to view history.';
+        container.appendChild(empty);
+        status.textContent = totalEntryCount + ' saved ' +
+          (totalEntryCount === 1 ? 'entry.' : 'entries.');
+        return;
+      }
+
+      status.textContent = 'Showing ' + matchingCount + ' matching ' +
+        (matchingCount === 1 ? 'entry' : 'entries') + ' from ' + appliedRange.startDate +
+        ' to ' + appliedRange.endDate + '. ' + totalEntryCount + ' saved ' +
+        (totalEntryCount === 1 ? 'entry total.' : 'entries total.');
+
+      if (matchingCount > visibleEntries.length) {
+        const notice = document.createElement('p');
+        notice.className = 'history-status';
+        notice.textContent = 'Showing the newest ' + visibleEntries.length + ' of ' +
+          matchingCount + ' matching entries. Narrow the date range to view older entries.';
+        container.appendChild(notice);
+      }
+
+      if (matchingCount === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'empty-state';
+        empty.textContent = 'No entries match this date range.';
         container.appendChild(empty);
         return;
       }
 
       // ── Build the table ───────────────────────────────────────────
-      const sorted = sortByDateDesc(entries);
-
       // <table>
       const table = document.createElement('table');
       table.setAttribute('aria-label', 'Wellness entry history');
@@ -111,7 +137,7 @@
       // ── <tbody> ───────────────────────────────────────────────────
       const tbody = document.createElement('tbody');
 
-      sorted.forEach(function (entry) {
+      visibleEntries.forEach(function (entry) {
         const row = document.createElement('tr');
 
         // Date cell
@@ -256,8 +282,11 @@
       labelIndexes.filter(function (index, position, all) {
         return all.indexOf(index) === position;
       }).forEach(function (index) {
+        const isFirst = index === labelIndexes[0];
+        const isLast = index === labelIndexes[labelIndexes.length - 1];
         const label = createSvgElement('text', {
-          class: 'trend-axis-label', x: xFor(index), y: bottom + 17, 'text-anchor': 'middle',
+          class: 'trend-axis-label', x: xFor(index), y: bottom + 17,
+          'text-anchor': isFirst ? 'start' : (isLast ? 'end' : 'middle'),
         });
         label.textContent = formatTrendDate(series.points[index].date);
         svg.appendChild(label);
@@ -347,18 +376,38 @@
       container.appendChild(table);
     }
 
-    function renderCharts(entries, dayCount, endDate) {
+    function renderCharts(entries, dayCount, endDate, customRange, chartMode) {
       const chartList = document.getElementById('trend-chart-list');
       chartList.replaceChildren();
       const seriesByMetric = {};
       TREND_CONFIGS.forEach(function (config) {
-        const series = buildTrendSeries(entries, config.metric, dayCount, endDate);
+        const series = customRange
+          ? buildTrendSeriesForRange(entries, config.metric, customRange.startDate, customRange.endDate)
+          : buildTrendSeries(entries, config.metric, dayCount, endDate);
         seriesByMetric[config.metric] = series;
         renderTrendChart(chartList, config, series);
       });
       document.querySelectorAll('.trend-period-btn').forEach(function (button) {
-        button.setAttribute('aria-pressed', String(Number(button.dataset.trendDays) === dayCount));
+        const selected = chartMode === 'custom' || customRange
+          ? button.dataset.trendDays === 'custom'
+          : Number(button.dataset.trendDays) === dayCount;
+        button.setAttribute('aria-pressed', String(selected));
       });
+      const rangeStatus = document.getElementById('trend-range-status');
+      if (rangeStatus) {
+        rangeStatus.textContent = customRange
+          ? 'Showing custom range from ' + customRange.startDate + ' to ' + customRange.endDate + '. Missing dates appear as gaps.'
+          : chartMode === 'custom'
+            ? 'Choose a start and end date, then apply a custom range. Showing the previously applied chart data.'
+            : 'Showing ' + dayCount + ' calendar days ending today. Missing dates appear as gaps.';
+      }
+      const customForm = document.getElementById('trend-custom-form');
+      if (customForm) {
+        const hideCustomForm = chartMode !== 'custom';
+        customForm.hidden = hideCustomForm;
+        if (hideCustomForm) customForm.setAttribute('hidden', '');
+        else if (typeof customForm.removeAttribute === 'function') customForm.removeAttribute('hidden');
+      }
       renderTrendDataTable(seriesByMetric);
     }
 
@@ -421,6 +470,17 @@
       );
       actionButton.disabled = mutationsBlocked;
       details.appendChild(actionButton);
+      if (entry) {
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.className = 'calendar-detail-action btn-delete';
+        deleteButton.dataset.calendarAction = 'delete';
+        deleteButton.dataset.calendarDate = selectedDate;
+        deleteButton.textContent = 'Delete entry';
+        deleteButton.setAttribute('aria-label', 'Delete entry for ' + readableDate);
+        deleteButton.disabled = mutationsBlocked;
+        details.appendChild(deleteButton);
+      }
     }
 
     function renderCalendar(entries, calendarState) {
@@ -473,7 +533,7 @@
     }
 
     function renderHistoryTrends(entries, viewState) {
-      const { activeView, trendDayCount, trendEndDate, calendar } = viewState;
+      const { activeView, trendDayCount, trendEndDate, trendMode, appliedCustomTrendRange, calendar } = viewState;
       const chartsPanel = document.getElementById('history-charts-panel');
       const calendarPanel = document.getElementById('history-calendar-panel');
       const chartsButton = document.getElementById('history-view-charts');
@@ -484,6 +544,15 @@
       calendarPanel.hidden = !calendarVisible;
       chartsButton.setAttribute('aria-pressed', String(!calendarVisible));
       calendarButton.setAttribute('aria-pressed', String(calendarVisible));
-      renderCharts(entries, trendDayCount, trendEndDate);
+      const customRange = trendMode === 'custom' ? appliedCustomTrendRange : null;
+      renderCharts(entries, trendDayCount, trendEndDate, customRange, trendMode);
+      const customForm = document.getElementById('trend-custom-form');
+      if (customForm) {
+        customForm.hidden = trendMode !== 'custom';
+        const start = document.getElementById('trend-custom-start');
+        const end = document.getElementById('trend-custom-end');
+        if (start && viewState.customTrendDraftStart !== undefined) start.value = viewState.customTrendDraftStart;
+        if (end && viewState.customTrendDraftEnd !== undefined) end.value = viewState.customTrendDraftEnd;
+      }
       renderCalendar(entries, calendar);
     }

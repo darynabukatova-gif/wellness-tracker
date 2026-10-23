@@ -519,6 +519,42 @@
       margin-bottom: 0;
     }
 
+    .history-filter-form {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+      gap: var(--space-3);
+      align-items: end;
+      margin-bottom: var(--space-3);
+    }
+
+    .history-filter-field {
+      min-width: 0;
+    }
+
+    .history-filter-field label {
+      display: block;
+      margin-bottom: var(--space-1);
+      color: var(--colour-text-muted);
+      font-size: var(--font-size-sm);
+      font-weight: 600;
+    }
+
+    .history-filter-field input {
+      width: 100%;
+    }
+
+    .history-filter-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+    }
+
+    .history-status {
+      margin-bottom: var(--space-3);
+      color: var(--colour-text-muted);
+      font-size: var(--font-size-sm);
+    }
+
     .backup-actions {
       display: flex;
       flex-wrap: wrap;
@@ -617,6 +653,39 @@
       border-color: var(--colour-accent);
     }
 
+    .trend-custom-controls {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+      gap: var(--space-2);
+      align-items: end;
+      margin-bottom: var(--space-3);
+    }
+
+    .trend-custom-controls[hidden] {
+      display: none;
+    }
+
+    .trend-custom-field {
+      min-width: 0;
+    }
+
+    .trend-custom-field label {
+      display: block;
+      margin-bottom: var(--space-1);
+      font-size: var(--font-size-sm);
+    }
+
+    #trend-custom-error {
+      grid-column: 1 / -1;
+      margin: 0;
+    }
+
+    @media (max-width: 420px) {
+      .trend-custom-controls {
+        grid-template-columns: 1fr;
+      }
+    }
+
     .trend-chart-list {
       display: grid;
       gap: var(--space-5);
@@ -624,6 +693,7 @@
 
     .trend-chart-card {
       min-width: 0;
+      container-type: inline-size;
       padding: var(--space-3);
       background-color: var(--colour-bg);
       border: 1px solid var(--colour-border);
@@ -664,6 +734,24 @@
       fill: var(--colour-text-muted);
       font-family: var(--font-family);
       font-size: 10px;
+    }
+
+    @container (max-width: 400px) {
+      .trend-axis-label {
+        font-size: 12px;
+      }
+    }
+
+    @container (max-width: 360px) {
+      .trend-axis-label {
+        font-size: 13px;
+      }
+    }
+
+    @container (max-width: 320px) {
+      .trend-axis-label {
+        font-size: 14px;
+      }
     }
 
     .trend-empty-label {
@@ -861,6 +949,12 @@
     #entries-container td,
     #entries-container th {
       border-bottom: 1px solid var(--colour-border);
+    }
+
+    @media (max-width: 420px) {
+      .history-filter-form {
+        grid-template-columns: 1fr;
+      }
     }
 
     /* ═══════════════════════════════════════════════════════════
