@@ -41,7 +41,9 @@ packaging.
 | **Monthly calendar** | Monday-first month navigation, saved-entry indicators, and selectable date details |
 | **Calendar actions** | Create, edit, or delete an entry from the selected calendar date with confirmation and focus restoration |
 | **Trend charts** | Responsive SVG charts for mood, sleep, and water over 7, 30, 90, or a custom range of up to 366 calendar days |
-| **Exact chart data** | A keyboard-accessible expandable table gives the precise date and value behind each chart point |
+| **Calendar-period charts** | Select complete calendar months or years, or compare two calendar months or years |
+| **Year resolutions** | View year comparisons as daily values, weekly averages, or monthly averages; weekly averages are the default |
+| **Exact chart data** | A keyboard-accessible expandable table gives exact values, comparison boundaries, averages, and recorded-day counts |
 | **Backup & Restore** | Export committed entries, preview a strictly validated JSON backup, then explicitly replace all entries if desired |
 | **Persistence** | Browser entries use `localStorage`; Electron entries use a JSON file in the app data directory |
 | **Offline desktop app** | The Electron version runs locally without a network connection |
@@ -183,18 +185,53 @@ date and month navigation remain read-only operations.
 **Charts** contains separate responsive SVG line charts for Mood (1–5), Sleep
 (0–24 h), and Water (0–3 L). Select **7 days**, **30 days** (the default), or
 **90 days** to show that inclusive number of local calendar days ending today.
-Choose **Custom** to enter an inclusive local-calendar start and end date. Custom
-ranges are limited to 366 days and apply only after validation. Draft changes do
-not alter the currently rendered charts; switching to a preset and back preserves
-the last valid custom range. Charts use saved data only and refresh after
-successful writes, never after failed writes or from unsaved form values.
+Choose **Custom** for one of three single-period selectors:
+
+- **Date range** accepts an inclusive local-calendar start and end date, limited
+  to 366 days.
+- **Calendar month** accepts one `YYYY-MM` value and includes the complete
+  month, including February 29 in leap years.
+- **Calendar year** accepts one `YYYY` value and includes January 1 through
+  December 31.
+
+Custom selections apply only after validation. Draft changes do not alter the
+currently rendered charts; switching to a preset and back restores the last
+successfully applied custom period. Historical and future calendar periods are
+allowed, subject to the custom date-range limit. Charts use committed saved data
+only and refresh after successful writes, never after failed writes or from
+unsaved form values.
+
+Choose **Compare periods** to compare two calendar months or two calendar years.
+Month comparisons align corresponding day numbers and remain daily. Year
+comparisons align by month and day, so March 1 does not shift when one year is a
+leap year; February 29 is explicitly shown as **Not in period** for a common
+year. Year comparisons offer:
+
+- **Daily values**, one point per valid month/day alignment.
+- **Weekly averages**, using consecutive seven-day blocks beginning January 1
+  (the default for a new year comparison). The final Week 53 may contain one or
+  two days depending on the year.
+- **Monthly averages**, one period for each calendar month.
+
+Aggregated averages use only recorded days: missing days never count as zero,
+recorded zeroes do count, and empty periods display **Missing** with a recorded
+day count of zero. The exact-data tables include the alignment period, actual
+boundaries for both years, averages, recorded-day counts, and calendar-day
+counts. Every exact-data table—single-period daily data, daily comparisons, and
+weekly/monthly aggregated comparisons—uses the same bounded two-axis scroll
+region. Its column headings remain visible during vertical scrolling, and its
+first column (Date, Alignment, or Period) remains visible during horizontal
+scrolling. The top-left header stays above both. A text hint outside the scroll
+region explains the interaction. The table's native disclosure reads **Show
+exact chart data** when collapsed and **Hide exact chart data** when open.
 
 A date with no saved entry is represented as a gap, never as zero; lines are not
-drawn across that gap. A recorded zero is retained as a plotted point. Use
-**Show exact chart data** to open the accompanying accessible table, which lists
-each date and marks absent entries as **Missing**. The SVG charts have titles
-and descriptions for assistive technology; the exact-data table is the best way
-to inspect individual values with a screen reader or keyboard.
+drawn across that gap. A recorded zero is retained as a plotted point. The SVG
+charts have titles, descriptions, legends, and fixed metric scales for assistive
+technology. The exact-data table is the best way to inspect individual values or
+comparison periods with a screen reader or keyboard. On narrow screens, only
+the table region scrolls; the rest of the page does not gain horizontal
+overflow.
 
 **Entry History** is independent of Calendar and Charts. It is hidden initially;
 enter both From and To dates and choose **Show entries** to apply an inclusive
@@ -509,7 +546,7 @@ test/
 npm test
 ```
 
-Expected output: **238 individual tests, 238 pass, 0 fail, 0 skipped.**
+Expected output: **275 individual test declarations, 275 pass, 0 fail, 0 skipped.**
 
 **How it works:** `helpers.js` reads `js/core.js` and evaluates it in an isolated
 `vm` context (no `eval()`, no code copying). `edit.test.js` evaluates the real
@@ -531,7 +568,7 @@ same source files that run in the browser.
 | `file-storage.test.js` | JSON-file load/save behavior, atomic replacement, failures, and serialized writes |
 | `electron-security.test.js` | Expected local URL/main-frame policy and single-instance window restoration helpers |
 | `install-script.test.js` | Shell syntax, atomic replacement safeguards, and legacy-installation adoption checks |
-| `edit.test.js` | Isolated core-plus-view rendering contracts; Browser/Electron adapters, async startup, edit-mode loading, saving, validation, failed writes, cancellation, deletion conflicts, erase-all mode handling, sliders, busy/locked controls, calendar actions, charts, and backup export/import/replace workflow |
+| `edit.test.js` | Isolated core-plus-view rendering contracts; Browser/Electron adapters, async startup, edit-mode loading, saving, validation, failed writes, cancellation, deletion conflicts, erase-all mode handling, sliders, busy/locked controls, calendar actions, single-period charts, month/year comparisons, daily/weekly/monthly resolutions, exact-data tables, and backup export/import/replace workflow |
 
 The edit tests use a small DOM mock to exercise the event-handler workflow in Node.js
 without adding a dependency. Full browser rendering, responsive layout, native
@@ -546,11 +583,12 @@ The real Electron UI suite is deliberately separate from the fast Node suite:
 npm run test:e2e
 ```
 
-`npm test` (or `npm run test`) runs the 238 Node unit and integration tests only.
-`npm run test:e2e` runs eleven serial, source-Electron tests through `playwright-core`:
-isolated startup, create/edit/delete persistence across restarts, calendar actions,
-calendar deletion, preset and custom charts, on-demand history filtering, backup
-export, import preview/cancellation, and confirmed replacement restore.
+`npm test` runs the 275 Node unit and integration test declarations only.
+`npm run test:e2e` runs fifteen serial, source-Electron tests through
+`playwright-core`: isolated startup, create/edit/delete persistence across
+restarts, calendar actions and deletion, on-demand history filtering, preset and
+custom charts, month and year comparisons, daily/weekly/monthly year resolutions,
+backup export, import preview/cancellation, and confirmed replacement restore.
 The existing Node test workflow runs automatically on pushes and pull requests. The
 Electron E2E workflow runs automatically for pull requests targeting `main`, and can
 also be started manually in GitHub: open **Actions**, select **Wellness Tracker
@@ -662,23 +700,39 @@ These behaviours require a live browser and cannot be checked with Node.js:
     chart data remains displayed.
 33. Open **Show exact chart data** and navigate the table with a keyboard and a
     screen reader. Verify it distinguishes **Missing** from zero values.
+34. Choose **Compare periods**. Compare two months and then two years. For years,
+    verify **Weekly averages** is selected by default, then apply Daily values and
+    Monthly averages. Confirm draft changes do not update charts until Apply,
+    invalid input preserves the last valid chart, and switching away and back
+    restores the last applied periods and resolution.
+35. Compare a leap year with a common year. Confirm February 29 is **Not in
+    period** for the common year and March 1 remains aligned. In weekly and
+    monthly tables, verify averages use only recorded days, zeroes are retained,
+    empty periods say **Missing**, and the final partial week has correct day
+    counts.
+36. Open each exact-data table type: a single-period table, a daily month/year
+    comparison, and weekly/monthly aggregated comparisons. At 320, 375, 420,
+    and desktop widths, scroll horizontally and vertically where available.
+    Confirm the Date, Alignment, or Period first column and all column headings
+    remain visible, the top-left corner stays above both, the scroll hint stays
+    below the table, and no page-level horizontal scrollbar appears.
 
 #### Responsive layout
-31. Resize the browser window below 600 px, including 320 CSS pixels — form,
+37. Resize the browser window below 600 px, including 320 CSS pixels — form,
     calendar, and charts fit without page-level horizontal overflow; the table
     scrolls only within its own data wrapper.
 
 #### Backup & Restore
-32. Export a populated dataset and an empty dataset. Verify the downloaded JSON is
+38. Export a populated dataset and an empty dataset. Verify the downloaded JSON is
     readable, has backup version 1, preserves zero values, and does not change the
     form, calendar selection, charts, or saved entries.
-33. Select a valid backup and verify its preview count, date range, and explicit
+39. Select a valid backup and verify its preview count, date range, and explicit
     replace-all warning. Cancel the preview and verify no data changes.
-34. Try malformed JSON, a backup with an unsupported version, duplicate dates, and
+40. Try malformed JSON, a backup with an unsupported version, duplicate dates, and
     an invalid field value. Verify each is rejected without changing saved data.
-35. Restore a populated backup, then an empty backup. Check the confirmation text,
+41. Restore a populated backup, then an empty backup. Check the confirmation text,
     refreshed history/summary/calendar/charts, form reset, and keyboard focus.
-36. With an edited or partially filled form, begin a restore and cancel the
+42. With an edited or partially filled form, begin a restore and cancel the
     confirmation; verify both the form and import preview remain unchanged. Where
     practical, simulate a failed write and verify retry/cancel remain available.
 

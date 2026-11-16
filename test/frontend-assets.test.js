@@ -34,3 +34,18 @@ test('chart axis labels use a narrow-container readability rule without changing
   assert.match(css, /@container\s*\(max-width:\s*320px\)[\s\S]*?\.trend-axis-label\s*\{[\s\S]*?font-size:\s*14px/);
   assert.match(css, /\.trend-axis-label\s*\{[\s\S]*?font-size:\s*10px/);
 });
+
+test('all exact-data tables share accessible scrolling and sticky layering', () => {
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'styles', 'app.css'), 'utf8');
+
+  assert.match(html, /<details class="trend-data-details">[\s\S]*?<summary>[\s\S]*?trend-data-summary-collapsed[\s\S]*?Show exact chart data/);
+  assert.match(html, /trend-data-summary-expanded[\s\S]*?Hide exact chart data/);
+  assert.match(css, /\.trend-data-details\[open\][\s\S]*?\.trend-data-summary-collapsed[\s\S]*?display:\s*none/);
+  assert.match(css, /\.trend-data-details\[open\][\s\S]*?\.trend-data-summary-expanded[\s\S]*?display:\s*inline/);
+  assert.match(css, /\.trend-data-table-wrap\.trend-data-table-host[\s\S]*?overflow:\s*visible/);
+  assert.match(css, /\.trend-data-table-scroll-region\s*\{[\s\S]*?max-height:\s*70vh[\s\S]*?overflow:\s*auto/);
+  assert.match(css, /\.trend-data-table th:first-child,[\s\S]*?\.trend-data-table td:first-child[\s\S]*?position:\s*sticky[\s\S]*?left:\s*0/);
+  assert.match(css, /\.trend-data-table thead th\s*\{[\s\S]*?position:\s*sticky[\s\S]*?top:\s*0[\s\S]*?z-index:\s*2/);
+  assert.match(css, /\.trend-data-table thead th:first-child\s*\{[\s\S]*?left:\s*0[\s\S]*?z-index:\s*3/);
+});

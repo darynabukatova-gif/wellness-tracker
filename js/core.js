@@ -226,7 +226,7 @@
      * @returns {string} "YYYY-MM-DD"
      */
     function localDateString(d) {
-      const y   = d.getFullYear();
+      const y   = String(d.getFullYear()).padStart(4, '0');
       const m   = String(d.getMonth() + 1).padStart(2, '0');
       const day = String(d.getDate()).padStart(2, '0');
       return y + '-' + m + '-' + day;
@@ -313,6 +313,65 @@
         throw new RangeError('End date must be on or after start date.');
       }
       return (endCalendarValue - startCalendarValue) / 86400000 + 1;
+    }
+
+    function validateCalendarYear(year) {
+      if (!Number.isInteger(year) || year < 0 || year > 9999) {
+        throw new RangeError('Calendar year must be an integer from 0 through 9999.');
+      }
+    }
+
+    function formatCalendarBoundaryDate(year, monthIndex, day) {
+      return String(year).padStart(4, '0') + '-' +
+        String(monthIndex + 1).padStart(2, '0') + '-' +
+        String(day).padStart(2, '0');
+    }
+
+    /**
+     * getCalendarMonthRange(year, monthIndex)
+     *
+     * Returns the inclusive local-calendar boundaries for a zero-based month.
+     * Date#setFullYear is used throughout so years 0–99 are not interpreted
+     * as 1900–1999 by the Date constructor.
+     *
+     * @returns {{startDate: string, endDate: string, dayCount: number}}
+     * @throws {RangeError} When year or monthIndex is outside its supported range.
+     */
+    function getCalendarMonthRange(year, monthIndex) {
+      validateCalendarYear(year);
+      if (!Number.isInteger(monthIndex) || monthIndex < 0 || monthIndex > 11) {
+        throw new RangeError('Calendar month index must be an integer from 0 through 11.');
+      }
+
+      const firstDay = formatCalendarBoundaryDate(year, monthIndex, 1);
+      const lastDayDate = new Date(0);
+      lastDayDate.setHours(12, 0, 0, 0);
+      lastDayDate.setFullYear(year, monthIndex + 1, 0);
+      const lastDay = formatCalendarBoundaryDate(year, monthIndex, lastDayDate.getDate());
+      return {
+        startDate: firstDay,
+        endDate: lastDay,
+        dayCount: countCalendarDaysInclusive(firstDay, lastDay),
+      };
+    }
+
+    /**
+     * getCalendarYearRange(year)
+     *
+     * Returns the inclusive local-calendar boundaries for one supported year.
+     *
+     * @returns {{startDate: string, endDate: string, dayCount: number}}
+     * @throws {RangeError} When year is outside 0–9999.
+     */
+    function getCalendarYearRange(year) {
+      validateCalendarYear(year);
+      const startDate = formatCalendarBoundaryDate(year, 0, 1);
+      const endDate = formatCalendarBoundaryDate(year, 11, 31);
+      return {
+        startDate,
+        endDate,
+        dayCount: countCalendarDaysInclusive(startDate, endDate),
+      };
     }
 
     /**
@@ -438,6 +497,209 @@
       localCalendarDate(endDate);
       const startDate = addCalendarDays(endDate, 1 - dayCount);
       return buildTrendSeriesForRange(entries, metric, startDate, endDate);
+    }
+
+    function entriesByDate(entries) {
+      const lookup = new Map();
+      entries.forEach(function (entry) {
+        lookup.set(entry.date, entry);
+      });
+      return lookup;
+    }
+
+    function comparisonMonthRange(period) {
+      if (!period || typeof period !== 'object') {
+        throw new RangeError('Calendar month comparison periods must provide a year and month index.');
+      }
+      return getCalendarMonthRange(period.year, period.monthIndex);
+    }
+
+    /**
+     * buildMonthComparisonSeries(entries, metric, firstPeriod, secondPeriod)
+     *
+     * Aligns two whole months by day of month. A null date indicates that a
+     * day does not exist in that month; a non-null date with a null value
+     * indicates a valid date with no saved entry.
+     *
+     * @returns {{metric: string, alignment: 'day-of-month', points: Array}}
+     * @throws {RangeError} When metric or either period is invalid.
+     */
+    function buildMonthComparisonSeries(entries, metric, firstPeriod, secondPeriod) {
+      validateTrendMetric(metric);
+      const firstRange = comparisonMonthRange(firstPeriod);
+      const secondRange = comparisonMonthRange(secondPeriod);
+      const lookup = entriesByDate(entries);
+      const dayCount = Math.max(firstRange.dayCount, secondRange.dayCount);
+      const points = [];
+
+      for (let day = 1; day <= dayCount; day++) {
+        const firstDate = day <= firstRange.dayCount
+          ? addCalendarDays(firstRange.startDate, day - 1)
+          : null;
+        const secondDate = day <= secondRange.dayCount
+          ? addCalendarDays(secondRange.startDate, day - 1)
+          : null;
+        const firstEntry = firstDate ? lookup.get(firstDate) : null;
+        const secondEntry = secondDate ? lookup.get(secondDate) : null;
+        points.push({
+          key: String(day).padStart(2, '0'),
+          label: String(day),
+          firstDate,
+          secondDate,
+          firstValue: firstEntry ? firstEntry[metric] : null,
+          secondValue: secondEntry ? secondEntry[metric] : null,
+        });
+      }
+
+      return { metric, alignment: 'day-of-month', points };
+    }
+
+    function monthDayKeysForYear(year) {
+      const range = getCalendarYearRange(year);
+      const keys = [];
+      for (let offset = 0; offset < range.dayCount; offset++) {
+        keys.push(addCalendarDays(range.startDate, offset).slice(5));
+      }
+      return keys;
+    }
+
+    /**
+     * buildYearComparisonSeries(entries, metric, firstYear, secondYear)
+     *
+     * Aligns two whole years by MM-DD, rather than day number, so March 1
+     * remains aligned across leap and common years. February 29 is included
+     * once in the union and is null for a non-leap year.
+     *
+     * @returns {{metric: string, alignment: 'month-day', points: Array}}
+     * @throws {RangeError} When metric or either year is invalid.
+     */
+    function buildYearComparisonSeries(entries, metric, firstYear, secondYear) {
+      validateTrendMetric(metric);
+      getCalendarYearRange(firstYear);
+      getCalendarYearRange(secondYear);
+      const firstKeys = new Set(monthDayKeysForYear(firstYear));
+      const secondKeys = new Set(monthDayKeysForYear(secondYear));
+      const keys = Array.from(new Set(Array.from(firstKeys).concat(Array.from(secondKeys)))).sort();
+      const lookup = entriesByDate(entries);
+
+      const points = keys.map(function (key) {
+        const firstDate = firstKeys.has(key) ? String(firstYear).padStart(4, '0') + '-' + key : null;
+        const secondDate = secondKeys.has(key) ? String(secondYear).padStart(4, '0') + '-' + key : null;
+        const firstEntry = firstDate ? lookup.get(firstDate) : null;
+        const secondEntry = secondDate ? lookup.get(secondDate) : null;
+        return {
+          key,
+          label: key,
+          firstDate,
+          secondDate,
+          firstValue: firstEntry ? firstEntry[metric] : null,
+          secondValue: secondEntry ? secondEntry[metric] : null,
+        };
+      });
+
+      return { metric, alignment: 'month-day', points };
+    }
+
+    function aggregateYearPeriod(entriesByDate, metric, startDate, endDate) {
+      const calendarDayCount = countCalendarDaysInclusive(startDate, endDate);
+      let total = 0;
+      let recordedDayCount = 0;
+      for (let offset = 0; offset < calendarDayCount; offset++) {
+        const date = addCalendarDays(startDate, offset);
+        const entry = entriesByDate.get(date);
+        if (!entry) continue;
+        total += entry[metric];
+        recordedDayCount += 1;
+      }
+      return {
+        average: recordedDayCount === 0 ? null : total / recordedDayCount,
+        recordedDayCount,
+        calendarDayCount,
+      };
+    }
+
+    /**
+     * buildAggregatedYearComparisonSeries(entries, metric, firstYear, secondYear, resolution)
+     *
+     * Aligns two calendar years by seven-day blocks beginning on January 1
+     * or by calendar month. A period's average uses only days with saved
+     * entries; absent days never contribute zeroes to the average.
+     *
+     * @returns {{metric: string, resolution: string, points: Array}}
+     * @throws {RangeError} When a year, metric, or resolution is invalid.
+     */
+    function buildAggregatedYearComparisonSeries(entries, metric, firstYear, secondYear, resolution) {
+      validateTrendMetric(metric);
+      const firstRange = getCalendarYearRange(firstYear);
+      const secondRange = getCalendarYearRange(secondYear);
+      if (resolution !== 'weekly' && resolution !== 'monthly') {
+        throw new RangeError('Year comparison resolution must be weekly or monthly.');
+      }
+
+      const lookup = entriesByDate(entries);
+      const points = [];
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December',
+      ];
+
+      if (resolution === 'weekly') {
+        const weekCount = Math.max(
+          Math.ceil(firstRange.dayCount / 7),
+          Math.ceil(secondRange.dayCount / 7)
+        );
+        for (let week = 0; week < weekCount; week++) {
+          const firstStart = addCalendarDays(firstRange.startDate, week * 7);
+          const secondStart = addCalendarDays(secondRange.startDate, week * 7);
+          const firstEnd = addCalendarDays(
+            firstStart,
+            Math.min(6, firstRange.dayCount - week * 7 - 1)
+          );
+          const secondEnd = addCalendarDays(
+            secondStart,
+            Math.min(6, secondRange.dayCount - week * 7 - 1)
+          );
+          const first = aggregateYearPeriod(lookup, metric, firstStart, firstEnd);
+          const second = aggregateYearPeriod(lookup, metric, secondStart, secondEnd);
+          points.push({
+            key: String(week + 1).padStart(2, '0'),
+            label: 'Week ' + (week + 1),
+            firstStartDate: firstStart,
+            firstEndDate: firstEnd,
+            secondStartDate: secondStart,
+            secondEndDate: secondEnd,
+            firstValue: first.average,
+            secondValue: second.average,
+            firstRecordedDayCount: first.recordedDayCount,
+            secondRecordedDayCount: second.recordedDayCount,
+            firstCalendarDayCount: first.calendarDayCount,
+            secondCalendarDayCount: second.calendarDayCount,
+          });
+        }
+      } else {
+        for (let monthIndex = 0; monthIndex < 12; monthIndex++) {
+          const firstMonth = getCalendarMonthRange(firstYear, monthIndex);
+          const secondMonth = getCalendarMonthRange(secondYear, monthIndex);
+          const first = aggregateYearPeriod(lookup, metric, firstMonth.startDate, firstMonth.endDate);
+          const second = aggregateYearPeriod(lookup, metric, secondMonth.startDate, secondMonth.endDate);
+          points.push({
+            key: String(monthIndex + 1).padStart(2, '0'),
+            label: monthNames[monthIndex],
+            firstStartDate: firstMonth.startDate,
+            firstEndDate: firstMonth.endDate,
+            secondStartDate: secondMonth.startDate,
+            secondEndDate: secondMonth.endDate,
+            firstValue: first.average,
+            secondValue: second.average,
+            firstRecordedDayCount: first.recordedDayCount,
+            secondRecordedDayCount: second.recordedDayCount,
+            firstCalendarDayCount: first.calendarDayCount,
+            secondCalendarDayCount: second.calendarDayCount,
+          });
+        }
+      }
+
+      return { metric, resolution, points };
     }
 
     /**

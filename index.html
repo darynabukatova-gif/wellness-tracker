@@ -200,23 +200,88 @@
           <button type="button" class="trend-period-btn" data-trend-days="30" aria-pressed="true">30 days</button>
           <button type="button" class="trend-period-btn" data-trend-days="90" aria-pressed="false">90 days</button>
           <button type="button" class="trend-period-btn" data-trend-days="custom" aria-pressed="false">Custom</button>
+          <button type="button" class="trend-period-btn" data-trend-days="compare" aria-pressed="false">Compare periods</button>
         </div>
         <form id="trend-custom-form" class="trend-custom-controls" hidden novalidate>
-          <div class="trend-custom-field">
-            <label for="trend-custom-start">Start date</label>
-            <input id="trend-custom-start" type="date" aria-describedby="trend-custom-error">
+          <div class="trend-custom-type-field">
+            <label for="trend-custom-type">Custom period type</label>
+            <select id="trend-custom-type" aria-describedby="trend-custom-error">
+              <option value="date-range">Date range</option>
+              <option value="month">Calendar month</option>
+              <option value="year">Calendar year</option>
+            </select>
           </div>
-          <div class="trend-custom-field">
-            <label for="trend-custom-end">End date</label>
-            <input id="trend-custom-end" type="date" aria-describedby="trend-custom-error">
+          <div id="trend-custom-date-range-controls" class="trend-custom-period-controls">
+            <div class="trend-custom-field">
+              <label for="trend-custom-start">Start date</label>
+              <input id="trend-custom-start" type="date" aria-describedby="trend-custom-error">
+            </div>
+            <div class="trend-custom-field">
+              <label for="trend-custom-end">End date</label>
+              <input id="trend-custom-end" type="date" aria-describedby="trend-custom-error">
+            </div>
           </div>
-          <button type="submit" id="apply-trend-custom-btn">Apply custom range</button>
-          <p id="trend-custom-error" class="table-error" role="alert"></p>
+          <div id="trend-custom-month-controls" class="trend-custom-period-controls" hidden>
+            <div class="trend-custom-field">
+              <label for="trend-custom-month">Calendar month</label>
+              <input id="trend-custom-month" type="month" aria-describedby="trend-custom-error">
+            </div>
+          </div>
+          <div id="trend-custom-year-controls" class="trend-custom-period-controls" hidden>
+            <div class="trend-custom-field">
+              <label for="trend-custom-year">Calendar year</label>
+              <input id="trend-custom-year" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="YYYY" aria-describedby="trend-custom-error">
+            </div>
+          </div>
+          <button type="submit" id="apply-trend-custom-btn">Apply custom period</button>
+          <p id="trend-custom-error" class="table-error" role="alert" aria-live="assertive"></p>
+        </form>
+        <form id="trend-comparison-form" class="trend-custom-controls trend-comparison-controls" hidden novalidate>
+          <div class="trend-custom-type-field">
+            <label for="trend-comparison-type">Comparison type</label>
+            <select id="trend-comparison-type" aria-describedby="trend-comparison-error">
+              <option value="month">Calendar months</option>
+              <option value="year">Calendar years</option>
+            </select>
+          </div>
+          <div id="trend-comparison-month-controls" class="trend-custom-period-controls">
+            <div class="trend-custom-field">
+              <label for="trend-comparison-first-month">First period</label>
+              <input id="trend-comparison-first-month" type="month" aria-describedby="trend-comparison-error">
+            </div>
+            <div class="trend-custom-field">
+              <label for="trend-comparison-second-month">Second period</label>
+              <input id="trend-comparison-second-month" type="month" aria-describedby="trend-comparison-error">
+            </div>
+          </div>
+          <div id="trend-comparison-year-controls" class="trend-custom-period-controls" hidden>
+            <div class="trend-custom-field">
+              <label for="trend-comparison-first-year">First period</label>
+              <input id="trend-comparison-first-year" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="YYYY" aria-describedby="trend-comparison-error">
+            </div>
+            <div class="trend-custom-field">
+              <label for="trend-comparison-second-year">Second period</label>
+              <input id="trend-comparison-second-year" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="YYYY" aria-describedby="trend-comparison-error">
+            </div>
+          </div>
+          <div id="trend-comparison-resolution-controls" class="trend-custom-type-field" hidden>
+            <label for="trend-comparison-resolution">Display</label>
+            <select id="trend-comparison-resolution" aria-describedby="trend-comparison-error">
+              <option value="daily">Daily values</option>
+              <option value="weekly" selected>Weekly averages</option>
+              <option value="monthly">Monthly averages</option>
+            </select>
+          </div>
+          <button type="submit" id="apply-trend-comparison-btn">Apply comparison</button>
+          <p id="trend-comparison-error" class="table-error" role="alert" aria-live="assertive"></p>
         </form>
         <p id="trend-range-status" class="history-placeholder" role="status">Calendar days ending today. Missing dates appear as gaps.</p>
         <div id="trend-chart-list" class="trend-chart-list"></div>
         <details class="trend-data-details">
-          <summary>Show exact chart data</summary>
+          <summary>
+            <span class="trend-data-summary-collapsed">Show exact chart data</span>
+            <span class="trend-data-summary-expanded">Hide exact chart data</span>
+          </summary>
           <div id="trend-data-table-container" class="trend-data-table-wrap"></div>
         </details>
       </div>

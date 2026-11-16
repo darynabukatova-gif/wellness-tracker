@@ -451,7 +451,10 @@ test('Electron E2E: charts show local-date values, gaps, zeroes, and successful 
     await createEntryThroughForm(window, todayEntry);
     await window.locator('#history-view-charts').click();
     assert.equal(await window.locator('#history-charts-panel').isHidden(), false);
-    assert.equal(await window.locator('.trend-period-btn').count(), 4);
+    assert.equal(await window.locator('.trend-period-btn').count(), 5);
+    for (const period of ['7', '30', '90', 'custom', 'compare']) {
+      assert.equal(await window.locator(`.trend-period-btn[data-trend-days="${period}"]`).count(), 1);
+    }
     assert.equal(await window.locator('.trend-period-btn[data-trend-days="30"]').getAttribute('aria-pressed'), 'true');
 
     await window.locator('.trend-data-details summary').click();
@@ -851,6 +854,284 @@ test('Electron E2E: custom chart ranges preserve historical gaps and survive pre
     assert.equal(await window.locator('#trend-custom-start').inputValue(), firstEntry.date);
     assert.equal(await window.locator('#trend-custom-end').inputValue(), secondEntry.date);
     assert.equal(await window.locator('.trend-period-btn[data-trend-days="custom"]').getAttribute('aria-pressed'), 'true');
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: custom calendar month and year periods use complete ranges', { timeout: 75_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="custom"]').click();
+    await window.locator('#trend-custom-type').selectOption('month');
+    await window.locator('#trend-custom-month').fill('2024-02');
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-range-status').filter({
+      hasText: 'from 2024-02-01 to 2024-02-29',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#trend-custom-month-controls').isHidden(), false);
+    assert.equal(await window.locator('#trend-data-table-container tbody tr').count(), 29);
+
+    await window.locator('.trend-period-btn[data-trend-days="7"]').click();
+    await window.locator('.trend-period-btn[data-trend-days="custom"]').click();
+    assert.equal(await window.locator('#trend-custom-type').inputValue(), 'month');
+    assert.equal(await window.locator('#trend-custom-month').inputValue(), '2024-02');
+
+    await window.locator('#trend-custom-type').selectOption('year');
+    await window.locator('#trend-custom-year').fill('2024');
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-range-status').filter({
+      hasText: 'from 2024-01-01 to 2024-12-31',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#trend-custom-year-controls').isHidden(), false);
+    assert.equal(await window.locator('#trend-data-table-container tbody tr').count(), 366);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: compares calendar months with gaps, zeroes, and nonexistent leap dates', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const entries = [
+    { date: '2024-02-01', mood: 2, sleep: 0, water: 0 },
+    { date: '2024-02-29', mood: 5, sleep: 8, water: 2.4 },
+    { date: '2025-02-01', mood: 4, sleep: 7, water: 1.2 },
+  ];
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+
+    for (const entry of entries) await createEntryThroughForm(window, entry);
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="compare"]').click();
+    assert.equal(await window.locator('#trend-comparison-form').isHidden(), false);
+    assert.equal(await window.locator('#trend-comparison-month-controls').isHidden(), false);
+    await window.locator('#trend-comparison-first-month').fill('2024-02');
+    await window.locator('#trend-comparison-second-month').fill('2025-02');
+    await window.locator('#apply-trend-comparison-btn').click();
+
+    await window.locator('#trend-range-status').filter({
+      hasText: 'Comparing February 2024 with February 2025',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await window.locator('.trend-comparison-legend').first().textContent(), /February 2024/);
+    assert.match(await window.locator('.trend-comparison-legend').first().textContent(), /February 2025/);
+    for (const metric of ['mood', 'sleep', 'water']) {
+      const chart = window.locator(`.trend-chart-card[data-metric="${metric}"] svg`);
+      assert.equal(await chart.locator('circle.trend-comparison-point-first').count(), 2);
+      assert.equal(await chart.locator('circle.trend-comparison-point-second').count(), 1);
+    }
+
+    await window.locator('.trend-data-details summary').click();
+    const leapRow = window.locator('#trend-data-table-container tbody tr').filter({ hasText: /^29/ });
+    await leapRow.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.deepEqual(await leapRow.locator('td').allTextContents(), [
+      '29', '5', 'Not in period', '8 h', 'Not in period', '2.4 L', 'Not in period',
+    ]);
+    const missingRow = window.locator('#trend-data-table-container tbody tr').nth(1);
+    await missingRow.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.deepEqual(await missingRow.locator('td').allTextContents(), [
+      '2', 'Missing', 'Missing', 'Missing', 'Missing', 'Missing', 'Missing',
+    ]);
+
+    await window.locator('.trend-period-btn[data-trend-days="30"]').click();
+    assert.equal(await window.locator('.trend-period-btn[data-trend-days="30"]').getAttribute('aria-pressed'), 'true');
+    await window.locator('.trend-period-btn[data-trend-days="compare"]').click();
+    assert.equal(await window.locator('#trend-comparison-first-month').inputValue(), '2024-02');
+    assert.equal(await window.locator('#trend-comparison-second-month').inputValue(), '2025-02');
+    assert.equal(await window.locator('.trend-period-btn[data-trend-days="compare"]').getAttribute('aria-pressed'), 'true');
+
+    const entriesPath = path.join(isolatedUserDataDirectory, 'entries.json');
+    const beforeComparisonInteractions = await fsp.readFile(entriesPath, 'utf8');
+    const beforeDraft = await window.locator('#trend-range-status').textContent();
+    await window.locator('#trend-comparison-first-month').fill('2023-02');
+    assert.equal(await window.locator('#trend-range-status').textContent(), beforeDraft);
+    await window.locator('#trend-comparison-first-month').fill('');
+    await window.locator('#apply-trend-comparison-btn').click();
+    await window.locator('#trend-comparison-error').filter({ hasText: /valid calendar months/ })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await window.locator('#trend-range-status').textContent(), /Comparing February 2024 with February 2025/);
+    assert.equal(await window.locator('#trend-comparison-first-month').getAttribute('aria-invalid'), 'true');
+    assert.equal(await fsp.readFile(entriesPath, 'utf8'), beforeComparisonInteractions);
+
+    await showHistoryRange(window, entries[0].date, entries[0].date);
+    await window.locator(`.btn-edit[data-date="${entries[0].date}"]`).click();
+    await window.locator('input[name="mood"][value="3"]').check();
+    await window.locator('#save-btn').click();
+    assert.equal(await window.locator('.trend-period-btn[data-trend-days="compare"]').getAttribute('aria-pressed'), 'true');
+    const updatedFebruaryRow = window.locator('#trend-data-table-container tbody tr').first();
+    await updatedFebruaryRow.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal((await updatedFebruaryRow.locator('td').allTextContents())[1], '3');
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: compares calendar years without shifting March after leap day', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const entries = [
+    { date: '2024-02-29', mood: 5, sleep: 8, water: 2.4 },
+    { date: '2024-03-01', mood: 2, sleep: 0, water: 0 },
+    { date: '2025-03-01', mood: 4, sleep: 7, water: 1.5 },
+  ];
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    for (const entry of entries) await createEntryThroughForm(window, entry);
+
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="compare"]').click();
+    await window.locator('#trend-comparison-type').selectOption('year');
+    await window.locator('#trend-comparison-resolution').selectOption('daily');
+    await window.locator('#trend-comparison-first-year').fill('2024');
+    await window.locator('#trend-comparison-second-year').fill('2025');
+    await window.locator('#apply-trend-comparison-btn').click();
+    await window.locator('#trend-range-status').filter({ hasText: 'Comparing 2024 with 2025' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+
+    await window.locator('.trend-data-details summary').click();
+    const leapRow = window.locator('#trend-data-table-container tbody tr').filter({ hasText: /^02-29/ });
+    await leapRow.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.deepEqual(await leapRow.locator('td').allTextContents(), [
+      '02-29', '5', 'Not in period', '8 h', 'Not in period', '2.4 L', 'Not in period',
+    ]);
+    const marchRow = window.locator('#trend-data-table-container tbody tr').filter({ hasText: /^03-01/ });
+    await marchRow.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.deepEqual(await marchRow.locator('td').allTextContents(), [
+      '03-01', '2', '4', '0 h', '7 h', '0 L', '1.5 L',
+    ]);
+    const moodChart = window.locator('.trend-chart-card[data-metric="mood"] svg');
+    assert.ok(await moodChart.locator('circle.trend-comparison-point-first').count() > 0);
+    assert.ok(await moodChart.locator('circle.trend-comparison-point-second').count() > 0);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: applies weekly and monthly year comparison resolutions through the real UI', { timeout: 120_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const entries = [
+    { date: '2024-01-01', mood: 2, sleep: 0, water: 0 },
+    { date: '2024-01-07', mood: 4, sleep: 8, water: 2 },
+    { date: '2025-01-01', mood: 3, sleep: 6, water: 1 },
+    { date: '2024-02-01', mood: 2, sleep: 4, water: 1 },
+    { date: '2024-02-15', mood: 4, sleep: 8, water: 2 },
+    { date: '2025-02-01', mood: 5, sleep: 2, water: 0.5 },
+  ];
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    for (const entry of entries) await createEntryThroughForm(window, entry);
+
+    const entriesPath = path.join(isolatedUserDataDirectory, 'entries.json');
+    const beforeComparisonControls = await fsp.readFile(entriesPath, 'utf8');
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="compare"]').click();
+    await window.locator('#trend-comparison-type').selectOption('year');
+    assert.equal(await window.locator('#trend-comparison-resolution').inputValue(), 'weekly');
+    assert.equal(await window.locator('#trend-comparison-resolution-controls').isHidden(), false);
+
+    await window.locator('#trend-comparison-type').selectOption('month');
+    assert.equal(await window.locator('#trend-comparison-resolution-controls').isHidden(), true);
+    await window.locator('#trend-comparison-type').selectOption('year');
+    assert.equal(await window.locator('#trend-comparison-resolution').inputValue(), 'weekly');
+    await window.locator('#trend-comparison-first-year').fill('2024');
+    await window.locator('#trend-comparison-second-year').fill('2025');
+    await window.locator('#apply-trend-comparison-btn').click();
+    await window.locator('#trend-range-status').filter({ hasText: 'Weekly averages: Comparing 2024 with 2025' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    await window.locator('.trend-data-details summary').click();
+
+    const weeklyRows = window.locator('#trend-data-table-container tbody tr');
+    assert.equal(await weeklyRows.count(), 53);
+    const weekOne = weeklyRows.nth(0);
+    assert.deepEqual(await weekOne.locator('td').allTextContents(), [
+      'Week 1', '2024-01-01 to 2024-01-07', '2025-01-01 to 2025-01-07',
+      '2', '1', '7', '7', '3', '3', '4 h', '6 h', '1 L', '1 L',
+    ]);
+    const emptyWeek = weeklyRows.nth(1);
+    assert.equal((await emptyWeek.locator('td').allTextContents())[9], 'Missing');
+    assert.equal((await emptyWeek.locator('td').allTextContents())[3], '0');
+    assert.ok(await window.locator('.trend-chart-card[data-metric="sleep"] .trend-comparison-point-first').count() > 0);
+    assert.ok(await window.locator('.trend-chart-card[data-metric="sleep"] .trend-comparison-point-second').count() > 0);
+
+    const weeklyStatus = await window.locator('#trend-range-status').textContent();
+    await window.locator('#trend-comparison-resolution').selectOption('monthly');
+    assert.equal(await window.locator('#trend-range-status').textContent(), weeklyStatus);
+    assert.equal(await window.locator('#trend-data-table-container tbody tr').count(), 53);
+    await window.locator('#apply-trend-comparison-btn').click();
+    await window.locator('#trend-range-status').filter({ hasText: 'Monthly averages: Comparing 2024 with 2025' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+
+    const monthlyRows = window.locator('#trend-data-table-container tbody tr');
+    assert.equal(await monthlyRows.count(), 12);
+    const february = monthlyRows.nth(1);
+    assert.equal((await february.locator('td').allTextContents())[0], 'February');
+    assert.equal((await february.locator('td').allTextContents())[3], '2');
+    assert.equal((await february.locator('td').allTextContents())[9], '6 h');
+    assert.equal((await february.locator('td').allTextContents())[10], '2 h');
+    const emptyMarch = monthlyRows.nth(2);
+    assert.equal((await emptyMarch.locator('td').allTextContents())[7], 'Missing');
+
+    await window.locator('.trend-period-btn[data-trend-days="30"]').click();
+    await window.locator('.trend-period-btn[data-trend-days="compare"]').click();
+    assert.equal(await window.locator('#trend-comparison-resolution').inputValue(), 'monthly');
+    assert.equal(await window.locator('#trend-comparison-first-year').inputValue(), '2024');
+    assert.equal(await window.locator('#trend-comparison-second-year').inputValue(), '2025');
+
+    await window.locator('#trend-comparison-first-year').fill('');
+    await window.locator('#apply-trend-comparison-btn').click();
+    await window.locator('#trend-comparison-error').filter({ hasText: /calendar years/ })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await window.locator('#trend-range-status').textContent(), /Monthly averages/);
+    assert.equal(await fsp.readFile(entriesPath, 'utf8'), beforeComparisonControls);
+
+    await showHistoryRange(window, '2024-02-01', '2024-02-01');
+    await window.locator('.btn-edit[data-date="2024-02-01"]').click();
+    await window.locator('input[name="mood"][value="5"]').check();
+    await window.locator('#save-btn').click();
+    const updatedFebruary = window.locator('#trend-data-table-container tbody tr').nth(1);
+    assert.equal((await updatedFebruary.locator('td').allTextContents())[7], '4.5');
+    assert.equal(await window.locator('#trend-comparison-resolution').inputValue(), 'monthly');
   } catch (error) {
     testFailure = error;
     throw error;

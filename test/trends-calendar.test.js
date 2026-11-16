@@ -5,16 +5,73 @@ const { test } = require('node:test');
 const {
   addCalendarDays,
   countCalendarDaysInclusive,
+  getCalendarMonthRange,
+  getCalendarYearRange,
   validateCalendarDateRange,
   filterEntriesByDateRange,
   buildTrendSeries,
   buildTrendSeriesForRange,
+  buildMonthComparisonSeries,
+  buildYearComparisonSeries,
+  buildAggregatedYearComparisonSeries,
   buildCalendarMonth,
 } = require('./helpers.js').loadContext();
 
 function entry(date, mood, sleep, water) {
   return { date, mood, sleep, water };
 }
+
+test('calendar month ranges cover January, December, and all month lengths', () => {
+  assert.deepEqual(JSON.parse(JSON.stringify(getCalendarMonthRange(2025, 0))), {
+    startDate: '2025-01-01', endDate: '2025-01-31', dayCount: 31,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(getCalendarMonthRange(2025, 1))), {
+    startDate: '2025-02-01', endDate: '2025-02-28', dayCount: 28,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(getCalendarMonthRange(2024, 1))), {
+    startDate: '2024-02-01', endDate: '2024-02-29', dayCount: 29,
+  });
+  assert.equal(getCalendarMonthRange(2025, 3).dayCount, 30);
+  assert.equal(getCalendarMonthRange(2025, 11).endDate, '2025-12-31');
+});
+
+test('calendar year ranges cover leap years and inclusive boundaries', () => {
+  assert.deepEqual(JSON.parse(JSON.stringify(getCalendarYearRange(2024))), {
+    startDate: '2024-01-01', endDate: '2024-12-31', dayCount: 366,
+  });
+  assert.equal(getCalendarYearRange(2025).dayCount, 365);
+  const range = getCalendarYearRange(2024);
+  assert.equal(countCalendarDaysInclusive(range.startDate, range.endDate), range.dayCount);
+  assert.equal(validateCalendarDateRange(range.startDate, range.endDate).dayCount, 366);
+});
+
+test('calendar ranges preserve years 0000 through 0099 without Date constructor offsets', () => {
+  assert.deepEqual(JSON.parse(JSON.stringify(getCalendarMonthRange(0, 1))), {
+    startDate: '0000-02-01', endDate: '0000-02-29', dayCount: 29,
+  });
+  assert.equal(getCalendarYearRange(1).startDate, '0001-01-01');
+  assert.equal(getCalendarYearRange(99).endDate, '0099-12-31');
+  assert.equal(getCalendarYearRange(4).dayCount, 366);
+});
+
+test('calendar boundary helpers reject invalid years and month indices', () => {
+  const rangeError = error => error.name === 'RangeError';
+  assert.throws(() => getCalendarMonthRange(-1, 0), rangeError);
+  assert.throws(() => getCalendarMonthRange(10000, 0), rangeError);
+  assert.throws(() => getCalendarYearRange(2024.5), rangeError);
+  assert.throws(() => getCalendarMonthRange(2024, -1), rangeError);
+  assert.throws(() => getCalendarMonthRange(2024, 12), rangeError);
+  assert.throws(() => getCalendarMonthRange(2024, 1.2), rangeError);
+});
+
+test('calendar boundary helpers do not mutate their input values', () => {
+  const year = 2024;
+  const monthIndex = 1;
+  const result = getCalendarMonthRange(year, monthIndex);
+  assert.equal(year, 2024);
+  assert.equal(monthIndex, 1);
+  assert.equal(result.startDate, '2024-02-01');
+});
 
 test('addCalendarDays crosses month, year, and leap-day boundaries locally', () => {
   assert.equal(addCalendarDays('2024-02-28', 1), '2024-02-29');
@@ -171,6 +228,224 @@ test('buildTrendSeriesForRange supports historical ranges, gaps, zeroes, and doe
     () => buildTrendSeriesForRange(entries, 'mood', '2020-01-05', '2020-01-01'),
     error => error.name === 'RangeError'
   );
+});
+
+test('month comparisons align day numbers across different month lengths and preserve zeroes', () => {
+  const entries = [
+    entry('2025-02-28', 5, 8, 1.2),
+    entry('2024-02-29', 2, 6, 0),
+    entry('2024-02-01', 3, 7, 2),
+  ];
+  const periods = [{ year: 2024, monthIndex: 1 }, { year: 2025, monthIndex: 1 }];
+  const originalEntries = JSON.stringify(entries);
+  const originalPeriods = JSON.stringify(periods);
+  const series = buildMonthComparisonSeries(entries, 'water', periods[0], periods[1]);
+
+  assert.equal(series.metric, 'water');
+  assert.equal(series.alignment, 'day-of-month');
+  assert.equal(series.points.length, 29);
+  assert.deepEqual(JSON.parse(JSON.stringify(series.points[0])), {
+    key: '01', label: '1',
+    firstDate: '2024-02-01', secondDate: '2025-02-01',
+    firstValue: 2, secondValue: null,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(series.points[27])), {
+    key: '28', label: '28',
+    firstDate: '2024-02-28', secondDate: '2025-02-28',
+    firstValue: null, secondValue: 1.2,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(series.points[28])), {
+    key: '29', label: '29',
+    firstDate: '2024-02-29', secondDate: null,
+    firstValue: 0, secondValue: null,
+  });
+  assert.equal(JSON.stringify(entries), originalEntries);
+  assert.equal(JSON.stringify(periods), originalPeriods);
+});
+
+test('month comparisons retain full January and December boundaries and support identical periods', () => {
+  const entries = [entry('2024-01-31', 4, 7, 2), entry('2025-12-31', 2, 6, 1)];
+  const boundarySeries = buildMonthComparisonSeries(
+    entries, 'mood', { year: 2024, monthIndex: 0 }, { year: 2025, monthIndex: 11 }
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(boundarySeries.points.at(-1))), {
+    key: '31', label: '31',
+    firstDate: '2024-01-31', secondDate: '2025-12-31',
+    firstValue: 4, secondValue: 2,
+  });
+
+  const samePeriod = buildMonthComparisonSeries(
+    entries, 'mood', { year: 2024, monthIndex: 0 }, { year: 2024, monthIndex: 0 }
+  );
+  const finalDay = samePeriod.points.at(-1);
+  assert.equal(finalDay.firstDate, '2024-01-31');
+  assert.equal(finalDay.secondDate, '2024-01-31');
+  assert.equal(finalDay.firstValue, 4);
+  assert.equal(finalDay.secondValue, 4);
+});
+
+test('year comparisons align by month and day without shifting March after February 29', () => {
+  const entries = [
+    entry('2025-03-01', 2, 6, 1),
+    entry('2024-03-01', 4, 8, 2),
+    entry('2024-02-29', 1, 0, 0),
+  ];
+  const series = buildYearComparisonSeries(entries, 'water', 2024, 2025);
+  const leapDay = series.points.find(point => point.key === '02-29');
+  const marchFirst = series.points.find(point => point.key === '03-01');
+  const februaryTwentyEighth = series.points.find(point => point.key === '02-28');
+
+  assert.equal(series.metric, 'water');
+  assert.equal(series.alignment, 'month-day');
+  assert.equal(series.points.length, 366);
+  assert.deepEqual(JSON.parse(JSON.stringify(leapDay)), {
+    key: '02-29', label: '02-29',
+    firstDate: '2024-02-29', secondDate: null,
+    firstValue: 0, secondValue: null,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(marchFirst)), {
+    key: '03-01', label: '03-01',
+    firstDate: '2024-03-01', secondDate: '2025-03-01',
+    firstValue: 2, secondValue: 1,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(februaryTwentyEighth)), {
+    key: '02-28', label: '02-28',
+    firstDate: '2024-02-28', secondDate: '2025-02-28',
+    firstValue: null, secondValue: null,
+  });
+});
+
+test('year comparisons support matching and low-numbered years without mutating inputs', () => {
+  const entries = [
+    entry('0000-02-29', 2, 6, 0),
+    entry('0004-12-31', 5, 8, 3),
+    entry('0099-12-31', 1, 4, 0),
+  ];
+  const original = JSON.stringify(entries);
+  const sameYear = buildYearComparisonSeries(entries, 'mood', 4, 4);
+  const lowYears = buildYearComparisonSeries(entries, 'water', 4, 99);
+
+  assert.equal(sameYear.points.length, 366);
+  const matchingFinalDay = sameYear.points.at(-1);
+  assert.equal(matchingFinalDay.firstDate, '0004-12-31');
+  assert.equal(matchingFinalDay.secondDate, '0004-12-31');
+  assert.equal(matchingFinalDay.firstValue, 5);
+  assert.equal(matchingFinalDay.secondValue, 5);
+  const lowYearFinalDay = lowYears.points.at(-1);
+  assert.equal(lowYearFinalDay.firstDate, '0004-12-31');
+  assert.equal(lowYearFinalDay.secondDate, '0099-12-31');
+  assert.equal(lowYearFinalDay.secondValue, 0);
+  const zeroYear = buildYearComparisonSeries(entries, 'water', 0, 99);
+  const zeroYearLeapDay = zeroYear.points.find(point => point.key === '02-29');
+  assert.equal(zeroYearLeapDay.firstDate, '0000-02-29');
+  assert.equal(zeroYearLeapDay.secondDate, null);
+  assert.equal(zeroYearLeapDay.firstValue, 0);
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('aggregated weekly comparisons start on January 1 and include partial Week 53 blocks', () => {
+  const entries = [
+    entry('2024-01-01', 1, 0, 0),
+    entry('2024-01-07', 3, 8, 2),
+    entry('2024-12-30', 2, 6, 1),
+    entry('2024-12-31', 0, 4, 0),
+    entry('2025-01-01', 4, 7, 2),
+    entry('2025-12-31', 5, 9, 3),
+  ];
+  const series = buildAggregatedYearComparisonSeries(entries, 'mood', 2024, 2025, 'weekly');
+
+  assert.equal(series.metric, 'mood');
+  assert.equal(series.resolution, 'weekly');
+  assert.equal(series.points.length, 53);
+  assert.deepEqual(JSON.parse(JSON.stringify(series.points[0])), {
+    key: '01', label: 'Week 1',
+    firstStartDate: '2024-01-01', firstEndDate: '2024-01-07',
+    secondStartDate: '2025-01-01', secondEndDate: '2025-01-07',
+    firstValue: 2, secondValue: 4,
+    firstRecordedDayCount: 2, secondRecordedDayCount: 1,
+    firstCalendarDayCount: 7, secondCalendarDayCount: 7,
+  });
+  const final = series.points[52];
+  assert.equal(final.firstStartDate, '2024-12-30');
+  assert.equal(final.firstEndDate, '2024-12-31');
+  assert.equal(final.secondStartDate, '2025-12-31');
+  assert.equal(final.secondEndDate, '2025-12-31');
+  assert.equal(final.firstValue, 1);
+  assert.equal(final.firstRecordedDayCount, 2);
+  assert.equal(final.firstCalendarDayCount, 2);
+  assert.equal(final.secondValue, 5);
+  assert.equal(final.secondCalendarDayCount, 1);
+});
+
+test('aggregated monthly comparisons average recorded values, including zero, without rounding', () => {
+  const entries = [
+    entry('2024-02-01', 1, 0, 0),
+    entry('2024-02-29', 1, 3, 2),
+    entry('2025-02-15', 1, 2, 1),
+    entry('2024-04-30', 1, 1, 0),
+  ];
+  const original = JSON.stringify(entries);
+  const series = buildAggregatedYearComparisonSeries(entries, 'sleep', 2024, 2025, 'monthly');
+  const february = series.points[1];
+  const march = series.points[2];
+  const april = series.points[3];
+
+  assert.equal(series.points.length, 12);
+  assert.equal(february.label, 'February');
+  assert.equal(february.firstValue, 1.5);
+  assert.equal(february.firstRecordedDayCount, 2);
+  assert.equal(february.firstCalendarDayCount, 29);
+  assert.equal(february.secondValue, 2);
+  assert.equal(february.secondRecordedDayCount, 1);
+  assert.equal(february.secondCalendarDayCount, 28);
+  assert.equal(march.firstValue, null);
+  assert.equal(march.secondValue, null);
+  assert.equal(march.firstRecordedDayCount, 0);
+  assert.equal(march.secondRecordedDayCount, 0);
+  assert.equal(april.firstStartDate, '2024-04-01');
+  assert.equal(april.firstEndDate, '2024-04-30');
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('aggregated comparisons preserve zeros, unsorted input, low years, and calendar consistency', () => {
+  const entries = [
+    entry('0099-12-31', 1, 4, 0),
+    entry('0000-01-01', 5, 0, 0),
+    entry('0000-01-07', 1, 8, 2),
+  ];
+  const original = JSON.stringify(entries);
+  const weekly = buildAggregatedYearComparisonSeries(entries, 'water', 0, 99, 'weekly');
+  const monthly = buildAggregatedYearComparisonSeries(entries, 'sleep', 0, 99, 'monthly');
+
+  assert.equal(weekly.points[0].firstValue, 1);
+  assert.equal(weekly.points[0].firstRecordedDayCount, 2);
+  assert.equal(monthly.points[0].firstValue, 4);
+  assert.equal(monthly.points[0].firstRecordedDayCount, 2);
+  assert.equal(monthly.points[0].firstCalendarDayCount, 31);
+  assert.equal(monthly.points[11].secondValue, 4);
+  assert.equal(monthly.points[11].secondRecordedDayCount, 1);
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('comparison helpers reject invalid metrics and periods', () => {
+  const rangeError = error => error.name === 'RangeError';
+  assert.throws(
+    () => buildMonthComparisonSeries([], 'weight', { year: 2024, monthIndex: 0 }, { year: 2024, monthIndex: 1 }),
+    rangeError
+  );
+  assert.throws(
+    () => buildMonthComparisonSeries([], 'mood', null, { year: 2024, monthIndex: 1 }),
+    rangeError
+  );
+  assert.throws(
+    () => buildMonthComparisonSeries([], 'mood', { year: 2024, monthIndex: 12 }, { year: 2024, monthIndex: 1 }),
+    rangeError
+  );
+  assert.throws(() => buildYearComparisonSeries([], 'mood', -1, 2024), rangeError);
+  assert.throws(() => buildYearComparisonSeries([], 'mood', 2024, 10_000), rangeError);
+  assert.throws(() => buildAggregatedYearComparisonSeries([], 'weight', 2024, 2025, 'weekly'), rangeError);
+  assert.throws(() => buildAggregatedYearComparisonSeries([], 'mood', -1, 2025, 'monthly'), rangeError);
+  assert.throws(() => buildAggregatedYearComparisonSeries([], 'mood', 2024, 2025, 'daily'), rangeError);
 });
 
 test('buildCalendarMonth uses Monday-first offsets and preserves entry associations', () => {
