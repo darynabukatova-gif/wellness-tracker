@@ -194,6 +194,20 @@ Choose **Custom** for one of three single-period selectors:
 - **Calendar year** accepts one `YYYY` value and includes January 1 through
   December 31.
 
+When Custom is opened for the first time, or when no Custom period has been
+successfully applied, **Calendar year** is selected and the current local year
+is filled in as a draft. The current local month is used when Calendar month is
+selected. These defaults do not change the charts until **Apply custom period**
+is clicked. If a Custom period has already been applied, its original type and
+values are restored instead.
+
+Calendar month and Calendar year controls include accessible Previous and Next
+chevron buttons alongside the native month picker or editable four-digit year
+input. The buttons move only the draft selection, handle January/December and
+year boundaries, and are disabled at years `0000` and `9999` where movement is
+not possible. Direct year entry remains available; malformed or empty input is
+handled safely for navigation and cannot be applied without validation.
+
 Custom selections apply only after validation. Draft changes do not alter the
 currently rendered charts; switching to a preset and back restores the last
 successfully applied custom period. Historical and future calendar periods are
@@ -212,6 +226,16 @@ year. Year comparisons offer:
   (the default for a new year comparison). The final Week 53 may contain one or
   two days depending on the year.
 - **Monthly averages**, one period for each calendar month.
+
+New month comparisons start with the previous and current local calendar month;
+new year comparisons start with the previous and current local calendar year,
+with Weekly averages selected for a new year comparison. The comparison form
+also provides draft-only **Swap periods**, **Compare with previous**, and
+**Previous & current** shortcuts. Swap exchanges the two drafts; Compare with
+previous derives the first period from the second; and Previous & current resets
+both drafts relative to the current local period. None of these actions applies
+the comparison or writes storage. The last successfully applied period pair and
+year resolution are restored when returning to Compare periods.
 
 Aggregated averages use only recorded days: missing days never count as zero,
 recorded zeroes do count, and empty periods display **Missing** with a recorded
@@ -546,7 +570,7 @@ test/
 npm test
 ```
 
-Expected output: **275 individual test declarations, 275 pass, 0 fail, 0 skipped.**
+Expected output: **287 individual test declarations, 287 pass, 0 fail, 0 skipped.**
 
 **How it works:** `helpers.js` reads `js/core.js` and evaluates it in an isolated
 `vm` context (no `eval()`, no code copying). `edit.test.js` evaluates the real
@@ -583,8 +607,8 @@ The real Electron UI suite is deliberately separate from the fast Node suite:
 npm run test:e2e
 ```
 
-`npm test` runs the 275 Node unit and integration test declarations only.
-`npm run test:e2e` runs fifteen serial, source-Electron tests through
+`npm test` runs the 287 Node unit and integration test declarations only.
+`npm run test:e2e` runs seventeen serial, source-Electron tests through
 `playwright-core`: isolated startup, create/edit/delete persistence across
 restarts, calendar actions and deletion, on-demand history filtering, preset and
 custom charts, month and year comparisons, daily/weekly/monthly year resolutions,
@@ -694,17 +718,25 @@ These behaviours require a live browser and cannot be checked with Node.js:
 31. In **Charts**, switch among 7, 30, and 90 days. Verify the range ends on
     today, a deliberately missing date creates a visible line gap, and a saved
     zero appears as a point at the baseline rather than as a gap.
-32. Choose **Custom**, apply a historical nonconsecutive range, verify inclusive
-    endpoints, missing gaps, and zero values, then switch to a preset and back.
-    Try incomplete, reversed, and over-366-day ranges and verify the last valid
-    chart data remains displayed.
+32. Choose **Custom** with no previously applied Custom period. Confirm Calendar
+    year is selected with the current local year and that charts do not change
+    until Apply. Switch to Calendar month and Date range, verify their local
+    defaults/empty fields, then apply each type and confirm the original type and
+    values return after switching away and back. Test Previous/Next controls,
+    direct year entry, and the `0000`/`9999` disabled boundaries. Apply a
+    historical nonconsecutive range, verify inclusive endpoints, missing gaps,
+    and zero values, then try incomplete, reversed, and over-366-day ranges.
 33. Open **Show exact chart data** and navigate the table with a keyboard and a
     screen reader. Verify it distinguishes **Missing** from zero values.
-34. Choose **Compare periods**. Compare two months and then two years. For years,
-    verify **Weekly averages** is selected by default, then apply Daily values and
-    Monthly averages. Confirm draft changes do not update charts until Apply,
-    invalid input preserves the last valid chart, and switching away and back
-    restores the last applied periods and resolution.
+34. Choose **Compare periods**. Confirm new month comparisons start with the
+    previous/current local months and new year comparisons start with the
+    previous/current local years, with **Weekly averages** selected by default.
+    Test Swap periods, Compare with previous, and Previous & current; verify
+    their accessible names, January/year-boundary handling, and that drafts do
+    not update charts until Apply or write storage. Then compare two months and
+    two years, applying Daily values and Monthly averages. Confirm invalid input
+    preserves the last valid chart and switching away and back restores the last
+    applied periods and resolution.
 35. Compare a leap year with a common year. Confirm February 29 is **Not in
     period** for the common year and March 1 remains aligned. In weekly and
     monthly tables, verify averages use only recorded days, zeroes are retained,
@@ -720,7 +752,8 @@ These behaviours require a live browser and cannot be checked with Node.js:
 #### Responsive layout
 37. Resize the browser window below 600 px, including 320 CSS pixels — form,
     calendar, and charts fit without page-level horizontal overflow; the table
-    scrolls only within its own data wrapper.
+    scrolls only within its own data wrapper. Confirm month/year controls wrap or
+    stack without clipping and keep visible keyboard focus indicators.
 
 #### Backup & Restore
 38. Export a populated dataset and an empty dataset. Verify the downloaded JSON is

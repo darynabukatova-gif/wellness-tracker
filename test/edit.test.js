@@ -71,13 +71,20 @@ function makeApp() {
    'clear-history-filters-btn', 'history-filter-error', 'history-status',
    'trend-custom-form', 'trend-custom-type', 'trend-custom-start', 'trend-custom-end',
    'trend-custom-month', 'trend-custom-year', 'trend-custom-date-range-controls',
-   'trend-custom-month-controls', 'trend-custom-year-controls', 'apply-trend-custom-btn',
+   'trend-custom-month-controls', 'trend-custom-year-controls', 'trend-custom-month-prev',
+   'trend-custom-month-next', 'trend-custom-year-prev', 'trend-custom-year-next',
+   'apply-trend-custom-btn',
    'trend-custom-error', 'trend-range-status',
    'trend-comparison-form', 'trend-comparison-type', 'trend-comparison-first-month',
    'trend-comparison-second-month', 'trend-comparison-first-year', 'trend-comparison-second-year',
    'trend-comparison-month-controls', 'trend-comparison-year-controls',
+   'trend-comparison-first-month-prev', 'trend-comparison-first-month-next',
+   'trend-comparison-second-month-prev', 'trend-comparison-second-month-next',
+   'trend-comparison-first-year-prev', 'trend-comparison-first-year-next',
+   'trend-comparison-second-year-prev', 'trend-comparison-second-year-next',
    'trend-comparison-resolution-controls', 'trend-comparison-resolution',
-   'apply-trend-comparison-btn', 'trend-comparison-error',
+   'trend-comparison-swap-btn', 'trend-comparison-previous-btn',
+   'trend-comparison-current-btn', 'apply-trend-comparison-btn', 'trend-comparison-error',
    'water-value', 'sleep-minus', 'sleep-plus', 'water-minus', 'water-plus',
    'entry-form-section',
    'stat-count', 'stat-mood', 'stat-sleep', 'stat-water',
@@ -98,6 +105,44 @@ function makeApp() {
   elements.get('trend-comparison-type').value = 'month';
   elements.get('trend-comparison-resolution').value = 'weekly';
   elements.get('trend-comparison-resolution-controls').hidden = true;
+  [
+    ['trend-custom-month-prev', 'custom', '-1', 'Previous month for custom period'],
+    ['trend-custom-month-next', 'custom', '1', 'Next month for custom period'],
+    ['trend-comparison-first-month-prev', 'comparison-first', '-1', 'Previous month for first comparison period'],
+    ['trend-comparison-first-month-next', 'comparison-first', '1', 'Next month for first comparison period'],
+    ['trend-comparison-second-month-prev', 'comparison-second', '-1', 'Previous month for second comparison period'],
+    ['trend-comparison-second-month-next', 'comparison-second', '1', 'Next month for second comparison period'],
+  ].forEach(([id, monthDraft, monthOffset, label]) => {
+    const button = elements.get(id);
+    button.className = 'trend-month-nav-btn';
+    button.dataset.monthDraft = monthDraft;
+    button.dataset.monthOffset = monthOffset;
+    button.setAttribute('aria-label', label);
+  });
+  [
+    ['trend-custom-year-prev', 'custom', '-1', 'Previous year for custom period'],
+    ['trend-custom-year-next', 'custom', '1', 'Next year for custom period'],
+    ['trend-comparison-first-year-prev', 'comparison-first', '-1', 'Previous year for first comparison period'],
+    ['trend-comparison-first-year-next', 'comparison-first', '1', 'Next year for first comparison period'],
+    ['trend-comparison-second-year-prev', 'comparison-second', '-1', 'Previous year for second comparison period'],
+    ['trend-comparison-second-year-next', 'comparison-second', '1', 'Next year for second comparison period'],
+  ].forEach(([id, yearDraft, yearOffset, label]) => {
+    const button = elements.get(id);
+    button.className = 'trend-year-nav-btn';
+    button.dataset.yearDraft = yearDraft;
+    button.dataset.yearOffset = yearOffset;
+    button.setAttribute('aria-label', label);
+  });
+  [
+    ['trend-comparison-swap-btn', 'swap', 'Swap first and second comparison periods'],
+    ['trend-comparison-previous-btn', 'previous', 'Set the first comparison period to the period before the second'],
+    ['trend-comparison-current-btn', 'current', 'Set comparison periods to the previous and current periods'],
+  ].forEach(([id, shortcut, label]) => {
+    const button = elements.get(id);
+    button.className = 'trend-comparison-shortcut-btn';
+    button.dataset.comparisonShortcut = shortcut;
+    button.setAttribute('aria-label', label);
+  });
   [7, 30, 90].forEach(dayCount => {
     const button = elements.get('trend-period-' + dayCount);
     button.className = 'trend-period-btn';
@@ -198,7 +243,7 @@ function makeApp() {
     },
   };
   vm.createContext(sandbox);
-  const source = appSource + '\nthis.__api = { init, render, renderHistoryTrends, renderHistoryTrendsForCurrentState, renderCharts, renderCalendar, renderCalendarForCurrentState, renderCalendarDetails, renderHistoryTable, getHistoryRenderState, handleHistoryFilterSubmit, invalidateAppliedHistoryRange, handleClearHistoryFilters, ensureCalendarMonth, normalizeCalendarSelection, setHistoryView, setTrendDayCount, selectCustomTrendRange, selectTrendComparison, resolveCustomTrendPeriod, resolveComparisonPeriod, handleCustomTrendTypeChange, handleCustomTrendDraftInput, handleCustomTrendSubmit, handleComparisonTrendTypeChange, handleComparisonTrendDraftInput, handleComparisonTrendResolutionChange, handleComparisonTrendSubmit, changeCalendarMonth, handleHistoryTrendsClick, hasUnsavedFormChanges, enterNewEntryModeForDate, enterEditMode, exitEditMode, handleFormSubmit, handleTableClick, handleEraseAll, handleExportBackup, handleImportBackup, handleImportFileChange, handleCancelImport, handleReplaceImport, adjustValueControl, resetValueControls, setValueControlValues, updateSleepControl, updateWaterControl, setBusyState, lockApp, getStorageAdapter, get entries() { return entries; }, get editingDate() { return editingDate; }, get sleepSelected() { return sleepSelected; }, get waterSelected() { return waterSelected; }, get busy() { return busy; }, get locked() { return locked; }, get pendingImport() { return pendingImport; }, get importReading() { return importReading; }, get historyView() { return historyView; }, get trendDayCount() { return trendDayCount; }, get trendMode() { return trendMode; }, get customTrendType() { return customTrendType; }, get customTrendDraftStart() { return customTrendDraftStart; }, get customTrendDraftEnd() { return customTrendDraftEnd; }, get customTrendDraftMonth() { return customTrendDraftMonth; }, get customTrendDraftYear() { return customTrendDraftYear; }, get appliedCustomTrendRange() { return appliedCustomTrendRange; }, get comparisonTrendType() { return comparisonTrendType; }, get comparisonTrendDraftFirst() { return comparisonTrendDraftFirst; }, get comparisonTrendDraftSecond() { return comparisonTrendDraftSecond; }, get comparisonTrendDraftResolution() { return comparisonTrendDraftResolution; }, get appliedTrendComparison() { return appliedTrendComparison; }, get appliedHistoryRange() { return appliedHistoryRange; }, get calendarYear() { return calendarYear; }, get calendarMonthIndex() { return calendarMonthIndex; }, get selectedCalendarDate() { return selectedCalendarDate; }, set entries(value) { entries = value; }, set editingDate(value) { editingDate = value; }, set storageAdapter(value) { storageAdapter = value; }, set calendarYear(value) { calendarYear = value; }, set calendarMonthIndex(value) { calendarMonthIndex = value; }, set selectedCalendarDate(value) { selectedCalendarDate = value; } };';
+  const source = appSource + '\nthis.__api = { init, render, renderHistoryTrends, renderHistoryTrendsForCurrentState, renderCharts, renderCalendar, renderCalendarForCurrentState, renderCalendarDetails, renderHistoryTable, getHistoryRenderState, handleHistoryFilterSubmit, invalidateAppliedHistoryRange, handleClearHistoryFilters, ensureCalendarMonth, normalizeCalendarSelection, setHistoryView, setTrendDayCount, getChartPeriodDefaults, getMonthNavigationState, getYearNavigationState, navigateTrendMonthDraft, navigateTrendYearDraft, swapComparisonTrendDrafts, compareWithPreviousTrendDraft, setComparisonToPreviousAndCurrent, selectCustomTrendRange, selectTrendComparison, resolveCustomTrendPeriod, resolveComparisonPeriod, handleCustomTrendTypeChange, handleCustomTrendDraftInput, handleCustomTrendSubmit, handleComparisonTrendTypeChange, handleComparisonTrendDraftInput, handleComparisonTrendResolutionChange, handleComparisonTrendSubmit, changeCalendarMonth, handleHistoryTrendsClick, hasUnsavedFormChanges, enterNewEntryModeForDate, enterEditMode, exitEditMode, handleFormSubmit, handleTableClick, handleEraseAll, handleExportBackup, handleImportBackup, handleImportFileChange, handleCancelImport, handleReplaceImport, adjustValueControl, resetValueControls, setValueControlValues, updateSleepControl, updateWaterControl, setBusyState, lockApp, getStorageAdapter, get entries() { return entries; }, get editingDate() { return editingDate; }, get sleepSelected() { return sleepSelected; }, get waterSelected() { return waterSelected; }, get busy() { return busy; }, get locked() { return locked; }, get pendingImport() { return pendingImport; }, get importReading() { return importReading; }, get historyView() { return historyView; }, get trendDayCount() { return trendDayCount; }, get trendMode() { return trendMode; }, get customTrendType() { return customTrendType; }, get customTrendDraftStart() { return customTrendDraftStart; }, get customTrendDraftEnd() { return customTrendDraftEnd; }, get customTrendDraftMonth() { return customTrendDraftMonth; }, get customTrendDraftYear() { return customTrendDraftYear; }, get appliedCustomTrendRange() { return appliedCustomTrendRange; }, get comparisonTrendType() { return comparisonTrendType; }, get comparisonTrendDraftFirst() { return comparisonTrendDraftFirst; }, get comparisonTrendDraftSecond() { return comparisonTrendDraftSecond; }, get comparisonTrendDraftResolution() { return comparisonTrendDraftResolution; }, get appliedTrendComparison() { return appliedTrendComparison; }, get appliedHistoryRange() { return appliedHistoryRange; }, get calendarYear() { return calendarYear; }, get calendarMonthIndex() { return calendarMonthIndex; }, get selectedCalendarDate() { return selectedCalendarDate; }, set entries(value) { entries = value; }, set editingDate(value) { editingDate = value; }, set storageAdapter(value) { storageAdapter = value; }, set calendarYear(value) { calendarYear = value; }, set calendarMonthIndex(value) { calendarMonthIndex = value; }, set selectedCalendarDate(value) { selectedCalendarDate = value; } };';
   new vm.Script(coreSource + '\n' + viewsSource + '\n' + source).runInContext(sandbox);
   const realRender = sandbox.render;
   sandbox.render = () => {};
@@ -1829,6 +1874,9 @@ test('custom chart ranges validate inclusively and use explicit historical data 
   const customButton = app.elements.get('trend-period-custom');
   app.api.handleHistoryTrendsClick({ target: customButton });
   assert.equal(app.elements.get('trend-custom-form').hidden, false);
+  const type = app.elements.get('trend-custom-type');
+  type.value = 'date-range';
+  app.api.handleCustomTrendTypeChange({ target: type });
   app.elements.get('trend-custom-start').value = '2020-02-28';
   app.elements.get('trend-custom-end').value = '2020-03-01';
   app.api.handleCustomTrendSubmit({ preventDefault() {} });
@@ -1841,6 +1889,11 @@ test('custom chart ranges validate inclusively and use explicit historical data 
   });
   assert.equal(app.elements.get('trend-custom-error').textContent, '');
   assert.match(app.elements.get('trend-range-status').textContent, /2020-02-28 to 2020-03-01/);
+  app.api.setTrendDayCount(30);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  assert.equal(app.elements.get('trend-custom-type').value, 'date-range');
+  assert.equal(app.elements.get('trend-custom-start').value, '2020-02-28');
+  assert.equal(app.elements.get('trend-custom-end').value, '2020-03-01');
   assert.equal(saveCalls, 0);
   assert.equal(app.api.entries[0].water, 0);
 });
@@ -1882,6 +1935,10 @@ test('custom calendar month and year periods resolve complete inclusive ranges',
   assert.match(app.elements.get('trend-range-status').textContent, /2024-01-01 to 2024-12-31/);
   assert.equal(trendDataTable(app).children
     .find(child => child.tagName === 'TBODY').children.length, 366);
+  app.api.setTrendDayCount(7);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  assert.equal(app.elements.get('trend-custom-type').value, 'year');
+  assert.equal(app.elements.get('trend-custom-year').value, '2024');
   assert.equal(saveCalls, 0);
 });
 
@@ -1893,6 +1950,7 @@ test('invalid custom month and year drafts show accessible errors without changi
   const type = app.elements.get('trend-custom-type');
   type.value = 'month';
   app.api.handleCustomTrendTypeChange({ target: type });
+  app.elements.get('trend-custom-month').value = '';
   app.api.handleCustomTrendSubmit({ preventDefault() {} });
   assert.match(app.elements.get('trend-custom-error').textContent, /valid calendar month/);
   assert.equal(app.elements.get('trend-custom-month').attributes['aria-invalid'], 'true');
@@ -1908,28 +1966,192 @@ test('invalid custom month and year drafts show accessible errors without changi
   assert.equal(app.elements.get('trend-range-status').textContent, initialStatus);
 });
 
-test('fresh custom mode restores blank date-range drafts after an invalid period attempt', () => {
+test('fresh custom mode restores the current calendar year after an invalid period attempt', () => {
   const app = makeApp();
   app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
-  const type = app.elements.get('trend-custom-type');
-  type.value = 'year';
-  app.api.handleCustomTrendTypeChange({ target: type });
   app.elements.get('trend-custom-year').value = '20x4';
   app.api.handleCustomTrendSubmit({ preventDefault() {} });
 
   app.api.setTrendDayCount(30);
   app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
-  assert.equal(app.elements.get('trend-custom-type').value, 'date-range');
+  const defaults = app.api.getChartPeriodDefaults();
+  assert.equal(app.elements.get('trend-custom-type').value, 'year');
   assert.equal(app.elements.get('trend-custom-start').value, '');
   assert.equal(app.elements.get('trend-custom-end').value, '');
-  assert.equal(app.elements.get('trend-custom-month').value, '');
-  assert.equal(app.elements.get('trend-custom-year').value, '');
+  assert.equal(app.elements.get('trend-custom-month').value, defaults.customMonth);
+  assert.equal(app.elements.get('trend-custom-year').value, defaults.customYear);
   assert.equal(app.elements.get('trend-custom-error').textContent, '');
+  assert.equal(app.elements.get('trend-custom-year').attributes['aria-invalid'], undefined);
+});
+
+test('chart period defaults use local calendar dates and keep supported boundary years valid', () => {
+  const app = makeApp();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(app.api.getChartPeriodDefaults('2026-11-16'))), {
+    customMonth: '2026-11',
+    customYear: '2026',
+    comparisonFirstMonth: '2026-10',
+    comparisonSecondMonth: '2026-11',
+    comparisonFirstYear: '2025',
+    comparisonSecondYear: '2026',
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(app.api.getChartPeriodDefaults('2027-01-04'))), {
+    customMonth: '2027-01',
+    customYear: '2027',
+    comparisonFirstMonth: '2026-12',
+    comparisonSecondMonth: '2027-01',
+    comparisonFirstYear: '2026',
+    comparisonSecondYear: '2027',
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(app.api.getChartPeriodDefaults('0000-01-15'))), {
+    customMonth: '0000-01',
+    customYear: '0000',
+    comparisonFirstMonth: '0000-01',
+    comparisonSecondMonth: '0000-01',
+    comparisonFirstYear: '0000',
+    comparisonSecondYear: '0000',
+  });
+});
+
+test('unapplied Custom mode defaults to the current calendar year without replacing displayed charts or saving', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.api.setTrendDayCount(30);
+  const previousRows = trendDataTable(app).children
+    .find(child => child.tagName === 'TBODY').children;
+  const previousDates = previousRows.map(row => row.children[0].textContent);
+  const defaults = app.api.getChartPeriodDefaults();
+
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  assert.equal(app.elements.get('trend-custom-type').value, 'year');
+  assert.equal(app.elements.get('trend-custom-year').value, defaults.customYear);
+  assert.equal(app.elements.get('trend-custom-start').value, '');
+  assert.equal(app.elements.get('trend-custom-end').value, '');
+  assert.match(app.elements.get('trend-range-status').textContent, /Choose a custom period/);
+  assert.deepEqual(
+    trendDataTable(app).children.find(child => child.tagName === 'TBODY').children
+      .map(row => row.children[0].textContent),
+    previousDates
+  );
+
+  const type = app.elements.get('trend-custom-type');
+  type.value = 'month';
+  app.api.handleCustomTrendTypeChange({ target: type });
+  assert.equal(app.elements.get('trend-custom-month').value, defaults.customMonth);
+  assert.equal(app.api.appliedCustomTrendRange, null);
+  assert.match(app.elements.get('trend-range-status').textContent, /Choose a custom period/);
+
+  type.value = 'year';
+  app.api.handleCustomTrendTypeChange({ target: type });
+  assert.equal(app.elements.get('trend-custom-year').value, defaults.customYear);
+  assert.equal(app.api.appliedCustomTrendRange, null);
+  assert.equal(saveCalls, 0);
+});
+
+test('custom calendar-month navigation changes only drafts, handles invalid input, and respects boundaries', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  const type = app.elements.get('trend-custom-type');
+  type.value = 'month';
+  app.api.handleCustomTrendTypeChange({ target: type });
+  const month = app.elements.get('trend-custom-month');
+
+  month.value = '2026-12';
+  app.api.handleCustomTrendDraftInput({ target: month });
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-custom-month-next') });
+  assert.equal(month.value, '2027-01');
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-custom-month-prev') });
+  assert.equal(month.value, '2026-12');
+  assert.equal(app.api.appliedCustomTrendRange, null);
+
+  month.value = '0000-01';
+  app.api.handleCustomTrendDraftInput({ target: month });
+  assert.equal(app.elements.get('trend-custom-month-prev').disabled, true);
+  assert.equal(app.elements.get('trend-custom-month-next').disabled, false);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-custom-month-prev') });
+  assert.equal(month.value, '0000-01');
+
+  month.value = '9999-12';
+  app.api.handleCustomTrendDraftInput({ target: month });
+  assert.equal(app.elements.get('trend-custom-month-prev').disabled, false);
+  assert.equal(app.elements.get('trend-custom-month-next').disabled, true);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-custom-month-next') });
+  assert.equal(month.value, '9999-12');
+
+  month.value = '';
+  app.api.handleCustomTrendDraftInput({ target: month });
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+  assert.match(app.elements.get('trend-custom-error').textContent, /valid calendar month/);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-custom-month-next') });
+  assert.match(month.value, /^\d{4}-\d{2}$/);
+  assert.equal(app.elements.get('trend-custom-error').textContent, '');
+  assert.equal(app.api.appliedCustomTrendRange, null);
+  assert.equal(saveCalls, 0);
+});
+
+test('custom calendar-year navigation preserves direct entry, drafts, and supported boundaries', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  const type = app.elements.get('trend-custom-type');
+  type.value = 'year';
+  app.api.handleCustomTrendTypeChange({ target: type });
+  const year = app.elements.get('trend-custom-year');
+
+  year.value = '0099';
+  app.api.handleCustomTrendDraftInput({ target: year });
+  assert.equal(year.value, '0099');
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-custom-year-next') });
+  assert.equal(year.value, '0100');
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-custom-year-prev') });
+  assert.equal(year.value, '0099');
+  assert.equal(app.api.appliedCustomTrendRange, null);
+
+  year.value = '0000';
+  app.api.handleCustomTrendDraftInput({ target: year });
+  assert.equal(app.elements.get('trend-custom-year-prev').disabled, true);
+  assert.equal(app.elements.get('trend-custom-year-next').disabled, false);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-custom-year-prev') });
+  assert.equal(year.value, '0000');
+
+  year.value = '9999';
+  app.api.handleCustomTrendDraftInput({ target: year });
+  assert.equal(app.elements.get('trend-custom-year-prev').disabled, false);
+  assert.equal(app.elements.get('trend-custom-year-next').disabled, true);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-custom-year-next') });
+  assert.equal(year.value, '9999');
+
+  year.value = '20x4';
+  app.api.handleCustomTrendDraftInput({ target: year });
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+  assert.match(app.elements.get('trend-custom-error').textContent, /0000 through 9999/);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-custom-year-next') });
+  assert.match(year.value, /^\d{4}$/);
+  assert.equal(app.elements.get('trend-custom-error').textContent, '');
+  assert.equal(app.api.appliedCustomTrendRange, null);
+
+  year.value = '2024';
+  app.api.handleCustomTrendDraftInput({ target: year });
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-custom-year-next') });
+  assert.equal(year.value, '2025');
+  assert.equal(app.api.appliedCustomTrendRange.year, '2024');
+  app.api.setTrendDayCount(30);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  assert.equal(year.value, '2024');
+  assert.equal(saveCalls, 0);
 });
 
 test('invalid custom chart drafts do not replace the last applied range', () => {
   const app = makeApp();
   app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  const type = app.elements.get('trend-custom-type');
+  type.value = 'date-range';
+  app.api.handleCustomTrendTypeChange({ target: type });
   app.elements.get('trend-custom-start').value = '2020-01-01';
   app.elements.get('trend-custom-end').value = '2020-01-03';
   app.api.handleCustomTrendSubmit({ preventDefault() {} });
@@ -1959,6 +2181,9 @@ test('invalid custom chart drafts do not replace the last applied range', () => 
 test('a fresh custom mode clears invalid drafts when no custom range was applied', () => {
   const app = makeApp();
   app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  const type = app.elements.get('trend-custom-type');
+  type.value = 'date-range';
+  app.api.handleCustomTrendTypeChange({ target: type });
   app.elements.get('trend-custom-start').value = '2026-10-20';
   app.elements.get('trend-custom-end').value = '2026-10-10';
   app.api.handleCustomTrendSubmit({ preventDefault() {} });
@@ -1967,30 +2192,34 @@ test('a fresh custom mode clears invalid drafts when no custom range was applied
   app.api.setTrendDayCount(30);
   app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
 
+  assert.equal(app.elements.get('trend-custom-type').value, 'year');
   assert.equal(app.elements.get('trend-custom-start').value, '');
   assert.equal(app.elements.get('trend-custom-end').value, '');
   assert.equal(app.elements.get('trend-custom-error').textContent, '');
   assert.equal(app.elements.get('trend-custom-start').attributes['aria-invalid'], undefined);
   assert.equal(app.elements.get('trend-custom-end').attributes['aria-invalid'], undefined);
 
+  type.value = 'date-range';
+  app.api.handleCustomTrendTypeChange({ target: type });
   app.elements.get('trend-custom-start').value = '2026-10-20';
   app.elements.get('trend-custom-end').value = '2026-10-10';
   app.api.handleCustomTrendSubmit({ preventDefault() {} });
   assert.match(app.elements.get('trend-custom-error').textContent, /on or after/);
 });
 
-test('Compare periods starts with blank drafts and renders only after a valid month comparison is applied', () => {
+test('Compare periods starts with previous/current month drafts and renders only after Apply', () => {
   const app = makeApp();
   let saveCalls = 0;
   app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
   const comparisonButton = app.elements.get('trend-period-compare');
   app.api.handleHistoryTrendsClick({ target: comparisonButton });
+  const defaults = app.api.getChartPeriodDefaults();
 
   assert.equal(app.api.trendMode, 'compare');
   assert.equal(app.elements.get('trend-comparison-form').hidden, false);
   assert.equal(app.elements.get('trend-custom-form').hidden, true);
-  assert.equal(app.elements.get('trend-comparison-first-month').value, '');
-  assert.equal(app.elements.get('trend-comparison-second-month').value, '');
+  assert.equal(app.elements.get('trend-comparison-first-month').value, defaults.comparisonFirstMonth);
+  assert.equal(app.elements.get('trend-comparison-second-month').value, defaults.comparisonSecondMonth);
   assert.match(app.elements.get('trend-range-status').textContent, /Choose two periods/);
 
   app.elements.get('trend-comparison-first-month').value = '2024-02';
@@ -2010,10 +2239,229 @@ test('Compare periods starts with blank drafts and renders only after a valid mo
   assert.equal(saveCalls, 0);
 });
 
+test('unapplied comparison types use local defaults without changing charts or saving', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.api.setTrendDayCount(30);
+  const previousDates = trendDataTable(app).children
+    .find(child => child.tagName === 'TBODY').children
+    .map(row => row.children[0].textContent);
+  const defaults = app.api.getChartPeriodDefaults();
+
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-compare') });
+  assert.equal(app.elements.get('trend-comparison-first-month').value, defaults.comparisonFirstMonth);
+  assert.equal(app.elements.get('trend-comparison-second-month').value, defaults.comparisonSecondMonth);
+  assert.match(app.elements.get('trend-range-status').textContent, /Choose two periods/);
+
+  const type = app.elements.get('trend-comparison-type');
+  type.value = 'year';
+  app.api.handleComparisonTrendTypeChange({ target: type });
+  assert.equal(app.elements.get('trend-comparison-first-year').value, defaults.comparisonFirstYear);
+  assert.equal(app.elements.get('trend-comparison-second-year').value, defaults.comparisonSecondYear);
+  assert.equal(app.elements.get('trend-comparison-resolution').value, 'weekly');
+  assert.equal(app.api.appliedTrendComparison, null);
+
+  type.value = 'month';
+  app.api.handleComparisonTrendTypeChange({ target: type });
+  assert.equal(app.elements.get('trend-comparison-first-month').value, defaults.comparisonFirstMonth);
+  assert.equal(app.elements.get('trend-comparison-second-month').value, defaults.comparisonSecondMonth);
+  assert.deepEqual(
+    trendDataTable(app).children.find(child => child.tagName === 'TBODY').children
+      .map(row => row.children[0].textContent),
+    previousDates
+  );
+  assert.equal(saveCalls, 0);
+});
+
+test('comparison month navigation keeps drafts independent and preserves applied comparisons', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-compare') });
+  const first = app.elements.get('trend-comparison-first-month');
+  const second = app.elements.get('trend-comparison-second-month');
+
+  first.value = '2027-01';
+  app.api.handleComparisonTrendDraftInput({ target: first });
+  second.value = '2026-12';
+  app.api.handleComparisonTrendDraftInput({ target: second });
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-comparison-first-month-prev') });
+  assert.equal(first.value, '2026-12');
+  assert.equal(second.value, '2026-12');
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-comparison-second-month-next') });
+  assert.equal(first.value, '2026-12');
+  assert.equal(second.value, '2027-01');
+
+  first.value = '0000-01';
+  app.api.handleComparisonTrendDraftInput({ target: first });
+  second.value = '9999-12';
+  app.api.handleComparisonTrendDraftInput({ target: second });
+  assert.equal(app.elements.get('trend-comparison-first-month-prev').disabled, true);
+  assert.equal(app.elements.get('trend-comparison-second-month-next').disabled, true);
+
+  first.value = '2024-02';
+  app.api.handleComparisonTrendDraftInput({ target: first });
+  second.value = '2024-03';
+  app.api.handleComparisonTrendDraftInput({ target: second });
+  app.api.handleComparisonTrendSubmit({ preventDefault() {} });
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-comparison-first-month-next') });
+  assert.equal(first.value, '2024-03');
+  assert.equal(app.api.appliedTrendComparison.firstPeriod, '2024-02');
+  app.api.setTrendDayCount(30);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-compare') });
+  assert.equal(first.value, '2024-02');
+  assert.equal(second.value, '2024-03');
+  assert.equal(saveCalls, 0);
+});
+
+test('comparison year navigation keeps drafts independent and restores an applied comparison', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-compare') });
+  const type = app.elements.get('trend-comparison-type');
+  type.value = 'year';
+  app.api.handleComparisonTrendTypeChange({ target: type });
+  const first = app.elements.get('trend-comparison-first-year');
+  const second = app.elements.get('trend-comparison-second-year');
+
+  first.value = '2024';
+  app.api.handleComparisonTrendDraftInput({ target: first });
+  second.value = '2025';
+  app.api.handleComparisonTrendDraftInput({ target: second });
+  assert.equal(app.elements.get('trend-comparison-resolution').value, 'weekly');
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-comparison-first-year-prev') });
+  assert.equal(first.value, '2023');
+  assert.equal(second.value, '2025');
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-comparison-second-year-next') });
+  assert.equal(first.value, '2023');
+  assert.equal(second.value, '2026');
+  assert.equal(app.elements.get('trend-comparison-resolution').value, 'weekly');
+  assert.equal(app.api.appliedTrendComparison, null);
+
+  first.value = '0000';
+  app.api.handleComparisonTrendDraftInput({ target: first });
+  second.value = '9999';
+  app.api.handleComparisonTrendDraftInput({ target: second });
+  assert.equal(app.elements.get('trend-comparison-first-year-prev').disabled, true);
+  assert.equal(app.elements.get('trend-comparison-second-year-next').disabled, true);
+
+  first.value = '2024';
+  app.api.handleComparisonTrendDraftInput({ target: first });
+  second.value = '2025';
+  app.api.handleComparisonTrendDraftInput({ target: second });
+  app.api.handleComparisonTrendSubmit({ preventDefault() {} });
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-comparison-first-year-next') });
+  assert.equal(first.value, '2025');
+  assert.equal(app.api.appliedTrendComparison.firstPeriod, '2024');
+  app.api.setTrendDayCount(30);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-compare') });
+  assert.equal(first.value, '2024');
+  assert.equal(second.value, '2025');
+  assert.equal(saveCalls, 0);
+});
+
+test('month comparison shortcuts swap drafts, use the prior January month, and stay unapplied', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-compare') });
+  const first = app.elements.get('trend-comparison-first-month');
+  const second = app.elements.get('trend-comparison-second-month');
+  first.value = '2024-01';
+  app.api.handleComparisonTrendDraftInput({ target: first });
+  second.value = '2024-02';
+  app.api.handleComparisonTrendDraftInput({ target: second });
+  const previousStatus = app.elements.get('trend-range-status').textContent;
+
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-comparison-swap-btn') });
+  assert.equal(first.value, '2024-02');
+  assert.equal(second.value, '2024-01');
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-comparison-swap-btn') });
+  assert.equal(first.value, '2024-01');
+  assert.equal(second.value, '2024-02');
+
+  second.value = '2024-01';
+  app.api.handleComparisonTrendDraftInput({ target: second });
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-comparison-previous-btn') });
+  assert.equal(first.value, '2023-12');
+  assert.equal(second.value, '2024-01');
+  assert.equal(app.api.comparisonTrendDraftResolution, 'daily');
+  assert.equal(app.api.appliedTrendComparison, null);
+  assert.equal(app.elements.get('trend-range-status').textContent, previousStatus);
+
+  const defaults = app.api.getChartPeriodDefaults();
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-comparison-current-btn') });
+  assert.equal(first.value, defaults.comparisonFirstMonth);
+  assert.equal(second.value, defaults.comparisonSecondMonth);
+
+  second.value = '';
+  app.api.handleComparisonTrendDraftInput({ target: second });
+  assert.equal(app.elements.get('trend-comparison-previous-btn').disabled, false);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-comparison-previous-btn') });
+  assert.match(app.elements.get('trend-comparison-error').textContent, /valid second calendar month/);
+  assert.equal(second.attributes['aria-invalid'], 'true');
+
+  second.value = '0000-01';
+  app.api.handleComparisonTrendDraftInput({ target: second });
+  assert.equal(app.elements.get('trend-comparison-previous-btn').disabled, true);
+  assert.equal(saveCalls, 0);
+});
+
+test('year comparison shortcuts preserve resolution and applied selections without storage writes', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-compare') });
+  const type = app.elements.get('trend-comparison-type');
+  type.value = 'year';
+  app.api.handleComparisonTrendTypeChange({ target: type });
+  const first = app.elements.get('trend-comparison-first-year');
+  const second = app.elements.get('trend-comparison-second-year');
+  first.value = '2024';
+  app.api.handleComparisonTrendDraftInput({ target: first });
+  second.value = '2025';
+  app.api.handleComparisonTrendDraftInput({ target: second });
+  app.elements.get('trend-comparison-resolution').value = 'monthly';
+  app.api.handleComparisonTrendResolutionChange();
+
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-comparison-swap-btn') });
+  assert.equal(first.value, '2025');
+  assert.equal(second.value, '2024');
+  assert.equal(app.api.comparisonTrendDraftResolution, 'monthly');
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-comparison-swap-btn') });
+  assert.equal(first.value, '2024');
+  assert.equal(second.value, '2025');
+
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-comparison-previous-btn') });
+  assert.equal(first.value, '2024');
+  assert.equal(second.value, '2025');
+  assert.equal(app.api.comparisonTrendDraftResolution, 'monthly');
+  app.api.handleComparisonTrendSubmit({ preventDefault() {} });
+  assert.equal(app.api.appliedTrendComparison.firstPeriod, '2024');
+
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-comparison-current-btn') });
+  const defaults = app.api.getChartPeriodDefaults();
+  assert.equal(first.value, defaults.comparisonFirstYear);
+  assert.equal(second.value, defaults.comparisonSecondYear);
+  assert.equal(app.api.appliedTrendComparison.firstPeriod, '2024');
+  assert.equal(app.api.comparisonTrendDraftResolution, 'monthly');
+
+  second.value = '0000';
+  app.api.handleComparisonTrendDraftInput({ target: second });
+  assert.equal(app.elements.get('trend-comparison-previous-btn').disabled, true);
+  app.api.compareWithPreviousTrendDraft();
+  assert.match(app.elements.get('trend-comparison-error').textContent, /no earlier calendar year/);
+  assert.equal(saveCalls, 0);
+});
+
 test('Compare periods validates drafts accessibly without replacing the rendered chart state', () => {
   const app = makeApp();
   app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-compare') });
   const initialStatus = app.elements.get('trend-range-status').textContent;
+  app.elements.get('trend-comparison-first-month').value = '';
+  app.elements.get('trend-comparison-second-month').value = '';
   app.api.handleComparisonTrendSubmit({ preventDefault() {} });
 
   assert.match(app.elements.get('trend-comparison-error').textContent, /valid calendar months/);
@@ -2032,9 +2480,10 @@ test('Compare periods validates drafts accessibly without replacing the rendered
 
   app.api.setTrendDayCount(30);
   app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-compare') });
+  const defaults = app.api.getChartPeriodDefaults();
   assert.equal(app.elements.get('trend-comparison-type').value, 'month');
-  assert.equal(app.elements.get('trend-comparison-first-month').value, '');
-  assert.equal(app.elements.get('trend-comparison-second-month').value, '');
+  assert.equal(app.elements.get('trend-comparison-first-month').value, defaults.comparisonFirstMonth);
+  assert.equal(app.elements.get('trend-comparison-second-month').value, defaults.comparisonSecondMonth);
   assert.equal(app.elements.get('trend-comparison-error').textContent, '');
   assert.equal(app.elements.get('trend-comparison-first-year').attributes['aria-invalid'], undefined);
 });

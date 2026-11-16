@@ -356,6 +356,61 @@
     }
 
     /**
+     * shiftCalendarMonth(monthKey, offset)
+     *
+     * Moves a YYYY-MM calendar month by a whole-number offset without using
+     * Date construction, which avoids the special handling of years 0–99.
+     * Returns null when the requested result would fall outside the supported
+     * 0000-01 through 9999-12 range.
+     *
+     * @returns {string|null}
+     * @throws {RangeError} When monthKey or offset is malformed.
+     */
+    function shiftCalendarMonth(monthKey, offset) {
+      if (typeof monthKey !== 'string' || !/^\d{4}-\d{2}$/.test(monthKey)) {
+        throw new RangeError('Calendar month must use YYYY-MM format.');
+      }
+      if (!Number.isInteger(offset)) {
+        throw new RangeError('Calendar-month offset must be an integer.');
+      }
+
+      const year = Number(monthKey.slice(0, 4));
+      const monthIndex = Number(monthKey.slice(5, 7)) - 1;
+      getCalendarMonthRange(year, monthIndex);
+
+      const shiftedIndex = year * 12 + monthIndex + offset;
+      if (shiftedIndex < 0 || shiftedIndex > 9999 * 12 + 11) return null;
+
+      return String(Math.floor(shiftedIndex / 12)).padStart(4, '0') + '-' +
+        String(shiftedIndex % 12 + 1).padStart(2, '0');
+    }
+
+    /**
+     * shiftCalendarYear(yearKey, offset)
+     *
+     * Moves a four-digit calendar year by a whole-number offset. Returns null
+     * when the requested result would fall outside the supported 0000 through
+     * 9999 range.
+     *
+     * @returns {string|null}
+     * @throws {RangeError} When yearKey or offset is malformed.
+     */
+    function shiftCalendarYear(yearKey, offset) {
+      if (typeof yearKey !== 'string' || !/^\d{4}$/.test(yearKey)) {
+        throw new RangeError('Calendar year must use YYYY format.');
+      }
+      if (!Number.isInteger(offset)) {
+        throw new RangeError('Calendar-year offset must be an integer.');
+      }
+
+      const year = Number(yearKey);
+      getCalendarYearRange(year);
+      const shiftedYear = year + offset;
+      if (shiftedYear < 0 || shiftedYear > 9999) return null;
+      return String(shiftedYear).padStart(4, '0');
+    }
+
+    /**
      * getCalendarYearRange(year)
      *
      * Returns the inclusive local-calendar boundaries for one supported year.

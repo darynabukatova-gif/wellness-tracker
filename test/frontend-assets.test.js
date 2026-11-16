@@ -35,6 +35,43 @@ test('chart axis labels use a narrow-container readability rule without changing
   assert.match(css, /\.trend-axis-label\s*\{[\s\S]*?font-size:\s*10px/);
 });
 
+test('calendar period navigation controls retain direct inputs, icon buttons, and descriptive labels', () => {
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'styles', 'app.css'), 'utf8');
+
+  [
+    ['trend-custom-month', 'custom period'],
+    ['trend-comparison-first-month', 'first comparison period'],
+    ['trend-comparison-second-month', 'second comparison period'],
+  ].forEach(([inputId, label]) => {
+    assert.match(html, new RegExp('<input id="' + inputId + '" type="month"'));
+    assert.match(html, new RegExp('id="' + inputId + '-prev"[^>]*aria-label="Previous month for ' + label + '"'));
+    assert.match(html, new RegExp('id="' + inputId + '-next"[^>]*aria-label="Next month for ' + label + '"'));
+    assert.match(html, new RegExp('id="' + inputId + '-prev"[^>]*><svg class="trend-navigation-icon"[^>]*aria-hidden="true"'));
+    assert.match(html, new RegExp('id="' + inputId + '-next"[^>]*><svg class="trend-navigation-icon"[^>]*aria-hidden="true"'));
+  });
+  [
+    ['trend-custom-year', 'custom period'],
+    ['trend-comparison-first-year', 'first comparison period'],
+    ['trend-comparison-second-year', 'second comparison period'],
+  ].forEach(([inputId, label]) => {
+    assert.match(html, new RegExp('<input id="' + inputId + '" type="text"'));
+    assert.match(html, new RegExp('id="' + inputId + '-prev"[^>]*aria-label="Previous year for ' + label + '"'));
+    assert.match(html, new RegExp('id="' + inputId + '-next"[^>]*aria-label="Next year for ' + label + '"'));
+    assert.match(html, new RegExp('id="' + inputId + '-prev"[^>]*><svg class="trend-navigation-icon"[^>]*aria-hidden="true"'));
+    assert.match(html, new RegExp('id="' + inputId + '-next"[^>]*><svg class="trend-navigation-icon"[^>]*aria-hidden="true"'));
+  });
+  assert.match(css, /\.trend-custom-type-field label,\s*\.trend-custom-field label\s*\{[\s\S]*?display:\s*block/);
+  assert.match(css, /\.trend-month-navigation,\s*\.trend-year-navigation\s*\{[\s\S]*?grid-template-columns:\s*2\.5rem minmax\(0, 1fr\) 2\.5rem/);
+  assert.match(css, /\.trend-month-nav-btn,\s*\.trend-year-nav-btn\s*\{[\s\S]*?min-height:\s*2\.5rem/);
+  assert.match(css, /\.trend-navigation-icon\s*\{[\s\S]*?stroke:\s*currentColor/);
+  assert.match(html, /id="trend-comparison-swap-btn"[^>]*aria-label="Swap first and second comparison periods"/);
+  assert.match(html, /id="trend-comparison-previous-btn"[^>]*aria-label="Set the first comparison period to the period before the second"/);
+  assert.match(html, /id="trend-comparison-current-btn"[^>]*aria-label="Set comparison periods to the previous and current periods"/);
+  assert.match(css, /\.trend-comparison-shortcuts\s*\{[\s\S]*?flex-wrap:\s*wrap/);
+  assert.match(css, /#apply-trend-comparison-btn\s*\{[\s\S]*?justify-self:\s*start/);
+});
+
 test('all exact-data tables share accessible scrolling and sticky layering', () => {
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   const css = fs.readFileSync(path.join(root, 'styles', 'app.css'), 'utf8');
