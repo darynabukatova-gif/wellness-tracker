@@ -1129,6 +1129,8 @@ test('Electron E2E: applies weekly and monthly year comparison resolutions throu
     await window.locator('.btn-edit[data-date="2024-02-01"]').click();
     await window.locator('input[name="mood"][value="5"]').check();
     await window.locator('#save-btn').click();
+    await window.locator('#form-heading').filter({ hasText: 'Log a Wellness Entry' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
     const updatedFebruary = window.locator('#trend-data-table-container tbody tr').nth(1);
     assert.equal((await updatedFebruary.locator('td').allTextContents())[7], '4.5');
     assert.equal(await window.locator('#trend-comparison-resolution').inputValue(), 'monthly');
