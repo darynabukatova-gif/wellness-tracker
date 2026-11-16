@@ -6,6 +6,8 @@ const {
   addCalendarDays,
   countCalendarDaysInclusive,
   getCalendarMonthRange,
+  shiftCalendarMonth,
+  shiftCalendarYear,
   getCalendarYearRange,
   validateCalendarDateRange,
   filterEntriesByDateRange,
@@ -62,6 +64,28 @@ test('calendar boundary helpers reject invalid years and month indices', () => {
   assert.throws(() => getCalendarMonthRange(2024, -1), rangeError);
   assert.throws(() => getCalendarMonthRange(2024, 12), rangeError);
   assert.throws(() => getCalendarMonthRange(2024, 1.2), rangeError);
+});
+
+test('shiftCalendarMonth crosses years without producing unsupported month keys', () => {
+  assert.equal(shiftCalendarMonth('2026-11', 1), '2026-12');
+  assert.equal(shiftCalendarMonth('2026-12', 1), '2027-01');
+  assert.equal(shiftCalendarMonth('2027-01', -1), '2026-12');
+  assert.equal(shiftCalendarMonth('0001-01', -1), '0000-12');
+  assert.equal(shiftCalendarMonth('0000-01', -1), null);
+  assert.equal(shiftCalendarMonth('9999-12', 1), null);
+  assert.equal(shiftCalendarMonth('0099-12', 1), '0100-01');
+  assert.throws(() => shiftCalendarMonth('2024-13', 1), error => error.name === 'RangeError');
+  assert.throws(() => shiftCalendarMonth('2024-02', 0.5), error => error.name === 'RangeError');
+});
+
+test('shiftCalendarYear preserves leading zeroes and supported boundaries', () => {
+  assert.equal(shiftCalendarYear('2026', -1), '2025');
+  assert.equal(shiftCalendarYear('0099', 1), '0100');
+  assert.equal(shiftCalendarYear('0001', -1), '0000');
+  assert.equal(shiftCalendarYear('0000', -1), null);
+  assert.equal(shiftCalendarYear('9999', 1), null);
+  assert.throws(() => shiftCalendarYear('20x4', 1), error => error.name === 'RangeError');
+  assert.throws(() => shiftCalendarYear('2024', 0.5), error => error.name === 'RangeError');
 });
 
 test('calendar boundary helpers do not mutate their input values', () => {

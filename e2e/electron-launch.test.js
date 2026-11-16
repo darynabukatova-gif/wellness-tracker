@@ -119,6 +119,14 @@ function localDateKey(offset) {
     .join('-');
 }
 
+function localMonthKey(offset) {
+  const date = new Date();
+  date.setHours(12, 0, 0, 0);
+  date.setDate(1);
+  date.setMonth(date.getMonth() + offset);
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0')].join('-');
+}
+
 async function navigateCalendarToDate(window, date) {
   const dateButton = window.locator(`#calendar-grid .calendar-day[data-calendar-date="${date}"]`);
   for (let attempts = 0; attempts < 3; attempts++) {
@@ -829,6 +837,7 @@ test('Electron E2E: custom chart ranges preserve historical gaps and survive pre
     assert.equal(await window.locator('#trend-custom-form').isHidden(), true);
     await window.locator('.trend-period-btn[data-trend-days="custom"]').click();
     assert.equal(await window.locator('#trend-custom-form').isHidden(), false);
+    await window.locator('#trend-custom-type').selectOption('date-range');
     await window.locator('#trend-custom-start').fill(firstEntry.date);
     await window.locator('#trend-custom-end').fill(secondEntry.date);
     await window.locator('#apply-trend-custom-btn').click();
@@ -1134,6 +1143,136 @@ test('Electron E2E: applies weekly and monthly year comparison resolutions throu
     const updatedFebruary = window.locator('#trend-data-table-container tbody tr').nth(1);
     assert.equal((await updatedFebruary.locator('td').allTextContents())[7], '4.5');
     assert.equal(await window.locator('#trend-comparison-resolution').inputValue(), 'monthly');
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: navigates custom and comparison calendar-year drafts without applying early', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    await createEntryThroughForm(window, { date: '2024-01-01', mood: 3, sleep: 6, water: 1 });
+    await showHistoryRange(window, '2024-01-01', '2024-01-01');
+    const entriesPath = path.join(isolatedUserDataDirectory, 'entries.json');
+    const beforeNavigation = await fsp.readFile(entriesPath, 'utf8');
+
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="custom"]').click();
+    await window.locator('#trend-custom-type').selectOption('year');
+    assert.equal(await window.locator('#trend-custom-year-prev').getAttribute('aria-label'), 'Previous year for custom period');
+    await window.locator('#trend-custom-year').fill('2024');
+    const beforeCustomApply = await window.locator('#trend-range-status').textContent();
+    await window.locator('#trend-custom-year-next').click();
+    assert.equal(await window.locator('#trend-custom-year').inputValue(), '2025');
+    assert.equal(await window.locator('#trend-range-status').textContent(), beforeCustomApply);
+    await window.locator('#trend-custom-year-prev').click();
+    assert.equal(await window.locator('#trend-custom-year').inputValue(), '2024');
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-range-status').filter({ hasText: 'Showing calendar year 2024' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+
+    await window.locator('#trend-custom-year').fill('0000');
+    assert.equal(await window.locator('#trend-custom-year-prev').isDisabled(), true);
+    await window.locator('#trend-custom-year').fill('9999');
+    assert.equal(await window.locator('#trend-custom-year-next').isDisabled(), true);
+
+    await window.locator('.trend-period-btn[data-trend-days="compare"]').click();
+    await window.locator('#trend-comparison-type').selectOption('year');
+    assert.equal(await window.locator('#trend-comparison-first-year-prev').getAttribute('aria-label'), 'Previous year for first comparison period');
+    assert.equal(await window.locator('#trend-comparison-second-year-next').getAttribute('aria-label'), 'Next year for second comparison period');
+    await window.locator('#trend-comparison-first-year').fill('2024');
+    await window.locator('#trend-comparison-second-year').fill('2025');
+    const beforeComparisonApply = await window.locator('#trend-range-status').textContent();
+    await window.locator('#trend-comparison-first-year-prev').click();
+    assert.equal(await window.locator('#trend-comparison-first-year').inputValue(), '2023');
+    assert.equal(await window.locator('#trend-comparison-second-year').inputValue(), '2025');
+    await window.locator('#trend-comparison-second-year-next').click();
+    assert.equal(await window.locator('#trend-comparison-first-year').inputValue(), '2023');
+    assert.equal(await window.locator('#trend-comparison-second-year').inputValue(), '2026');
+    assert.equal(await window.locator('#trend-range-status').textContent(), beforeComparisonApply);
+    await window.locator('#apply-trend-comparison-btn').click();
+    await window.locator('#trend-range-status').filter({ hasText: 'Comparing 2023 with 2026' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+
+    await window.locator('#trend-comparison-first-year').fill('0000');
+    assert.equal(await window.locator('#trend-comparison-first-year-prev').isDisabled(), true);
+    await window.locator('#trend-comparison-second-year').fill('9999');
+    assert.equal(await window.locator('#trend-comparison-second-year-next').isDisabled(), true);
+    assert.equal(await fsp.readFile(entriesPath, 'utf8'), beforeNavigation);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: swaps and prepares comparison shortcuts without applying early', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    await createEntryThroughForm(window, { date: '2023-12-01', mood: 2, sleep: 6, water: 1 });
+    await createEntryThroughForm(window, { date: '2024-01-01', mood: 4, sleep: 8, water: 2 });
+    await showHistoryRange(window, '2023-12-01', '2024-01-01');
+    const entriesPath = path.join(isolatedUserDataDirectory, 'entries.json');
+    const beforeShortcuts = await fsp.readFile(entriesPath, 'utf8');
+
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="compare"]').click();
+    assert.equal(await window.locator('#trend-comparison-swap-btn').getAttribute('aria-label'), 'Swap first and second comparison periods');
+    await window.locator('#trend-comparison-first-month').fill('2023-12');
+    await window.locator('#trend-comparison-second-month').fill('2024-01');
+    const beforeApply = await window.locator('#trend-range-status').textContent();
+    await window.locator('#trend-comparison-swap-btn').click();
+    assert.equal(await window.locator('#trend-comparison-first-month').inputValue(), '2024-01');
+    assert.equal(await window.locator('#trend-comparison-second-month').inputValue(), '2023-12');
+    assert.equal(await window.locator('#trend-range-status').textContent(), beforeApply);
+    await window.locator('#trend-comparison-swap-btn').click();
+    assert.equal(await window.locator('#trend-comparison-first-month').inputValue(), '2023-12');
+    assert.equal(await window.locator('#trend-comparison-second-month').inputValue(), '2024-01');
+    await window.locator('#apply-trend-comparison-btn').click();
+    await window.locator('#trend-range-status').filter({ hasText: 'Comparing December 2023 with January 2024' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+
+    await window.locator('#trend-comparison-second-month').fill('2024-01');
+    const beforePreviousShortcut = await window.locator('#trend-range-status').textContent();
+    await window.locator('#trend-comparison-previous-btn').click();
+    assert.equal(await window.locator('#trend-comparison-first-month').inputValue(), '2023-12');
+    assert.equal(await window.locator('#trend-comparison-second-month').inputValue(), '2024-01');
+    assert.equal(await window.locator('#trend-range-status').textContent(), beforePreviousShortcut);
+
+    await window.locator('#trend-comparison-current-btn').click();
+    assert.equal(await window.locator('#trend-comparison-first-month').inputValue(), localMonthKey(-1));
+    assert.equal(await window.locator('#trend-comparison-second-month').inputValue(), localMonthKey(0));
+    assert.equal(await window.locator('#trend-range-status').textContent(), beforePreviousShortcut);
+
+    await window.locator('#trend-comparison-type').selectOption('year');
+    await window.locator('#trend-comparison-second-year').fill('0000');
+    assert.equal(await window.locator('#trend-comparison-previous-btn').isDisabled(), true);
+    await window.locator('#trend-comparison-second-year').fill('');
+    assert.equal(await window.locator('#trend-comparison-previous-btn').isDisabled(), false);
+    await window.locator('#trend-comparison-previous-btn').click();
+    await window.locator('#trend-comparison-error').filter({ hasText: /valid second calendar year/ })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await fsp.readFile(entriesPath, 'utf8'), beforeShortcuts);
   } catch (error) {
     testFailure = error;
     throw error;

@@ -669,8 +669,18 @@
       min-width: 0;
     }
 
+    .trend-custom-type-field label,
+    .trend-custom-field label {
+      display: block;
+      margin-bottom: var(--space-1);
+      color: var(--colour-text-muted);
+      font-size: var(--font-size-sm);
+      font-weight: 600;
+    }
+
     .trend-custom-type-field,
-    .trend-custom-period-controls {
+    .trend-custom-period-controls,
+    .trend-comparison-shortcuts {
       grid-column: 1 / -1;
     }
 
@@ -684,10 +694,52 @@
       display: none;
     }
 
-    .trend-custom-field label {
-      display: block;
-      margin-bottom: var(--space-1);
+    .trend-month-navigation,
+    .trend-year-navigation {
+      display: grid;
+      grid-template-columns: 2.5rem minmax(0, 1fr) 2.5rem;
+      gap: var(--space-1);
+      align-items: center;
+    }
+
+    .trend-month-navigation input,
+    .trend-year-navigation input {
+      width: 100%;
+      min-width: 0;
+    }
+
+    .trend-month-nav-btn,
+    .trend-year-nav-btn {
+      width: 2.5rem;
+      min-width: 2.5rem;
+      min-height: 2.5rem;
+      padding: var(--space-1);
+    }
+
+    .trend-navigation-icon {
+      width: 1.125rem;
+      height: 1.125rem;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 2;
+    }
+
+    .trend-comparison-shortcuts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+    }
+
+    .trend-comparison-shortcut-btn {
+      padding: var(--space-1) var(--space-2);
       font-size: var(--font-size-sm);
+    }
+
+    #apply-trend-comparison-btn {
+      justify-self: start;
+      margin-top: var(--space-1);
     }
 
     #trend-custom-error,

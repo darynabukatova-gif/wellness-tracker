@@ -26,7 +26,7 @@
     let selectedCalendarDate = null;
     let trendDayCount = 30;
     let trendMode = 'preset';
-    let customTrendType = 'date-range';
+    let customTrendType = 'year';
     let customTrendDraftStart = '';
     let customTrendDraftEnd = '';
     let customTrendDraftMonth = '';
@@ -657,11 +657,18 @@
         customTrendDraftEnd,
         customTrendDraftMonth,
         customTrendDraftYear,
+        customMonthNavigation: getMonthNavigationState(customTrendDraftMonth),
+        customYearNavigation: getYearNavigationState(customTrendDraftYear),
         appliedCustomTrendRange,
         comparisonTrendType,
         comparisonTrendDraftFirst,
         comparisonTrendDraftSecond,
         comparisonTrendDraftResolution,
+        comparisonFirstMonthNavigation: getMonthNavigationState(comparisonTrendDraftFirst),
+        comparisonSecondMonthNavigation: getMonthNavigationState(comparisonTrendDraftSecond),
+        comparisonFirstYearNavigation: getYearNavigationState(comparisonTrendDraftFirst),
+        comparisonSecondYearNavigation: getYearNavigationState(comparisonTrendDraftSecond),
+        comparisonShortcuts: getComparisonShortcutState(),
         appliedTrendComparison,
         chartDisplay: getActiveTrendDisplay(),
         calendar: getCalendarRenderState(false),
@@ -685,23 +692,227 @@
       renderComparisonTrendControls({ trendMode });
     }
 
+    function getChartPeriodDefaults(todayDate) {
+      const currentDate = todayDate || localDateString(new Date());
+      localCalendarDate(currentDate);
+      const currentYear = Number(currentDate.slice(0, 4));
+      const currentMonth = currentDate.slice(0, 7);
+      const previousMonth = currentYear === 0 && currentMonth === '0000-01'
+        ? currentMonth
+        : addCalendarDays(currentMonth + '-01', -1).slice(0, 7);
+      const previousYear = String(Math.max(0, currentYear - 1)).padStart(4, '0');
+
+      return {
+        customMonth: currentMonth,
+        customYear: currentDate.slice(0, 4),
+        comparisonFirstMonth: previousMonth,
+        comparisonSecondMonth: currentMonth,
+        comparisonFirstYear: previousYear,
+        comparisonSecondYear: currentDate.slice(0, 4),
+      };
+    }
+
+    function getUsableMonthDraft(month) {
+      try {
+        return shiftCalendarMonth(month, 0) || getChartPeriodDefaults().customMonth;
+      } catch (error) {
+        return getChartPeriodDefaults().customMonth;
+      }
+    }
+
+    function getMonthNavigationState(month) {
+      const usableMonth = getUsableMonthDraft(month);
+      return {
+        previousDisabled: shiftCalendarMonth(usableMonth, -1) === null,
+        nextDisabled: shiftCalendarMonth(usableMonth, 1) === null,
+      };
+    }
+
+    function getUsableYearDraft(year) {
+      try {
+        return shiftCalendarYear(year, 0) || getChartPeriodDefaults().customYear;
+      } catch (error) {
+        return getChartPeriodDefaults().customYear;
+      }
+    }
+
+    function getYearNavigationState(year) {
+      const usableYear = getUsableYearDraft(year);
+      return {
+        previousDisabled: shiftCalendarYear(usableYear, -1) === null,
+        nextDisabled: shiftCalendarYear(usableYear, 1) === null,
+      };
+    }
+
+    function navigateTrendMonthDraft(target, offset) {
+      if (isMutationBlocked() || (offset !== -1 && offset !== 1)) return;
+      let currentMonth;
+      if (target === 'custom') currentMonth = customTrendDraftMonth;
+      else if (target === 'comparison-first') currentMonth = comparisonTrendDraftFirst;
+      else if (target === 'comparison-second') currentMonth = comparisonTrendDraftSecond;
+      else return;
+
+      const nextMonth = shiftCalendarMonth(getUsableMonthDraft(currentMonth), offset);
+      if (!nextMonth) return;
+
+      if (target === 'custom') customTrendDraftMonth = nextMonth;
+      else if (target === 'comparison-first') comparisonTrendDraftFirst = nextMonth;
+      else comparisonTrendDraftSecond = nextMonth;
+      if (target === 'custom') clearCustomTrendError();
+      else clearComparisonTrendError();
+      renderHistoryTrendsForCurrentState();
+    }
+
+    function navigateTrendYearDraft(target, offset) {
+      if (isMutationBlocked() || (offset !== -1 && offset !== 1)) return;
+      let currentYear;
+      if (target === 'custom') currentYear = customTrendDraftYear;
+      else if (target === 'comparison-first') currentYear = comparisonTrendDraftFirst;
+      else if (target === 'comparison-second') currentYear = comparisonTrendDraftSecond;
+      else return;
+
+      const nextYear = shiftCalendarYear(getUsableYearDraft(currentYear), offset);
+      if (!nextYear) return;
+
+      if (target === 'custom') customTrendDraftYear = nextYear;
+      else if (target === 'comparison-first') comparisonTrendDraftFirst = nextYear;
+      else comparisonTrendDraftSecond = nextYear;
+      if (target === 'custom') clearCustomTrendError();
+      else clearComparisonTrendError();
+      renderHistoryTrendsForCurrentState();
+    }
+
+    function getComparisonReferenceInputId() {
+      return comparisonTrendType === 'year'
+        ? 'trend-comparison-second-year'
+        : 'trend-comparison-second-month';
+    }
+
+    function getComparisonShortcutState() {
+      const shiftPeriod = comparisonTrendType === 'year'
+        ? shiftCalendarYear
+        : shiftCalendarMonth;
+      try {
+        return {
+          compareWithPreviousDisabled: shiftPeriod(comparisonTrendDraftSecond, -1) === null,
+        };
+      } catch (error) {
+        return { compareWithPreviousDisabled: false };
+      }
+    }
+
+    function showComparisonTrendError(message, invalidIds) {
+      const error = document.getElementById('trend-comparison-error');
+      error.textContent = message;
+      error.classList.add('is-visible');
+      (invalidIds || []).forEach(function (id) {
+        document.getElementById(id).setAttribute('aria-invalid', 'true');
+      });
+    }
+
+    function swapComparisonTrendDrafts() {
+      if (isMutationBlocked()) return;
+      const firstPeriod = comparisonTrendDraftFirst;
+      comparisonTrendDraftFirst = comparisonTrendDraftSecond;
+      comparisonTrendDraftSecond = firstPeriod;
+      clearComparisonTrendError();
+      renderHistoryTrendsForCurrentState();
+    }
+
+    function compareWithPreviousTrendDraft() {
+      if (isMutationBlocked()) return;
+      const shiftPeriod = comparisonTrendType === 'year'
+        ? shiftCalendarYear
+        : shiftCalendarMonth;
+      const periodName = comparisonTrendType === 'year' ? 'calendar year' : 'calendar month';
+      let previousPeriod;
+      try {
+        previousPeriod = shiftPeriod(comparisonTrendDraftSecond, -1);
+      } catch (error) {
+        showComparisonTrendError(
+          'Enter a valid second ' + periodName + ' before comparing with the previous period.',
+          [getComparisonReferenceInputId()]
+        );
+        return;
+      }
+      if (previousPeriod === null) {
+        showComparisonTrendError(
+          'There is no earlier ' + periodName + ' available for the selected second period.'
+        );
+        return;
+      }
+      comparisonTrendDraftFirst = previousPeriod;
+      clearComparisonTrendError();
+      renderHistoryTrendsForCurrentState();
+    }
+
+    function setComparisonToPreviousAndCurrent() {
+      if (isMutationBlocked()) return;
+      const defaults = getChartPeriodDefaults();
+      if (comparisonTrendType === 'year') {
+        comparisonTrendDraftFirst = defaults.comparisonFirstYear;
+        comparisonTrendDraftSecond = defaults.comparisonSecondYear;
+      } else {
+        comparisonTrendDraftFirst = defaults.comparisonFirstMonth;
+        comparisonTrendDraftSecond = defaults.comparisonSecondMonth;
+      }
+      clearComparisonTrendError();
+      renderHistoryTrendsForCurrentState();
+    }
+
+    function restoreCustomTrendDrafts(type) {
+      const defaults = getChartPeriodDefaults();
+      const applied = appliedCustomTrendRange && appliedCustomTrendRange.type === type
+        ? appliedCustomTrendRange
+        : null;
+
+      if (type === 'date-range') {
+        customTrendDraftStart = applied ? applied.startDate : '';
+        customTrendDraftEnd = applied ? applied.endDate : '';
+      } else if (type === 'month') {
+        customTrendDraftMonth = applied ? applied.month : defaults.customMonth;
+      } else if (type === 'year') {
+        customTrendDraftYear = applied ? applied.year : defaults.customYear;
+      }
+    }
+
+    function restoreComparisonTrendDrafts(type) {
+      const defaults = getChartPeriodDefaults();
+      const applied = appliedTrendComparison && appliedTrendComparison.type === type
+        ? appliedTrendComparison
+        : null;
+
+      if (applied) {
+        comparisonTrendDraftFirst = applied.firstPeriod;
+        comparisonTrendDraftSecond = applied.secondPeriod;
+        comparisonTrendDraftResolution = applied.resolution ||
+          (type === 'year' ? 'weekly' : 'daily');
+      } else if (type === 'month') {
+        comparisonTrendDraftFirst = defaults.comparisonFirstMonth;
+        comparisonTrendDraftSecond = defaults.comparisonSecondMonth;
+        comparisonTrendDraftResolution = 'daily';
+      } else {
+        comparisonTrendDraftFirst = defaults.comparisonFirstYear;
+        comparisonTrendDraftSecond = defaults.comparisonSecondYear;
+        comparisonTrendDraftResolution = 'weekly';
+      }
+    }
+
     function selectCustomTrendRange() {
       clearCustomTrendError();
       clearComparisonTrendError();
       trendMode = 'custom';
       if (appliedCustomTrendRange) {
-        customTrendType = appliedCustomTrendRange.type || 'date-range';
-        customTrendDraftStart = appliedCustomTrendRange.startDate || '';
-        customTrendDraftEnd = appliedCustomTrendRange.endDate || '';
-        customTrendDraftMonth = appliedCustomTrendRange.month || '';
-        customTrendDraftYear = appliedCustomTrendRange.year || '';
+        customTrendType = appliedCustomTrendRange.type || 'year';
+        restoreCustomTrendDrafts(customTrendType);
         activeTrendDisplay = { type: 'custom', range: appliedCustomTrendRange };
       } else {
-        customTrendType = 'date-range';
+        customTrendType = 'year';
         customTrendDraftStart = '';
         customTrendDraftEnd = '';
-        customTrendDraftMonth = '';
-        customTrendDraftYear = '';
+        const defaults = getChartPeriodDefaults();
+        customTrendDraftMonth = defaults.customMonth;
+        customTrendDraftYear = defaults.customYear;
       }
       renderHistoryTrendsForCurrentState();
     }
@@ -712,16 +923,11 @@
       trendMode = 'compare';
       if (appliedTrendComparison) {
         comparisonTrendType = appliedTrendComparison.type;
-        comparisonTrendDraftFirst = appliedTrendComparison.firstPeriod;
-        comparisonTrendDraftSecond = appliedTrendComparison.secondPeriod;
-        comparisonTrendDraftResolution = appliedTrendComparison.resolution ||
-          (comparisonTrendType === 'year' ? 'weekly' : 'daily');
+        restoreComparisonTrendDrafts(comparisonTrendType);
         activeTrendDisplay = { type: 'comparison' };
       } else {
         comparisonTrendType = 'month';
-        comparisonTrendDraftFirst = '';
-        comparisonTrendDraftSecond = '';
-        comparisonTrendDraftResolution = 'weekly';
+        restoreComparisonTrendDrafts(comparisonTrendType);
       }
       renderHistoryTrendsForCurrentState();
     }
@@ -882,10 +1088,7 @@
       const type = document.getElementById('trend-custom-type').value;
       if (['date-range', 'month', 'year'].indexOf(type) === -1) return;
       customTrendType = type;
-      customTrendDraftStart = document.getElementById('trend-custom-start').value;
-      customTrendDraftEnd = document.getElementById('trend-custom-end').value;
-      customTrendDraftMonth = document.getElementById('trend-custom-month').value;
-      customTrendDraftYear = document.getElementById('trend-custom-year').value;
+      restoreCustomTrendDrafts(type);
       clearCustomTrendError();
       renderHistoryTrendsForCurrentState();
     }
@@ -898,6 +1101,9 @@
       if (id === 'trend-custom-month') customTrendDraftMonth = event.target.value;
       if (id === 'trend-custom-year') customTrendDraftYear = event.target.value;
       clearCustomTrendError();
+      if (id === 'trend-custom-month' || id === 'trend-custom-year') {
+        renderHistoryTrendsForCurrentState();
+      }
     }
 
     function handleCustomTrendSubmit(event) {
@@ -961,13 +1167,7 @@
       const type = document.getElementById('trend-comparison-type').value;
       if (type !== 'month' && type !== 'year') return;
       comparisonTrendType = type;
-      comparisonTrendDraftFirst = type === 'month'
-        ? document.getElementById('trend-comparison-first-month').value
-        : document.getElementById('trend-comparison-first-year').value;
-      comparisonTrendDraftSecond = type === 'month'
-        ? document.getElementById('trend-comparison-second-month').value
-        : document.getElementById('trend-comparison-second-year').value;
-      comparisonTrendDraftResolution = type === 'year' ? 'weekly' : 'daily';
+      restoreComparisonTrendDrafts(type);
       clearComparisonTrendError();
       renderHistoryTrendsForCurrentState();
     }
@@ -982,6 +1182,12 @@
         comparisonTrendDraftSecond = event.target.value;
       }
       clearComparisonTrendError();
+      if (
+        id === 'trend-comparison-first-month' || id === 'trend-comparison-second-month' ||
+        id === 'trend-comparison-first-year' || id === 'trend-comparison-second-year'
+      ) {
+        renderHistoryTrendsForCurrentState();
+      }
     }
 
     function handleComparisonTrendResolutionChange() {
@@ -1078,6 +1284,36 @@
         if (periodButton.dataset.trendDays === 'custom') selectCustomTrendRange();
         else if (periodButton.dataset.trendDays === 'compare') selectTrendComparison();
         else setTrendDayCount(Number(periodButton.dataset.trendDays));
+        return;
+      }
+
+      const monthNavigationButton = event.target.closest('.trend-month-nav-btn');
+      if (monthNavigationButton) {
+        navigateTrendMonthDraft(
+          monthNavigationButton.dataset.monthDraft,
+          Number(monthNavigationButton.dataset.monthOffset)
+        );
+        return;
+      }
+
+      const yearNavigationButton = event.target.closest('.trend-year-nav-btn');
+      if (yearNavigationButton) {
+        navigateTrendYearDraft(
+          yearNavigationButton.dataset.yearDraft,
+          Number(yearNavigationButton.dataset.yearOffset)
+        );
+        return;
+      }
+
+      const comparisonShortcutButton = event.target.closest('.trend-comparison-shortcut-btn');
+      if (comparisonShortcutButton) {
+        if (comparisonShortcutButton.dataset.comparisonShortcut === 'swap') {
+          swapComparisonTrendDrafts();
+        } else if (comparisonShortcutButton.dataset.comparisonShortcut === 'previous') {
+          compareWithPreviousTrendDraft();
+        } else if (comparisonShortcutButton.dataset.comparisonShortcut === 'current') {
+          setComparisonToPreviousAndCurrent();
+        }
         return;
       }
 

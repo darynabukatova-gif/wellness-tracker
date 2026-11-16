@@ -858,12 +858,16 @@
         return;
       }
       customForm.removeAttribute('hidden');
-      const type = viewState.customTrendType || 'date-range';
+      const type = viewState.customTrendType || 'year';
       const typeSelect = document.getElementById('trend-custom-type');
       const start = document.getElementById('trend-custom-start');
       const end = document.getElementById('trend-custom-end');
       const month = document.getElementById('trend-custom-month');
       const year = document.getElementById('trend-custom-year');
+      const previousMonth = document.getElementById('trend-custom-month-prev');
+      const nextMonth = document.getElementById('trend-custom-month-next');
+      const previousYear = document.getElementById('trend-custom-year-prev');
+      const nextYear = document.getElementById('trend-custom-year-next');
       const dateRangeControls = document.getElementById('trend-custom-date-range-controls');
       const monthControls = document.getElementById('trend-custom-month-controls');
       const yearControls = document.getElementById('trend-custom-year-controls');
@@ -872,6 +876,18 @@
       if (end && viewState.customTrendDraftEnd !== undefined) end.value = viewState.customTrendDraftEnd;
       if (month && viewState.customTrendDraftMonth !== undefined) month.value = viewState.customTrendDraftMonth;
       if (year && viewState.customTrendDraftYear !== undefined) year.value = viewState.customTrendDraftYear;
+      if (previousMonth) previousMonth.disabled = Boolean(
+        viewState.customMonthNavigation && viewState.customMonthNavigation.previousDisabled
+      );
+      if (nextMonth) nextMonth.disabled = Boolean(
+        viewState.customMonthNavigation && viewState.customMonthNavigation.nextDisabled
+      );
+      if (previousYear) previousYear.disabled = Boolean(
+        viewState.customYearNavigation && viewState.customYearNavigation.previousDisabled
+      );
+      if (nextYear) nextYear.disabled = Boolean(
+        viewState.customYearNavigation && viewState.customYearNavigation.nextDisabled
+      );
       [
         [dateRangeControls, type !== 'date-range'],
         [monthControls, type !== 'month'],
@@ -901,10 +917,19 @@
       const secondMonth = document.getElementById('trend-comparison-second-month');
       const firstYear = document.getElementById('trend-comparison-first-year');
       const secondYear = document.getElementById('trend-comparison-second-year');
+      const previousFirstMonth = document.getElementById('trend-comparison-first-month-prev');
+      const nextFirstMonth = document.getElementById('trend-comparison-first-month-next');
+      const previousSecondMonth = document.getElementById('trend-comparison-second-month-prev');
+      const nextSecondMonth = document.getElementById('trend-comparison-second-month-next');
+      const previousFirstYear = document.getElementById('trend-comparison-first-year-prev');
+      const nextFirstYear = document.getElementById('trend-comparison-first-year-next');
+      const previousSecondYear = document.getElementById('trend-comparison-second-year-prev');
+      const nextSecondYear = document.getElementById('trend-comparison-second-year-next');
       const monthControls = document.getElementById('trend-comparison-month-controls');
       const yearControls = document.getElementById('trend-comparison-year-controls');
       const resolution = document.getElementById('trend-comparison-resolution');
       const resolutionControls = document.getElementById('trend-comparison-resolution-controls');
+      const compareWithPrevious = document.getElementById('trend-comparison-previous-btn');
       if (typeSelect) typeSelect.value = type;
       if (firstMonth && type === 'month') firstMonth.value = viewState.comparisonTrendDraftFirst || '';
       if (secondMonth && type === 'month') secondMonth.value = viewState.comparisonTrendDraftSecond || '';
@@ -912,6 +937,41 @@
       if (secondYear && type === 'year') secondYear.value = viewState.comparisonTrendDraftSecond || '';
       if (resolution) resolution.value = viewState.comparisonTrendDraftResolution ||
         (type === 'year' ? 'weekly' : 'daily');
+      if (previousFirstMonth) previousFirstMonth.disabled = Boolean(
+        viewState.comparisonFirstMonthNavigation &&
+        viewState.comparisonFirstMonthNavigation.previousDisabled
+      );
+      if (nextFirstMonth) nextFirstMonth.disabled = Boolean(
+        viewState.comparisonFirstMonthNavigation &&
+        viewState.comparisonFirstMonthNavigation.nextDisabled
+      );
+      if (previousSecondMonth) previousSecondMonth.disabled = Boolean(
+        viewState.comparisonSecondMonthNavigation &&
+        viewState.comparisonSecondMonthNavigation.previousDisabled
+      );
+      if (nextSecondMonth) nextSecondMonth.disabled = Boolean(
+        viewState.comparisonSecondMonthNavigation &&
+        viewState.comparisonSecondMonthNavigation.nextDisabled
+      );
+      if (previousFirstYear) previousFirstYear.disabled = Boolean(
+        viewState.comparisonFirstYearNavigation &&
+        viewState.comparisonFirstYearNavigation.previousDisabled
+      );
+      if (nextFirstYear) nextFirstYear.disabled = Boolean(
+        viewState.comparisonFirstYearNavigation &&
+        viewState.comparisonFirstYearNavigation.nextDisabled
+      );
+      if (previousSecondYear) previousSecondYear.disabled = Boolean(
+        viewState.comparisonSecondYearNavigation &&
+        viewState.comparisonSecondYearNavigation.previousDisabled
+      );
+      if (nextSecondYear) nextSecondYear.disabled = Boolean(
+        viewState.comparisonSecondYearNavigation &&
+        viewState.comparisonSecondYearNavigation.nextDisabled
+      );
+      if (compareWithPrevious) compareWithPrevious.disabled = Boolean(
+        viewState.comparisonShortcuts && viewState.comparisonShortcuts.compareWithPreviousDisabled
+      );
       [
         [monthControls, type !== 'month'],
         [yearControls, type !== 'year'],

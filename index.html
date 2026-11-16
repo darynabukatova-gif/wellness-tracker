@@ -208,7 +208,7 @@
             <select id="trend-custom-type" aria-describedby="trend-custom-error">
               <option value="date-range">Date range</option>
               <option value="month">Calendar month</option>
-              <option value="year">Calendar year</option>
+              <option value="year" selected>Calendar year</option>
             </select>
           </div>
           <div id="trend-custom-date-range-controls" class="trend-custom-period-controls">
@@ -224,13 +224,21 @@
           <div id="trend-custom-month-controls" class="trend-custom-period-controls" hidden>
             <div class="trend-custom-field">
               <label for="trend-custom-month">Calendar month</label>
-              <input id="trend-custom-month" type="month" aria-describedby="trend-custom-error">
+              <div class="trend-month-navigation">
+                <button type="button" id="trend-custom-month-prev" class="trend-month-nav-btn" data-month-draft="custom" data-month-offset="-1" aria-label="Previous month for custom period"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M9.5 3 4.5 8l5 5"/></svg></button>
+                <input id="trend-custom-month" type="month" aria-describedby="trend-custom-error">
+                <button type="button" id="trend-custom-month-next" class="trend-month-nav-btn" data-month-draft="custom" data-month-offset="1" aria-label="Next month for custom period"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m6.5 3 5 5-5 5"/></svg></button>
+              </div>
             </div>
           </div>
           <div id="trend-custom-year-controls" class="trend-custom-period-controls" hidden>
             <div class="trend-custom-field">
               <label for="trend-custom-year">Calendar year</label>
-              <input id="trend-custom-year" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="YYYY" aria-describedby="trend-custom-error">
+              <div class="trend-year-navigation">
+                <button type="button" id="trend-custom-year-prev" class="trend-year-nav-btn" data-year-draft="custom" data-year-offset="-1" aria-label="Previous year for custom period"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M9.5 3 4.5 8l5 5"/></svg></button>
+                <input id="trend-custom-year" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="YYYY" aria-describedby="trend-custom-error">
+                <button type="button" id="trend-custom-year-next" class="trend-year-nav-btn" data-year-draft="custom" data-year-offset="1" aria-label="Next year for custom period"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m6.5 3 5 5-5 5"/></svg></button>
+              </div>
             </div>
           </div>
           <button type="submit" id="apply-trend-custom-btn">Apply custom period</button>
@@ -247,21 +255,37 @@
           <div id="trend-comparison-month-controls" class="trend-custom-period-controls">
             <div class="trend-custom-field">
               <label for="trend-comparison-first-month">First period</label>
-              <input id="trend-comparison-first-month" type="month" aria-describedby="trend-comparison-error">
+              <div class="trend-month-navigation">
+                <button type="button" id="trend-comparison-first-month-prev" class="trend-month-nav-btn" data-month-draft="comparison-first" data-month-offset="-1" aria-label="Previous month for first comparison period"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M9.5 3 4.5 8l5 5"/></svg></button>
+                <input id="trend-comparison-first-month" type="month" aria-describedby="trend-comparison-error">
+                <button type="button" id="trend-comparison-first-month-next" class="trend-month-nav-btn" data-month-draft="comparison-first" data-month-offset="1" aria-label="Next month for first comparison period"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m6.5 3 5 5-5 5"/></svg></button>
+              </div>
             </div>
             <div class="trend-custom-field">
               <label for="trend-comparison-second-month">Second period</label>
-              <input id="trend-comparison-second-month" type="month" aria-describedby="trend-comparison-error">
+              <div class="trend-month-navigation">
+                <button type="button" id="trend-comparison-second-month-prev" class="trend-month-nav-btn" data-month-draft="comparison-second" data-month-offset="-1" aria-label="Previous month for second comparison period"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M9.5 3 4.5 8l5 5"/></svg></button>
+                <input id="trend-comparison-second-month" type="month" aria-describedby="trend-comparison-error">
+                <button type="button" id="trend-comparison-second-month-next" class="trend-month-nav-btn" data-month-draft="comparison-second" data-month-offset="1" aria-label="Next month for second comparison period"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m6.5 3 5 5-5 5"/></svg></button>
+              </div>
             </div>
           </div>
           <div id="trend-comparison-year-controls" class="trend-custom-period-controls" hidden>
             <div class="trend-custom-field">
               <label for="trend-comparison-first-year">First period</label>
-              <input id="trend-comparison-first-year" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="YYYY" aria-describedby="trend-comparison-error">
+              <div class="trend-year-navigation">
+                <button type="button" id="trend-comparison-first-year-prev" class="trend-year-nav-btn" data-year-draft="comparison-first" data-year-offset="-1" aria-label="Previous year for first comparison period"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M9.5 3 4.5 8l5 5"/></svg></button>
+                <input id="trend-comparison-first-year" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="YYYY" aria-describedby="trend-comparison-error">
+                <button type="button" id="trend-comparison-first-year-next" class="trend-year-nav-btn" data-year-draft="comparison-first" data-year-offset="1" aria-label="Next year for first comparison period"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m6.5 3 5 5-5 5"/></svg></button>
+              </div>
             </div>
             <div class="trend-custom-field">
               <label for="trend-comparison-second-year">Second period</label>
-              <input id="trend-comparison-second-year" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="YYYY" aria-describedby="trend-comparison-error">
+              <div class="trend-year-navigation">
+                <button type="button" id="trend-comparison-second-year-prev" class="trend-year-nav-btn" data-year-draft="comparison-second" data-year-offset="-1" aria-label="Previous year for second comparison period"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M9.5 3 4.5 8l5 5"/></svg></button>
+                <input id="trend-comparison-second-year" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="YYYY" aria-describedby="trend-comparison-error">
+                <button type="button" id="trend-comparison-second-year-next" class="trend-year-nav-btn" data-year-draft="comparison-second" data-year-offset="1" aria-label="Next year for second comparison period"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m6.5 3 5 5-5 5"/></svg></button>
+              </div>
             </div>
           </div>
           <div id="trend-comparison-resolution-controls" class="trend-custom-type-field" hidden>
@@ -271,6 +295,11 @@
               <option value="weekly" selected>Weekly averages</option>
               <option value="monthly">Monthly averages</option>
             </select>
+          </div>
+          <div class="trend-comparison-shortcuts">
+            <button type="button" id="trend-comparison-swap-btn" class="trend-comparison-shortcut-btn" data-comparison-shortcut="swap" aria-label="Swap first and second comparison periods">Swap periods</button>
+            <button type="button" id="trend-comparison-previous-btn" class="trend-comparison-shortcut-btn" data-comparison-shortcut="previous" aria-label="Set the first comparison period to the period before the second">Compare with previous</button>
+            <button type="button" id="trend-comparison-current-btn" class="trend-comparison-shortcut-btn" data-comparison-shortcut="current" aria-label="Set comparison periods to the previous and current periods">Previous &amp; current</button>
           </div>
           <button type="submit" id="apply-trend-comparison-btn">Apply comparison</button>
           <p id="trend-comparison-error" class="table-error" role="alert" aria-live="assertive"></p>

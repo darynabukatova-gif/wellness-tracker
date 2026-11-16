@@ -38,7 +38,8 @@
  *   loadContext(localStorageStub?)
  *     Returns an object containing:
  *       { localDateString, addCalendarDays, countCalendarDaysInclusive,
- *         getCalendarMonthRange, getCalendarYearRange,
+ *         getCalendarMonthRange, shiftCalendarMonth, shiftCalendarYear,
+ *         getCalendarYearRange,
  *         validateCalendarDateRange, filterEntriesByDateRange,
  *         buildTrendSeries, buildTrendSeriesForRange,
  *         buildMonthComparisonSeries, buildYearComparisonSeries,
@@ -76,6 +77,8 @@ const REQUIRED_FUNCTIONS = [
   'addCalendarDays',
   'countCalendarDaysInclusive',
   'getCalendarMonthRange',
+  'shiftCalendarMonth',
+  'shiftCalendarYear',
   'getCalendarYearRange',
   'validateCalendarDateRange',
   'filterEntriesByDateRange',
@@ -245,6 +248,8 @@ function loadContext(localStorageStub) {
     addCalendarDays:       sandbox.addCalendarDays,
     countCalendarDaysInclusive: sandbox.countCalendarDaysInclusive,
     getCalendarMonthRange: sandbox.getCalendarMonthRange,
+    shiftCalendarMonth: sandbox.shiftCalendarMonth,
+    shiftCalendarYear: sandbox.shiftCalendarYear,
     getCalendarYearRange: sandbox.getCalendarYearRange,
     validateCalendarDateRange: sandbox.validateCalendarDateRange,
     filterEntriesByDateRange: sandbox.filterEntriesByDateRange,
