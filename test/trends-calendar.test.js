@@ -11,6 +11,8 @@ const {
   getCalendarYearRange,
   validateCalendarDateRange,
   filterEntriesByDateRange,
+  getEntryByDate,
+  findPreviousSavedEntry,
   calculatePeriodStatistics,
   comparePeriodStatistics,
   buildTrendSeries,
@@ -162,6 +164,39 @@ test('filterEntriesByDateRange includes boundaries, sorts newest-first, preserve
     () => filterEntriesByDateRange(entries, '2025-06-12', '2025-06-10'),
     error => error.name === 'RangeError'
   );
+});
+
+test('entry-date lookups return detached exact and nearest-earlier saved entries without sorting inputs', () => {
+  const entries = [
+    entry('2025-06-13', 5, 8, 2.2),
+    entry('0001-01-01', 1, 0, 0),
+    entry('2025-06-10', 2, 6, 1),
+    entry('2025-06-12', 3, 7.5, 1.5),
+    entry('2025-06-09', 4, 5, 0),
+  ];
+  const original = JSON.stringify(entries);
+
+  const exact = getEntryByDate(entries, '2025-06-10');
+  assert.deepEqual(JSON.parse(JSON.stringify(exact)), entry('2025-06-10', 2, 6, 1));
+  assert.notEqual(exact, entries[2]);
+  exact.mood = 5;
+  assert.equal(entries[2].mood, 2);
+  assert.equal(getEntryByDate(entries, '2025-06-11'), null);
+  assert.equal(getEntryByDate(entries, '0001-01-01').date, '0001-01-01');
+
+  assert.equal(findPreviousSavedEntry(entries, '2025-06-12').date, '2025-06-10');
+  assert.equal(findPreviousSavedEntry(entries, '2025-06-09').date, '0001-01-01');
+  assert.equal(findPreviousSavedEntry(entries, '0001-01-01'), null);
+  assert.equal(findPreviousSavedEntry(entries, '0000-01-01'), null);
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('entry-date lookups reject malformed calendar dates', () => {
+  const entries = [entry('2024-02-29', 3, 0, 0)];
+  ['2024-02-30', '2024-2-29', '', '2024-03-01T00:00:00Z'].forEach(function (date) {
+    assert.throws(() => getEntryByDate(entries, date), error => error.name === 'RangeError');
+    assert.throws(() => findPreviousSavedEntry(entries, date), error => error.name === 'RangeError');
+  });
 });
 
 test('calculatePeriodStatistics uses inclusive recorded observations for all metrics without rounding', () => {

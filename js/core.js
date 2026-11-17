@@ -490,6 +490,44 @@
       return sortByDateDesc(filterEntriesInValidatedDateRange(entries, range));
     }
 
+    /**
+     * getEntryByDate(entries, date)
+     *
+     * Returns a detached saved entry for one exact local-calendar date, or
+     * null when that date has no entry. The supplied date is validated even
+     * when entries is empty, so callers cannot accidentally treat malformed
+     * dates as missing records.
+     *
+     * @throws {RangeError} When date is not a real YYYY-MM-DD date.
+     */
+    function getEntryByDate(entries, date) {
+      localCalendarDate(date);
+      const entry = entries.find(function (candidate) {
+        return candidate.date === date;
+      });
+      return entry ? copyEntry(entry) : null;
+    }
+
+    /**
+     * findPreviousSavedEntry(entries, date)
+     *
+     * Finds the latest saved entry strictly before a validated local-calendar
+     * date. It intentionally does not rely on storage insertion order and
+     * returns a detached copy so lookup callers cannot mutate committed data.
+     *
+     * @throws {RangeError} When date is not a real YYYY-MM-DD date.
+     */
+    function findPreviousSavedEntry(entries, date) {
+      localCalendarDate(date);
+      let previous = null;
+      entries.forEach(function (candidate) {
+        if (candidate.date < date && (!previous || candidate.date > previous.date)) {
+          previous = candidate;
+        }
+      });
+      return previous ? copyEntry(previous) : null;
+    }
+
     function calculateMetricStatistics(entries, metric) {
       if (entries.length === 0) {
         return { average: null, minimum: null, maximum: null };
@@ -1091,15 +1129,17 @@
       return validateStoredEntries(entries);
     }
 
+    function copyEntry(entry) {
+      return {
+        date: entry.date,
+        mood: entry.mood,
+        sleep: entry.sleep,
+        water: entry.water,
+      };
+    }
+
     function copyEntries(entries) {
-      return entries.map(function (entry) {
-        return {
-          date: entry.date,
-          mood: entry.mood,
-          sleep: entry.sleep,
-          water: entry.water,
-        };
-      });
+      return entries.map(copyEntry);
     }
 
     /**

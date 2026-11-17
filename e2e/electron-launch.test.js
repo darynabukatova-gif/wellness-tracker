@@ -1519,3 +1519,60 @@ test('Electron E2E: displays applied period and comparison statistics from commi
     await finishIsolatedTest(applications, temporaryDirectory, testFailure);
   }
 });
+
+test('Electron E2E: navigates entry dates, copies previous values, and edits existing dates explicitly', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+
+    await createEntryThroughForm(window, { date: '2025-06-10', mood: 3, sleep: 6, water: 1.5 });
+    const entriesPath = path.join(isolatedUserDataDirectory, 'entries.json');
+    const beforeCopy = await fsp.readFile(entriesPath, 'utf8');
+
+    await window.locator('#entry-date').fill('2025-06-11');
+    await window.locator('#entry-date-prev').click();
+    assert.equal(await window.locator('#entry-date').inputValue(), '2025-06-10');
+    await window.locator('#entry-date-next').click();
+    assert.equal(await window.locator('#entry-date').inputValue(), '2025-06-11');
+    await window.locator('#copy-previous-values-btn').click();
+    await window.locator('#entry-date-status').filter({ hasText: 'Copied values from 2025-06-10' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('input[name="mood"]:checked').inputValue(), '3');
+    assert.equal(await window.locator('#entry-sleep').inputValue(), '6');
+    assert.equal(await window.locator('#entry-water').inputValue(), '1.5');
+    assert.equal(await fsp.readFile(entriesPath, 'utf8'), beforeCopy);
+
+    await window.locator('#save-btn').click();
+    await showHistoryRange(window, '2025-06-11', '2025-06-11');
+    await assertHistoryRow(window, { date: '2025-06-11', mood: 3, sleep: 6, water: 1.5 });
+
+    await window.locator('#entry-date').fill('2025-06-10');
+    await window.locator('#entry-date-status').filter({ hasText: 'already saved' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#edit-existing-entry-btn').isVisible(), true);
+    assert.equal(await window.locator('#edit-existing-entry-btn').getAttribute('aria-label'), 'Edit existing entry for 2025-06-10');
+    const editConfirmation = handleConfirmation(window, dialog => {
+      assert.match(dialog.message(), /Discard unsaved form changes/);
+    }, true);
+    await window.locator('#edit-existing-entry-btn').click();
+    await editConfirmation;
+    await window.locator('#form-heading').filter({ hasText: 'Edit Wellness Entry' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#entry-date').isEditable(), false);
+    await window.locator('#cancel-edit-btn').click();
+    await window.locator('#form-heading').filter({ hasText: 'Log a Wellness Entry' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});

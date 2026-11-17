@@ -82,7 +82,8 @@
         '#entry-date', '#save-btn', '#cancel-edit-btn', '#erase-all-btn',
         '#export-backup-btn', '#import-backup-btn', '#import-backup-input',
         '#entry-sleep', '#entry-water', '#sleep-minus', '#sleep-plus',
-        '#water-minus', '#water-plus'
+        '#water-minus', '#water-plus', '#copy-previous-values-btn',
+        '#edit-existing-entry-btn'
       ].forEach(function (selector) {
         const control = document.querySelector(selector);
         if (control) control.disabled = disabled;
@@ -105,6 +106,7 @@
         updateWaterControl();
       }
       updateEraseAllBtn();
+      updateEntryDateControls();
     }
 
     function roundWater(value) {
@@ -151,6 +153,117 @@
       waterSelected = true;
       updateSleepControl();
       updateWaterControl();
+    }
+
+    function updateEntryDateControls() {
+      const dateInput = document.getElementById('entry-date');
+      const previousButton = document.getElementById('entry-date-prev');
+      const nextButton = document.getElementById('entry-date-next');
+      const copyButton = document.getElementById('copy-previous-values-btn');
+      const editButton = document.getElementById('edit-existing-entry-btn');
+      const status = document.getElementById('entry-date-status');
+      if (!dateInput || !previousButton || !nextButton || !copyButton || !editButton || !status) return;
+
+      let validDate = false;
+      try {
+        validDate = validateCalendarDateRange(dateInput.value, dateInput.value).ok;
+      } catch (error) {
+        validDate = false;
+      }
+      const navigationDate = validDate ? dateInput.value : localDateString(new Date());
+      const atFirstDate = navigationDate === '0000-01-01';
+      const atLastDate = navigationDate === '9999-12-31';
+      const blocked = isMutationBlocked();
+      const editing = editingDate !== null;
+
+      previousButton.disabled = blocked || editing || atFirstDate;
+      nextButton.disabled = blocked || editing || atLastDate;
+      copyButton.disabled = true;
+      editButton.hidden = true;
+
+      if (!validDate) {
+        status.textContent = 'Enter a valid calendar date to check for a saved entry.';
+        return;
+      }
+
+      const existing = getEntryByDate(entries, dateInput.value);
+      if (existing) {
+        status.textContent = editing
+          ? 'Editing the saved entry for ' + dateInput.value + '.'
+          : 'An entry is already saved for ' + dateInput.value + '. Choose Edit existing entry to change it.';
+        editButton.hidden = editing;
+        editButton.setAttribute('aria-label', 'Edit existing entry for ' + dateInput.value);
+        editButton.disabled = blocked;
+      } else {
+        status.textContent = 'No entry is saved for ' + dateInput.value + '. You can create one.';
+      }
+
+      if (!existing && !editing && !blocked) {
+        const previous = findPreviousSavedEntry(entries, dateInput.value);
+        copyButton.disabled = previous === null;
+      }
+    }
+
+    function handleEntryDateInput() {
+      if (editingDate !== null) {
+        document.getElementById('entry-date').value = editingDate;
+        return;
+      }
+      clearFormError();
+      updateEntryDateControls();
+    }
+
+    function navigateEntryDate(offset) {
+      if (!Number.isInteger(offset) || offset === 0 || isMutationBlocked() || editingDate !== null) {
+        return { ok: false, reason: 'blocked' };
+      }
+      const dateInput = document.getElementById('entry-date');
+      let currentDate;
+      try {
+        currentDate = validateCalendarDateRange(dateInput.value, dateInput.value).ok
+          ? dateInput.value
+          : localDateString(new Date());
+      } catch (error) {
+        currentDate = localDateString(new Date());
+      }
+      if (offset < 0 && currentDate === '0000-01-01') return { ok: false, reason: 'boundary' };
+      if (offset > 0 && currentDate === '9999-12-31') return { ok: false, reason: 'boundary' };
+
+      const nextDate = addCalendarDays(currentDate, offset);
+      dateInput.value = nextDate;
+      clearFormError();
+      updateEntryDateControls();
+      return { ok: true, date: nextDate };
+    }
+
+    function copyPreviousValues() {
+      if (isMutationBlocked() || editingDate !== null) {
+        return { ok: false, reason: 'blocked' };
+      }
+      const date = document.getElementById('entry-date').value;
+      let previous;
+      try {
+        if (getEntryByDate(entries, date)) {
+          return { ok: false, reason: 'existing-entry' };
+        }
+        previous = findPreviousSavedEntry(entries, date);
+      } catch (error) {
+        return { ok: false, reason: 'invalid-date' };
+      }
+      if (!previous) {
+        const status = document.getElementById('entry-date-status');
+        status.textContent = 'No earlier saved entry is available to copy.';
+        return { ok: false, reason: 'no-previous-entry' };
+      }
+
+      document.querySelectorAll('input[name="mood"]').forEach(function (radio) {
+        radio.checked = Number(radio.value) === previous.mood;
+      });
+      setValueControlValues(previous.sleep, previous.water);
+      clearFormError();
+      document.getElementById('entry-date-status').textContent =
+        'Copied values from ' + previous.date + '. These values have not been saved.';
+      return { ok: true, sourceDate: previous.date };
     }
 
     function adjustValueControl(kind, direction) {
@@ -610,21 +723,55 @@
       error.classList.remove('is-visible');
     }
 
-    function handleHistoryFilterSubmit(event) {
-      event.preventDefault();
-      const startDate = document.getElementById('history-from-date').value;
-      const endDate = document.getElementById('history-to-date').value;
+    function applyHistoryDateRange(startDate, endDate) {
       const result = validateCalendarDateRange(startDate, endDate);
       if (!result.ok) {
         appliedHistoryRange = null;
         renderHistoryTable();
         showHistoryFilterError(result.error);
-        return;
+        return result;
       }
 
       appliedHistoryRange = { startDate: result.startDate, endDate: result.endDate };
       clearHistoryFilterError();
       renderHistoryTable();
+      return result;
+    }
+
+    function handleHistoryFilterSubmit(event) {
+      event.preventDefault();
+      const startDate = document.getElementById('history-from-date').value;
+      const endDate = document.getElementById('history-to-date').value;
+      applyHistoryDateRange(startDate, endDate);
+    }
+
+    function showEntryInHistory(date) {
+      let entry;
+      try {
+        entry = getEntryByDate(entries, date);
+      } catch (error) {
+        return { ok: false, reason: 'invalid-date' };
+      }
+      if (!entry) return { ok: false, reason: 'missing-entry' };
+
+      const fromInput = document.getElementById('history-from-date');
+      const toInput = document.getElementById('history-to-date');
+      fromInput.value = date;
+      toInput.value = date;
+      const result = applyHistoryDateRange(date, date);
+      if (!result.ok) return result;
+
+      const buttons = Array.from(document.querySelectorAll('#entries-container .btn-edit'));
+      const target = buttons.find(function (button) {
+        return button.dataset.date === date;
+      });
+      if (target) {
+        if (typeof target.scrollIntoView === 'function') {
+          target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+        target.focus();
+      }
+      return { ok: true, entry };
     }
 
     function invalidateAppliedHistoryRange() {
@@ -1514,6 +1661,7 @@
       if (!confirmDiscardUnsavedFormChanges()) return false;
       exitEditMode();
       document.getElementById('entry-date').value = date;
+      updateEntryDateControls();
       return true;
     }
 
@@ -1540,6 +1688,7 @@
       document.getElementById('save-btn').textContent = 'Save changes';
       document.getElementById('cancel-edit-btn').hidden = false;
       clearFormError();
+      updateEntryDateControls();
       document.querySelector('input[name="mood"]').focus();
       return true;
     }
@@ -1554,6 +1703,7 @@
       document.getElementById('save-btn').textContent = 'Save entry';
       document.getElementById('cancel-edit-btn').hidden = true;
       clearFormError();
+      updateEntryDateControls();
     }
 
     /* ── Initialisation ──────────────────────────────────────────── */
@@ -1635,6 +1785,19 @@
       listenersAttached = true;
       document.getElementById('entry-form')
         .addEventListener('submit', handleFormSubmit);
+
+      document.getElementById('entry-date')
+        .addEventListener('input', handleEntryDateInput);
+      document.getElementById('entry-date-prev')
+        .addEventListener('click', function () { navigateEntryDate(-1); });
+      document.getElementById('entry-date-next')
+        .addEventListener('click', function () { navigateEntryDate(1); });
+      document.getElementById('copy-previous-values-btn')
+        .addEventListener('click', copyPreviousValues);
+      document.getElementById('edit-existing-entry-btn')
+        .addEventListener('click', function () {
+          enterEditMode(document.getElementById('entry-date').value);
+        });
 
       document.getElementById('entries-container')
         .addEventListener('click', handleTableClick);

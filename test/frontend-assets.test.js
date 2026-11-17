@@ -72,6 +72,18 @@ test('calendar period navigation controls retain direct inputs, icon buttons, an
   assert.match(css, /#apply-trend-comparison-btn\s*\{[\s\S]*?justify-self:\s*start/);
 });
 
+test('daily entry date navigation uses accessible chevrons and a responsive readable input layout', () => {
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'styles', 'app.css'), 'utf8');
+
+  assert.match(html, /id="entry-date-prev"[^>]*aria-label="Previous day"[^>]*><svg class="trend-navigation-icon"[^>]*aria-hidden="true"/);
+  assert.match(html, /id="entry-date-next"[^>]*aria-label="Next day"[^>]*><svg class="trend-navigation-icon"[^>]*aria-hidden="true"/);
+  assert.match(html, /type="date"[^>]*id="entry-date"/);
+  assert.match(css, /\.entry-date-navigation\s*\{[\s\S]*?grid-template-columns:\s*2\.5rem minmax\(13rem, 1fr\) 2\.5rem/);
+  assert.match(css, /\.entry-date-nav-btn\s*\{[\s\S]*?min-height:\s*2\.5rem/);
+  assert.match(css, /@media \(max-width: 420px\)[\s\S]*?\.entry-date-navigation input\[type="date"\][\s\S]*?grid-column:\s*1 \/ -1[\s\S]*?grid-row:\s*2/);
+});
+
 test('all exact-data tables share accessible scrolling and sticky layering', () => {
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   const css = fs.readFileSync(path.join(root, 'styles', 'app.css'), 'utf8');

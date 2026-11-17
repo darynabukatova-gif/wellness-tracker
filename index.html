@@ -36,13 +36,23 @@
         <!-- Date -->
         <div class="field-group">
           <label for="entry-date">Date</label>
-          <input
-            type="date"
-            id="entry-date"
-            name="entry-date"
-            required
-            aria-required="true"
-          >
+          <div class="entry-date-navigation">
+            <button type="button" id="entry-date-prev" class="entry-date-nav-btn" aria-label="Previous day"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M9.5 3 4.5 8l5 5"/></svg></button>
+            <input
+              type="date"
+              id="entry-date"
+              name="entry-date"
+              required
+              aria-required="true"
+              aria-describedby="entry-date-status form-error"
+            >
+            <button type="button" id="entry-date-next" class="entry-date-nav-btn" aria-label="Next day"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m6.5 3 5 5-5 5"/></svg></button>
+          </div>
+          <p id="entry-date-status" class="entry-date-status" role="status" aria-live="polite"></p>
+          <div class="entry-date-actions">
+            <button type="button" id="copy-previous-values-btn" class="btn-neutral">Copy previous values</button>
+            <button type="button" id="edit-existing-entry-btn" class="btn-edit" hidden>Edit existing entry</button>
+          </div>
         </div>
 
         <!-- Mood -->

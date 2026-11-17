@@ -62,7 +62,8 @@ class Element {
 
 function makeApp() {
   const elements = new Map();
-  ['entry-date', 'entry-sleep', 'entry-water', 'form-heading', 'save-btn',
+  ['entry-date', 'entry-date-prev', 'entry-date-next', 'entry-date-status',
+   'copy-previous-values-btn', 'edit-existing-entry-btn', 'entry-sleep', 'entry-water', 'form-heading', 'save-btn',
    'cancel-edit-btn', 'form-error', 'table-error', 'erase-all-btn', 'export-backup-btn', 'import-backup-btn',
    'import-backup-input', 'cancel-import-btn', 'replace-import-btn', 'backup-error', 'backup-status', 'import-preview',
    'import-preview-summary', 'import-preview-exported-at', 'import-preview-warning',
@@ -203,7 +204,10 @@ function makeApp() {
     },
     querySelectorAll(selector) {
       if (selector === 'input[name="mood"]') return radios;
-      if (selector === '#entries-container .btn-edit') return buttons.filter(b => b.className === 'btn-edit');
+      if (selector === '#entries-container .btn-edit') {
+        if (buttons.length > 0) return buttons.filter(b => b.className === 'btn-edit');
+        return findDescendants(elements.get('entries-container'), node => node.className === 'btn-edit');
+      }
       if (selector === '#entries-container .btn-delete') return buttons.filter(b => b.className === 'btn-delete');
       if (selector === '#entries-container .btn-edit, #entries-container .btn-delete') return buttons;
       if (selector === '.trend-period-btn') {
@@ -246,7 +250,7 @@ function makeApp() {
     },
   };
   vm.createContext(sandbox);
-  const source = appSource + '\nthis.__api = { init, render, renderHistoryTrends, renderHistoryTrendsForCurrentState, renderCharts, renderCalendar, renderCalendarForCurrentState, renderCalendarDetails, renderHistoryTable, getHistoryRenderState, getActiveTrendDisplay, getActiveTrendStatistics, handleHistoryFilterSubmit, invalidateAppliedHistoryRange, handleClearHistoryFilters, ensureCalendarMonth, normalizeCalendarSelection, setHistoryView, setTrendDayCount, getChartPeriodDefaults, getMonthNavigationState, getYearNavigationState, navigateTrendMonthDraft, navigateTrendYearDraft, swapComparisonTrendDrafts, compareWithPreviousTrendDraft, setComparisonToPreviousAndCurrent, selectCustomTrendRange, selectTrendComparison, resolveCustomTrendPeriod, resolveComparisonPeriod, handleCustomTrendTypeChange, handleCustomTrendDraftInput, handleCustomTrendResolutionChange, handleCustomTrendSubmit, handleComparisonTrendTypeChange, handleComparisonTrendDraftInput, handleComparisonTrendResolutionChange, handleComparisonTrendSubmit, changeCalendarMonth, handleHistoryTrendsClick, hasUnsavedFormChanges, enterNewEntryModeForDate, enterEditMode, exitEditMode, handleFormSubmit, handleTableClick, handleEraseAll, handleExportBackup, handleImportBackup, handleImportFileChange, handleCancelImport, handleReplaceImport, adjustValueControl, resetValueControls, setValueControlValues, updateSleepControl, updateWaterControl, setBusyState, lockApp, getStorageAdapter, get entries() { return entries; }, get editingDate() { return editingDate; }, get sleepSelected() { return sleepSelected; }, get waterSelected() { return waterSelected; }, get busy() { return busy; }, get locked() { return locked; }, get pendingImport() { return pendingImport; }, get importReading() { return importReading; }, get historyView() { return historyView; }, get trendDayCount() { return trendDayCount; }, get trendMode() { return trendMode; }, get customTrendType() { return customTrendType; }, get customTrendDraftStart() { return customTrendDraftStart; }, get customTrendDraftEnd() { return customTrendDraftEnd; }, get customTrendDraftMonth() { return customTrendDraftMonth; }, get customTrendDraftYear() { return customTrendDraftYear; }, get customTrendDraftResolution() { return customTrendDraftResolution; }, get appliedCustomTrendRange() { return appliedCustomTrendRange; }, get comparisonTrendType() { return comparisonTrendType; }, get comparisonTrendDraftFirst() { return comparisonTrendDraftFirst; }, get comparisonTrendDraftSecond() { return comparisonTrendDraftSecond; }, get comparisonTrendDraftResolution() { return comparisonTrendDraftResolution; }, get appliedTrendComparison() { return appliedTrendComparison; }, get appliedHistoryRange() { return appliedHistoryRange; }, get calendarYear() { return calendarYear; }, get calendarMonthIndex() { return calendarMonthIndex; }, get selectedCalendarDate() { return selectedCalendarDate; }, set entries(value) { entries = value; }, set editingDate(value) { editingDate = value; }, set storageAdapter(value) { storageAdapter = value; }, set calendarYear(value) { calendarYear = value; }, set calendarMonthIndex(value) { calendarMonthIndex = value; }, set selectedCalendarDate(value) { selectedCalendarDate = value; } };';
+  const source = appSource + '\nthis.__api = { init, render, renderHistoryTrends, renderHistoryTrendsForCurrentState, renderCharts, renderCalendar, renderCalendarForCurrentState, renderCalendarDetails, renderHistoryTable, getHistoryRenderState, getActiveTrendDisplay, getActiveTrendStatistics, applyHistoryDateRange, showEntryInHistory, handleHistoryFilterSubmit, invalidateAppliedHistoryRange, handleClearHistoryFilters, ensureCalendarMonth, normalizeCalendarSelection, setHistoryView, setTrendDayCount, getChartPeriodDefaults, getMonthNavigationState, getYearNavigationState, navigateTrendMonthDraft, navigateTrendYearDraft, swapComparisonTrendDrafts, compareWithPreviousTrendDraft, setComparisonToPreviousAndCurrent, selectCustomTrendRange, selectTrendComparison, resolveCustomTrendPeriod, resolveComparisonPeriod, handleCustomTrendTypeChange, handleCustomTrendDraftInput, handleCustomTrendResolutionChange, handleCustomTrendSubmit, handleComparisonTrendTypeChange, handleComparisonTrendDraftInput, handleComparisonTrendResolutionChange, handleComparisonTrendSubmit, changeCalendarMonth, handleHistoryTrendsClick, handleEntryDateInput, navigateEntryDate, copyPreviousValues, updateEntryDateControls, hasUnsavedFormChanges, enterNewEntryModeForDate, enterEditMode, exitEditMode, handleFormSubmit, handleTableClick, handleEraseAll, handleExportBackup, handleImportBackup, handleImportFileChange, handleCancelImport, handleReplaceImport, adjustValueControl, resetValueControls, setValueControlValues, updateSleepControl, updateWaterControl, setBusyState, lockApp, getStorageAdapter, get entries() { return entries; }, get editingDate() { return editingDate; }, get sleepSelected() { return sleepSelected; }, get waterSelected() { return waterSelected; }, get busy() { return busy; }, get locked() { return locked; }, get pendingImport() { return pendingImport; }, get importReading() { return importReading; }, get historyView() { return historyView; }, get trendDayCount() { return trendDayCount; }, get trendMode() { return trendMode; }, get customTrendType() { return customTrendType; }, get customTrendDraftStart() { return customTrendDraftStart; }, get customTrendDraftEnd() { return customTrendDraftEnd; }, get customTrendDraftMonth() { return customTrendDraftMonth; }, get customTrendDraftYear() { return customTrendDraftYear; }, get customTrendDraftResolution() { return customTrendDraftResolution; }, get appliedCustomTrendRange() { return appliedCustomTrendRange; }, get comparisonTrendType() { return comparisonTrendType; }, get comparisonTrendDraftFirst() { return comparisonTrendDraftFirst; }, get comparisonTrendDraftSecond() { return comparisonTrendDraftSecond; }, get comparisonTrendDraftResolution() { return comparisonTrendDraftResolution; }, get appliedTrendComparison() { return appliedTrendComparison; }, get appliedHistoryRange() { return appliedHistoryRange; }, get calendarYear() { return calendarYear; }, get calendarMonthIndex() { return calendarMonthIndex; }, get selectedCalendarDate() { return selectedCalendarDate; }, set entries(value) { entries = value; }, set editingDate(value) { editingDate = value; }, set storageAdapter(value) { storageAdapter = value; }, set calendarYear(value) { calendarYear = value; }, set calendarMonthIndex(value) { calendarMonthIndex = value; }, set selectedCalendarDate(value) { selectedCalendarDate = value; } };';
   new vm.Script(coreSource + '\n' + viewsSource + '\n' + source).runInContext(sandbox);
   const realRender = sandbox.render;
   sandbox.render = () => {};
@@ -410,6 +414,159 @@ test('history applies an inclusive range with newest-first entries and no storag
   assert.deepEqual(historyRowDates(app), ['2025-06-11', '2025-06-10']);
   assert.match(app.elements.get('history-status').textContent, /Showing 2 matching entries/);
   assert.equal(saveCalls, 0);
+});
+
+test('showEntryInHistory applies the shared exact-date workflow without changing forms, charts, or storage', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.elements.get('entry-date').value = '2025-06-12';
+  app.radios[3].checked = true;
+  app.elements.get('entry-sleep').value = '7.5';
+  app.elements.get('entry-water').value = '1.8';
+
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  app.elements.get('trend-custom-type').value = 'date-range';
+  app.api.handleCustomTrendTypeChange();
+  app.elements.get('trend-custom-start').value = '2025-06-10';
+  app.elements.get('trend-custom-end').value = '2025-06-11';
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+  const appliedBeforeNavigation = JSON.stringify(app.api.appliedCustomTrendRange);
+
+  const result = app.api.showEntryInHistory('2025-06-10');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.entry)), {
+    date: '2025-06-10', mood: 4, sleep: 7.5, water: 2.1,
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(app.api.appliedHistoryRange)), {
+    startDate: '2025-06-10', endDate: '2025-06-10',
+  });
+  assert.deepEqual(historyRowDates(app), ['2025-06-10']);
+  const focusedEdit = findDescendants(app.elements.get('entries-container'), node =>
+    node.className === 'btn-edit' && node.dataset.date === '2025-06-10'
+  )[0];
+  assert.equal(focusedEdit.focused, true);
+  assert.equal(focusedEdit.scrolled, true);
+  assert.equal(app.elements.get('entry-date').value, '2025-06-12');
+  assert.equal(app.radios[3].checked, true);
+  assert.equal(app.elements.get('entry-sleep').value, '7.5');
+  assert.equal(app.elements.get('entry-water').value, '1.8');
+  assert.equal(app.api.editingDate, null);
+  assert.equal(JSON.stringify(app.api.appliedCustomTrendRange), appliedBeforeNavigation);
+  assert.equal(saveCalls, 0);
+
+  const missing = app.api.showEntryInHistory('2025-06-12');
+  assert.deepEqual(JSON.parse(JSON.stringify(missing)), { ok: false, reason: 'missing-entry' });
+  assert.deepEqual(historyRowDates(app), ['2025-06-10']);
+  assert.equal(app.api.showEntryInHistory('2025-02-30').reason, 'invalid-date');
+});
+
+test('entry date navigation preserves draft values, handles leap and year boundaries, and never saves', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.elements.get('entry-date').value = '2024-02-28';
+  app.radios[2].checked = true;
+  app.api.setValueControlValues(7.5, 1.8);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(app.api.navigateEntryDate(1))), {
+    ok: true, date: '2024-02-29',
+  });
+  assert.equal(app.elements.get('entry-date').value, '2024-02-29');
+  assert.equal(app.radios[2].checked, true);
+  assert.equal(app.elements.get('entry-sleep').value, 7.5);
+  assert.equal(app.elements.get('entry-water').value, 1.8);
+  app.api.navigateEntryDate(1);
+  assert.equal(app.elements.get('entry-date').value, '2024-03-01');
+  app.api.navigateEntryDate(-1);
+  assert.equal(app.elements.get('entry-date').value, '2024-02-29');
+
+  app.elements.get('entry-date').value = '0000-01-01';
+  app.api.handleEntryDateInput();
+  assert.deepEqual(JSON.parse(JSON.stringify(app.api.navigateEntryDate(-1))), {
+    ok: false, reason: 'boundary',
+  });
+  assert.equal(app.elements.get('entry-date-prev').disabled, true);
+  app.elements.get('entry-date').value = '9999-12-31';
+  app.api.handleEntryDateInput();
+  assert.deepEqual(JSON.parse(JSON.stringify(app.api.navigateEntryDate(1))), {
+    ok: false, reason: 'boundary',
+  });
+  assert.equal(app.elements.get('entry-date-next').disabled, true);
+  assert.equal(saveCalls, 0);
+});
+
+test('invalid or blank entry dates navigate from the local current date without applying or saving', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.elements.get('entry-date').value = '';
+  const expected = app.sandbox.addCalendarDays(localDateKey(), 1);
+  const result = app.api.navigateEntryDate(1);
+
+  assert.equal(result.ok, true);
+  assert.equal(app.elements.get('entry-date').value, expected);
+  assert.equal(saveCalls, 0);
+
+  app.api.entries = [{ date: '2025-06-10', mood: 4, sleep: 7, water: 1 }];
+  app.api.enterEditMode('2025-06-10');
+  const editDate = app.elements.get('entry-date').value;
+  assert.deepEqual(JSON.parse(JSON.stringify(app.api.navigateEntryDate(1))), {
+    ok: false, reason: 'blocked',
+  });
+  assert.equal(app.elements.get('entry-date').value, editDate);
+});
+
+test('copy previous values uses the nearest earlier entry, reports its date, and stays unsaved', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.api.entries = [
+    { date: '2025-06-13', mood: 5, sleep: 8, water: 2 },
+    { date: '2025-06-01', mood: 2, sleep: 4.5, water: 0.7 },
+    { date: '2025-06-10', mood: 4, sleep: 7.5, water: 1.8 },
+  ];
+  app.elements.get('entry-date').value = '2025-06-12';
+  app.api.handleEntryDateInput();
+  const result = app.api.copyPreviousValues();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: true, sourceDate: '2025-06-10' });
+  assert.equal(app.radios[3].checked, true);
+  assert.equal(app.elements.get('entry-sleep').value, 7.5);
+  assert.equal(app.elements.get('entry-water').value, 1.8);
+  assert.match(app.elements.get('entry-date-status').textContent, /2025-06-10/);
+  assert.match(app.elements.get('entry-date-status').textContent, /not been saved/);
+  assert.equal(app.elements.get('entry-date').value, '2025-06-12');
+  assert.equal(app.api.hasUnsavedFormChanges(), true);
+  assert.equal(saveCalls, 0);
+
+  app.elements.get('entry-date').value = '2025-05-01';
+  app.api.handleEntryDateInput();
+  assert.equal(app.elements.get('copy-previous-values-btn').disabled, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(app.api.copyPreviousValues())), {
+    ok: false, reason: 'no-previous-entry',
+  });
+});
+
+test('existing-date feedback is explicit, clears for new dates, and uses the normal edit workflow', () => {
+  const app = makeApp();
+  app.api.entries = [{ date: '2025-06-10', mood: 4, sleep: 7, water: 1.2 }];
+  app.elements.get('entry-date').value = '2025-06-10';
+  app.api.handleEntryDateInput();
+
+  assert.match(app.elements.get('entry-date-status').textContent, /already saved/);
+  assert.equal(app.elements.get('edit-existing-entry-btn').hidden, false);
+  assert.equal(app.elements.get('edit-existing-entry-btn').attributes['aria-label'], 'Edit existing entry for 2025-06-10');
+  assert.equal(app.elements.get('copy-previous-values-btn').disabled, true);
+  assert.equal(app.api.enterEditMode('2025-06-10'), true);
+  assert.equal(app.api.editingDate, '2025-06-10');
+  assert.equal(app.elements.get('entry-date').readOnly, true);
+
+  app.api.exitEditMode();
+  app.elements.get('entry-date').value = '2025-06-11';
+  app.api.handleEntryDateInput();
+  assert.match(app.elements.get('entry-date-status').textContent, /No entry is saved/);
+  assert.equal(app.elements.get('edit-existing-entry-btn').hidden, true);
 });
 
 test('history rejects incomplete and reversed ranges without showing stale results', () => {
