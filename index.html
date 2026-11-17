@@ -240,6 +240,14 @@
                 <button type="button" id="trend-custom-year-next" class="trend-year-nav-btn" data-year-draft="custom" data-year-offset="1" aria-label="Next year for custom period"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m6.5 3 5 5-5 5"/></svg></button>
               </div>
             </div>
+            <div id="trend-custom-resolution-controls" class="trend-custom-field">
+              <label for="trend-custom-resolution">Display</label>
+              <select id="trend-custom-resolution" aria-describedby="trend-custom-error">
+                <option value="daily" selected>Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
           </div>
           <button type="submit" id="apply-trend-custom-btn">Apply custom period</button>
           <p id="trend-custom-error" class="table-error" role="alert" aria-live="assertive"></p>

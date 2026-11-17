@@ -673,6 +673,82 @@
       };
     }
 
+    function buildAggregatedYearPoints(lookup, metric, year, resolution) {
+      const yearRange = getCalendarYearRange(year);
+      if (resolution !== 'weekly' && resolution !== 'monthly') {
+        throw new RangeError('Year aggregation resolution must be weekly or monthly.');
+      }
+
+      const points = [];
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December',
+      ];
+
+      if (resolution === 'weekly') {
+        const weekCount = Math.ceil(yearRange.dayCount / 7);
+        for (let week = 0; week < weekCount; week++) {
+          const startDate = addCalendarDays(yearRange.startDate, week * 7);
+          const endDate = addCalendarDays(
+            startDate,
+            Math.min(6, yearRange.dayCount - week * 7 - 1)
+          );
+          const aggregate = aggregateYearPeriod(lookup, metric, startDate, endDate);
+          points.push({
+            key: String(week + 1).padStart(2, '0'),
+            label: 'Week ' + (week + 1),
+            startDate,
+            endDate,
+            value: aggregate.average,
+            recordedDayCount: aggregate.recordedDayCount,
+            calendarDayCount: aggregate.calendarDayCount,
+          });
+        }
+      } else {
+        for (let monthIndex = 0; monthIndex < 12; monthIndex++) {
+          const month = getCalendarMonthRange(year, monthIndex);
+          const aggregate = aggregateYearPeriod(
+            lookup, metric, month.startDate, month.endDate
+          );
+          points.push({
+            key: String(monthIndex + 1).padStart(2, '0'),
+            label: monthNames[monthIndex],
+            startDate: month.startDate,
+            endDate: month.endDate,
+            value: aggregate.average,
+            recordedDayCount: aggregate.recordedDayCount,
+            calendarDayCount: aggregate.calendarDayCount,
+          });
+        }
+      }
+
+      return points;
+    }
+
+    /**
+     * buildAggregatedYearSeries(entries, metric, year, resolution)
+     *
+     * Builds weekly or monthly averages for one complete calendar year.
+     * Missing days do not contribute to averages, while recorded zeroes do.
+     *
+     * @returns {{metric: string, year: number, resolution: string, points: Array}}
+     * @throws {RangeError} When metric, year, or resolution is invalid.
+     */
+    function buildAggregatedYearSeries(entries, metric, year, resolution) {
+      validateTrendMetric(metric);
+      getCalendarYearRange(year);
+      if (resolution !== 'weekly' && resolution !== 'monthly') {
+        throw new RangeError('Year aggregation resolution must be weekly or monthly.');
+      }
+
+      return {
+        metric,
+        year,
+        resolution,
+        points: buildAggregatedYearPoints(entriesByDate(entries), metric, year, resolution),
+      };
+    }
+
     /**
      * buildAggregatedYearComparisonSeries(entries, metric, firstYear, secondYear, resolution)
      *
@@ -685,74 +761,36 @@
      */
     function buildAggregatedYearComparisonSeries(entries, metric, firstYear, secondYear, resolution) {
       validateTrendMetric(metric);
-      const firstRange = getCalendarYearRange(firstYear);
-      const secondRange = getCalendarYearRange(secondYear);
+      getCalendarYearRange(firstYear);
+      getCalendarYearRange(secondYear);
       if (resolution !== 'weekly' && resolution !== 'monthly') {
         throw new RangeError('Year comparison resolution must be weekly or monthly.');
       }
 
       const lookup = entriesByDate(entries);
-      const points = [];
-      const monthNames = [
-        'January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December',
-      ];
-
-      if (resolution === 'weekly') {
-        const weekCount = Math.max(
-          Math.ceil(firstRange.dayCount / 7),
-          Math.ceil(secondRange.dayCount / 7)
-        );
-        for (let week = 0; week < weekCount; week++) {
-          const firstStart = addCalendarDays(firstRange.startDate, week * 7);
-          const secondStart = addCalendarDays(secondRange.startDate, week * 7);
-          const firstEnd = addCalendarDays(
-            firstStart,
-            Math.min(6, firstRange.dayCount - week * 7 - 1)
-          );
-          const secondEnd = addCalendarDays(
-            secondStart,
-            Math.min(6, secondRange.dayCount - week * 7 - 1)
-          );
-          const first = aggregateYearPeriod(lookup, metric, firstStart, firstEnd);
-          const second = aggregateYearPeriod(lookup, metric, secondStart, secondEnd);
-          points.push({
-            key: String(week + 1).padStart(2, '0'),
-            label: 'Week ' + (week + 1),
-            firstStartDate: firstStart,
-            firstEndDate: firstEnd,
-            secondStartDate: secondStart,
-            secondEndDate: secondEnd,
-            firstValue: first.average,
-            secondValue: second.average,
-            firstRecordedDayCount: first.recordedDayCount,
-            secondRecordedDayCount: second.recordedDayCount,
-            firstCalendarDayCount: first.calendarDayCount,
-            secondCalendarDayCount: second.calendarDayCount,
-          });
-        }
-      } else {
-        for (let monthIndex = 0; monthIndex < 12; monthIndex++) {
-          const firstMonth = getCalendarMonthRange(firstYear, monthIndex);
-          const secondMonth = getCalendarMonthRange(secondYear, monthIndex);
-          const first = aggregateYearPeriod(lookup, metric, firstMonth.startDate, firstMonth.endDate);
-          const second = aggregateYearPeriod(lookup, metric, secondMonth.startDate, secondMonth.endDate);
-          points.push({
-            key: String(monthIndex + 1).padStart(2, '0'),
-            label: monthNames[monthIndex],
-            firstStartDate: firstMonth.startDate,
-            firstEndDate: firstMonth.endDate,
-            secondStartDate: secondMonth.startDate,
-            secondEndDate: secondMonth.endDate,
-            firstValue: first.average,
-            secondValue: second.average,
-            firstRecordedDayCount: first.recordedDayCount,
-            secondRecordedDayCount: second.recordedDayCount,
-            firstCalendarDayCount: first.calendarDayCount,
-            secondCalendarDayCount: second.calendarDayCount,
-          });
-        }
-      }
+      const firstPoints = buildAggregatedYearPoints(
+        lookup, metric, firstYear, resolution
+      );
+      const secondPoints = buildAggregatedYearPoints(
+        lookup, metric, secondYear, resolution
+      );
+      const points = firstPoints.map(function (first, index) {
+        const second = secondPoints[index];
+        return {
+          key: first.key,
+          label: first.label,
+          firstStartDate: first.startDate,
+          firstEndDate: first.endDate,
+          secondStartDate: second.startDate,
+          secondEndDate: second.endDate,
+          firstValue: first.value,
+          secondValue: second.value,
+          firstRecordedDayCount: first.recordedDayCount,
+          secondRecordedDayCount: second.recordedDayCount,
+          firstCalendarDayCount: first.calendarDayCount,
+          secondCalendarDayCount: second.calendarDayCount,
+        };
+      });
 
       return { metric, resolution, points };
     }

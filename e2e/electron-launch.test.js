@@ -915,6 +915,194 @@ test('Electron E2E: custom calendar month and year periods use complete ranges',
   }
 });
 
+test('Electron E2E: applies Daily, Weekly, and Monthly Custom calendar-year displays through the real UI', { timeout: 120_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const entries = [
+    { date: '2024-01-01', mood: 2, sleep: 0, water: 0 },
+    { date: '2024-01-07', mood: 4, sleep: 8, water: 2 },
+    { date: '2024-02-29', mood: 5, sleep: 3, water: 0 },
+  ];
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    for (const entry of entries) await createEntryThroughForm(window, entry);
+
+    const entriesPath = path.join(isolatedUserDataDirectory, 'entries.json');
+    const beforeChartControls = await fsp.readFile(entriesPath, 'utf8');
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="custom"]').click();
+    assert.equal(await window.locator('#trend-custom-type').inputValue(), 'year');
+    assert.equal(await window.locator('#trend-custom-resolution').inputValue(), 'daily');
+    assert.equal(await window.locator('#trend-custom-year-controls').isHidden(), false);
+    assert.equal(await window.locator('#trend-custom-resolution-controls').isHidden(), false);
+    assert.equal(await window.locator('#trend-comparison-resolution-controls').isHidden(), true);
+    assert.equal(await window.locator('label[for="trend-custom-resolution"]').textContent(), 'Display');
+    assert.equal(await window.locator('#trend-custom-resolution').getAttribute('aria-describedby'), 'trend-custom-error');
+    await window.locator('#trend-custom-type').selectOption('month');
+    assert.equal(await window.locator('#trend-custom-resolution-controls').isHidden(), true);
+    await window.locator('#trend-custom-type').selectOption('date-range');
+    assert.equal(await window.locator('#trend-custom-resolution-controls').isHidden(), true);
+    await window.locator('#trend-custom-type').selectOption('year');
+    assert.equal(await window.locator('#trend-custom-resolution-controls').isHidden(), false);
+
+    await window.locator('#trend-custom-year').fill('2024');
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-range-status').filter({
+      hasText: 'Showing calendar year 2024 from 2024-01-01 to 2024-12-31',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#trend-data-table-container tbody tr').count(), 366);
+    await window.locator('.trend-data-details summary').click();
+    assert.equal(await window.locator('.trend-data-details[open]').count(), 1);
+    assert.equal(await window.locator('.trend-data-summary-expanded').isVisible(), true);
+    await window.locator('.trend-data-details summary').click();
+    assert.equal(await window.locator('.trend-data-details[open]').count(), 0);
+    assert.equal(await window.locator('.trend-data-summary-collapsed').isVisible(), true);
+    await window.locator('.trend-data-details summary').click();
+    await assertTrendDataRow(window, '2024-01-01', ['2', '0 h', '0 L']);
+
+    const dailyStatus = await window.locator('#trend-range-status').textContent();
+    await window.locator('#trend-custom-resolution').selectOption('weekly');
+    assert.equal(await window.locator('#trend-range-status').textContent(), dailyStatus);
+    assert.equal(await window.locator('#trend-data-table-container tbody tr').count(), 366);
+    assert.equal(await fsp.readFile(entriesPath, 'utf8'), beforeChartControls);
+
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-range-status').filter({ hasText: 'Showing calendar year 2024 as Weekly averages' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    const weeklyRows = window.locator('#trend-data-table-container tbody tr');
+    assert.equal(await weeklyRows.count(), 53);
+    const weekOne = weeklyRows.nth(0);
+    assert.equal(await weekOne.locator('th').textContent(), 'Week 1');
+    assert.deepEqual(await weekOne.locator('td').allTextContents(), [
+      '2024-01-01 to 2024-01-07', '2', '7', '3', '4 h', '1 L',
+    ]);
+    const emptyWeek = weeklyRows.nth(1);
+    assert.equal((await emptyWeek.locator('td').allTextContents())[3], 'Missing');
+    const finalWeek = weeklyRows.nth(52);
+    assert.equal(await finalWeek.locator('th').textContent(), 'Week 53');
+    assert.deepEqual((await finalWeek.locator('td').allTextContents()).slice(0, 3), [
+      '2024-12-30 to 2024-12-31', '0', '2',
+    ]);
+    const weeklyMoodChart = window.locator('svg[data-metric="mood"][data-resolution="weekly"]');
+    assert.equal(await weeklyMoodChart.count(), 1);
+    assert.equal(await weeklyMoodChart.locator('title').textContent(), 'Mood weekly averages for 2024');
+    assert.match(await weeklyMoodChart.locator('desc').textContent(), /Missing periods are shown as gaps/);
+    assert.match(await window.locator('#trend-data-table-container table').getAttribute('aria-label'), /weekly aggregated chart data for 2024/);
+
+    await window.locator('#trend-custom-resolution').selectOption('monthly');
+    assert.equal(await window.locator('#trend-data-table-container tbody tr').count(), 53);
+    assert.match(await window.locator('#trend-range-status').textContent(), /Weekly averages/);
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-range-status').filter({ hasText: 'Showing calendar year 2024 as Monthly averages' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    const monthlyRows = window.locator('#trend-data-table-container tbody tr');
+    assert.equal(await monthlyRows.count(), 12);
+    assert.equal(await monthlyRows.nth(0).locator('th').textContent(), 'January');
+    assert.deepEqual(await monthlyRows.nth(0).locator('td').allTextContents(), [
+      '2024-01-01 to 2024-01-31', '2', '31', '3', '4 h', '1 L',
+    ]);
+    assert.deepEqual(await monthlyRows.nth(1).locator('td').allTextContents(), [
+      '2024-02-01 to 2024-02-29', '1', '29', '5', '3 h', '0 L',
+    ]);
+    assert.equal((await monthlyRows.nth(2).locator('td').allTextContents())[3], 'Missing');
+    assert.equal(await window.locator('svg[data-metric="water"][data-resolution="monthly"] circle[data-period-key="02"][data-value="0"]').count(), 1);
+
+    await window.locator('.trend-period-btn[data-trend-days="30"]').click();
+    assert.equal(await window.locator('#trend-custom-form').isHidden(), true);
+    await window.locator('.trend-period-btn[data-trend-days="custom"]').click();
+    assert.equal(await window.locator('#trend-custom-year').inputValue(), '2024');
+    assert.equal(await window.locator('#trend-custom-resolution').inputValue(), 'monthly');
+    assert.match(await window.locator('#trend-range-status').textContent(), /Monthly averages/);
+    await window.locator('#trend-custom-resolution').selectOption('daily');
+    assert.equal(await window.locator('#trend-data-table-container tbody tr').count(), 12);
+    assert.match(await window.locator('#trend-range-status').textContent(), /Monthly averages/);
+
+    await showHistoryRange(window, '2024-01-01', '2024-01-01');
+    await window.locator('.btn-edit[data-date="2024-01-01"]').click();
+    await window.locator('input[name="mood"][value="5"]').check();
+    await window.locator('#save-btn').click();
+    await assertHistoryRow(window, { ...entries[0], mood: 5 });
+    const updatedJanuary = window.locator('#trend-data-table-container tbody tr').nth(0);
+    assert.deepEqual((await updatedJanuary.locator('td').allTextContents()).slice(1), [
+      '2', '31', '4.5', '4 h', '1 L',
+    ]);
+    assert.equal(await window.locator('#trend-custom-resolution').inputValue(), 'daily');
+    assert.match(await window.locator('#trend-range-status').textContent(), /Monthly averages/);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: backup restoration refreshes an applied Custom year resolution without applying its draft', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const existingEntry = { date: '2024-01-02', mood: 2, sleep: 6, water: 1 };
+  const restoredEntries = [
+    { date: '2024-01-01', mood: 1, sleep: 0, water: 0 },
+    { date: '2024-01-07', mood: 5, sleep: 8, water: 2 },
+  ];
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    await createEntryThroughForm(window, existingEntry);
+
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="custom"]').click();
+    await window.locator('#trend-custom-year').fill('2024');
+    await window.locator('#trend-custom-resolution').selectOption('weekly');
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-range-status').filter({ hasText: 'Showing calendar year 2024 as Weekly averages' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    await window.locator('#trend-custom-resolution').selectOption('monthly');
+    assert.match(await window.locator('#trend-range-status').textContent(), /Weekly averages/);
+
+    const fixture = await writeBackupFixture(
+      temporaryDirectory,
+      'custom-year-restore.json',
+      backupDocument(restoredEntries)
+    );
+    await selectBackupFile(window, fixture);
+    await window.locator('#import-preview').waitFor({ state: 'visible', timeout: 15_000 });
+    const confirmationHandled = handleConfirmation(
+      window,
+      dialog => assert.match(dialog.message(), /Replace all 1 currently saved entry with 2 backup entries/),
+      true
+    );
+    await Promise.all([confirmationHandled, window.locator('#replace-import-btn').click()]);
+    await window.locator('#backup-status').filter({ hasText: 'Backup restored. 2 entries are now saved.' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+
+    assert.match(await window.locator('#trend-range-status').textContent(), /Showing calendar year 2024 as Weekly averages/);
+    assert.equal(await window.locator('#trend-data-table-container tbody tr').count(), 53);
+    const weekOne = window.locator('#trend-data-table-container tbody tr').first();
+    assert.equal(await weekOne.locator('th').textContent(), 'Week 1');
+    assert.deepEqual(await weekOne.locator('td').allTextContents(), [
+      '2024-01-01 to 2024-01-07', '2', '7', '3', '4 h', '1 L',
+    ]);
+    assert.equal(await window.locator('#trend-custom-resolution').inputValue(), 'monthly');
+    assert.equal(await window.locator('svg[data-metric="mood"][data-resolution="weekly"] circle[data-period-key="01"][data-value="3"]').count(), 1);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
 test('Electron E2E: compares calendar months with gaps, zeroes, and nonexistent leap dates', { timeout: 90_000 }, async () => {
   const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
   const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);

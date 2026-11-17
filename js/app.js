@@ -31,6 +31,7 @@
     let customTrendDraftEnd = '';
     let customTrendDraftMonth = '';
     let customTrendDraftYear = '';
+    let customTrendDraftResolution = 'daily';
     let appliedCustomTrendRange = null;
     let comparisonTrendType = 'month';
     let comparisonTrendDraftFirst = '';
@@ -657,6 +658,7 @@
         customTrendDraftEnd,
         customTrendDraftMonth,
         customTrendDraftYear,
+        customTrendDraftResolution,
         customMonthNavigation: getMonthNavigationState(customTrendDraftMonth),
         customYearNavigation: getYearNavigationState(customTrendDraftYear),
         appliedCustomTrendRange,
@@ -873,6 +875,7 @@
         customTrendDraftMonth = applied ? applied.month : defaults.customMonth;
       } else if (type === 'year') {
         customTrendDraftYear = applied ? applied.year : defaults.customYear;
+        customTrendDraftResolution = applied ? applied.resolution || 'daily' : 'daily';
       }
     }
 
@@ -913,6 +916,7 @@
         const defaults = getChartPeriodDefaults();
         customTrendDraftMonth = defaults.customMonth;
         customTrendDraftYear = defaults.customYear;
+        customTrendDraftResolution = 'daily';
       }
       renderHistoryTrendsForCurrentState();
     }
@@ -1017,11 +1021,27 @@
         };
       }
       if (activeTrendDisplay.type === 'custom' && activeTrendDisplay.range) {
+        const range = activeTrendDisplay.range;
+        const resolution = range.type === 'year' ? range.resolution || 'daily' : 'daily';
+        if (range.type === 'year' && (resolution === 'weekly' || resolution === 'monthly')) {
+          const year = Number(range.year);
+          return {
+            type: 'aggregated-year',
+            seriesByMetric: {
+              mood: buildAggregatedYearSeries(entries, 'mood', year, resolution),
+              sleep: buildAggregatedYearSeries(entries, 'sleep', year, resolution),
+              water: buildAggregatedYearSeries(entries, 'water', year, resolution),
+            },
+            year,
+            resolution,
+            customRange: range,
+          };
+        }
         return {
           type: 'single',
           dayCount: trendDayCount,
           endDate: localDateString(new Date()),
-          customRange: activeTrendDisplay.range,
+          customRange: range,
         };
       }
       return {
@@ -1032,7 +1052,7 @@
       };
     }
 
-    function resolveCustomTrendPeriod(type, startDate, endDate, month, year) {
+    function resolveCustomTrendPeriod(type, startDate, endDate, month, year, resolution) {
       if (type === 'date-range') {
         const result = validateCalendarDateRange(startDate, endDate, { maximumDays: 366 });
         return result.ok
@@ -1066,12 +1086,17 @@
         if (!/^\d{4}$/.test(year)) {
           return { ok: false, error: 'Enter a calendar year from 0000 through 9999.' };
         }
+        const yearResolution = resolution || 'daily';
+        if (['daily', 'weekly', 'monthly'].indexOf(yearResolution) === -1) {
+          return { ok: false, error: 'Choose a valid display resolution.' };
+        }
         try {
           const range = getCalendarYearRange(Number(year));
           return {
             ok: true,
             type,
             year,
+            resolution: yearResolution,
             startDate: range.startDate,
             endDate: range.endDate,
           };
@@ -1106,6 +1131,15 @@
       }
     }
 
+    function handleCustomTrendResolutionChange() {
+      if (isMutationBlocked()) return;
+      const resolution = document.getElementById('trend-custom-resolution').value;
+      if (['daily', 'weekly', 'monthly'].indexOf(resolution) === -1) return;
+      customTrendDraftResolution = resolution;
+      clearCustomTrendError();
+      renderHistoryTrendsForCurrentState();
+    }
+
     function handleCustomTrendSubmit(event) {
       event.preventDefault();
       if (isMutationBlocked()) return;
@@ -1115,12 +1149,14 @@
       customTrendDraftEnd = document.getElementById('trend-custom-end').value;
       customTrendDraftMonth = document.getElementById('trend-custom-month').value;
       customTrendDraftYear = document.getElementById('trend-custom-year').value;
+      customTrendDraftResolution = document.getElementById('trend-custom-resolution').value;
       const result = resolveCustomTrendPeriod(
         customTrendType,
         customTrendDraftStart,
         customTrendDraftEnd,
         customTrendDraftMonth,
-        customTrendDraftYear
+        customTrendDraftYear,
+        customTrendDraftResolution
       );
       const error = document.getElementById('trend-custom-error');
       if (!result.ok) {
@@ -1128,7 +1164,12 @@
         error.classList.add('is-visible');
         const invalidIds = customTrendType === 'date-range'
           ? ['trend-custom-start', 'trend-custom-end']
-          : [customTrendType === 'month' ? 'trend-custom-month' : 'trend-custom-year'];
+          : customTrendType === 'month'
+            ? ['trend-custom-month']
+            : /^\d{4}$/.test(customTrendDraftYear) &&
+                ['daily', 'weekly', 'monthly'].indexOf(customTrendDraftResolution) === -1
+              ? ['trend-custom-resolution']
+              : ['trend-custom-year'];
         invalidIds.forEach(function (id) {
           document.getElementById(id).setAttribute('aria-invalid', 'true');
         });
@@ -1141,7 +1182,10 @@
         endDate: result.endDate,
       };
       if (result.month !== undefined) appliedCustomTrendRange.month = result.month;
-      if (result.year !== undefined) appliedCustomTrendRange.year = result.year;
+      if (result.year !== undefined) {
+        appliedCustomTrendRange.year = result.year;
+        appliedCustomTrendRange.resolution = result.resolution;
+      }
       activeTrendDisplay = { type: 'custom', range: appliedCustomTrendRange };
       renderHistoryTrendsForCurrentState();
     }
@@ -1156,7 +1200,7 @@
         const input = document.getElementById(id);
         if (input && typeof input.removeAttribute === 'function') input.removeAttribute('aria-invalid');
       });
-      ['trend-custom-month', 'trend-custom-year'].forEach(function (id) {
+      ['trend-custom-month', 'trend-custom-year', 'trend-custom-resolution'].forEach(function (id) {
         const input = document.getElementById(id);
         if (input && typeof input.removeAttribute === 'function') input.removeAttribute('aria-invalid');
       });
@@ -1555,6 +1599,8 @@
         .addEventListener('submit', handleCustomTrendSubmit);
       document.getElementById('trend-custom-type')
         .addEventListener('change', handleCustomTrendTypeChange);
+      document.getElementById('trend-custom-resolution')
+        .addEventListener('change', handleCustomTrendResolutionChange);
       ['trend-custom-start', 'trend-custom-end', 'trend-custom-month', 'trend-custom-year']
         .forEach(function (id) {
           document.getElementById(id).addEventListener('input', handleCustomTrendDraftInput);

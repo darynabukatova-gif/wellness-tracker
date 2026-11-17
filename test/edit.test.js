@@ -71,7 +71,8 @@ function makeApp() {
    'clear-history-filters-btn', 'history-filter-error', 'history-status',
    'trend-custom-form', 'trend-custom-type', 'trend-custom-start', 'trend-custom-end',
    'trend-custom-month', 'trend-custom-year', 'trend-custom-date-range-controls',
-   'trend-custom-month-controls', 'trend-custom-year-controls', 'trend-custom-month-prev',
+   'trend-custom-month-controls', 'trend-custom-year-controls', 'trend-custom-resolution-controls',
+   'trend-custom-resolution', 'trend-custom-month-prev',
    'trend-custom-month-next', 'trend-custom-year-prev', 'trend-custom-year-next',
    'apply-trend-custom-btn',
    'trend-custom-error', 'trend-range-status',
@@ -100,6 +101,8 @@ function makeApp() {
   elements.get('trend-custom-month-controls').hidden = true;
   elements.get('trend-custom-year-controls').hidden = true;
   elements.get('trend-custom-type').value = 'date-range';
+  elements.get('trend-custom-resolution').value = 'daily';
+  elements.get('trend-custom-resolution').setAttribute('aria-describedby', 'trend-custom-error');
   elements.get('trend-comparison-month-controls').hidden = false;
   elements.get('trend-comparison-year-controls').hidden = true;
   elements.get('trend-comparison-type').value = 'month';
@@ -243,7 +246,7 @@ function makeApp() {
     },
   };
   vm.createContext(sandbox);
-  const source = appSource + '\nthis.__api = { init, render, renderHistoryTrends, renderHistoryTrendsForCurrentState, renderCharts, renderCalendar, renderCalendarForCurrentState, renderCalendarDetails, renderHistoryTable, getHistoryRenderState, handleHistoryFilterSubmit, invalidateAppliedHistoryRange, handleClearHistoryFilters, ensureCalendarMonth, normalizeCalendarSelection, setHistoryView, setTrendDayCount, getChartPeriodDefaults, getMonthNavigationState, getYearNavigationState, navigateTrendMonthDraft, navigateTrendYearDraft, swapComparisonTrendDrafts, compareWithPreviousTrendDraft, setComparisonToPreviousAndCurrent, selectCustomTrendRange, selectTrendComparison, resolveCustomTrendPeriod, resolveComparisonPeriod, handleCustomTrendTypeChange, handleCustomTrendDraftInput, handleCustomTrendSubmit, handleComparisonTrendTypeChange, handleComparisonTrendDraftInput, handleComparisonTrendResolutionChange, handleComparisonTrendSubmit, changeCalendarMonth, handleHistoryTrendsClick, hasUnsavedFormChanges, enterNewEntryModeForDate, enterEditMode, exitEditMode, handleFormSubmit, handleTableClick, handleEraseAll, handleExportBackup, handleImportBackup, handleImportFileChange, handleCancelImport, handleReplaceImport, adjustValueControl, resetValueControls, setValueControlValues, updateSleepControl, updateWaterControl, setBusyState, lockApp, getStorageAdapter, get entries() { return entries; }, get editingDate() { return editingDate; }, get sleepSelected() { return sleepSelected; }, get waterSelected() { return waterSelected; }, get busy() { return busy; }, get locked() { return locked; }, get pendingImport() { return pendingImport; }, get importReading() { return importReading; }, get historyView() { return historyView; }, get trendDayCount() { return trendDayCount; }, get trendMode() { return trendMode; }, get customTrendType() { return customTrendType; }, get customTrendDraftStart() { return customTrendDraftStart; }, get customTrendDraftEnd() { return customTrendDraftEnd; }, get customTrendDraftMonth() { return customTrendDraftMonth; }, get customTrendDraftYear() { return customTrendDraftYear; }, get appliedCustomTrendRange() { return appliedCustomTrendRange; }, get comparisonTrendType() { return comparisonTrendType; }, get comparisonTrendDraftFirst() { return comparisonTrendDraftFirst; }, get comparisonTrendDraftSecond() { return comparisonTrendDraftSecond; }, get comparisonTrendDraftResolution() { return comparisonTrendDraftResolution; }, get appliedTrendComparison() { return appliedTrendComparison; }, get appliedHistoryRange() { return appliedHistoryRange; }, get calendarYear() { return calendarYear; }, get calendarMonthIndex() { return calendarMonthIndex; }, get selectedCalendarDate() { return selectedCalendarDate; }, set entries(value) { entries = value; }, set editingDate(value) { editingDate = value; }, set storageAdapter(value) { storageAdapter = value; }, set calendarYear(value) { calendarYear = value; }, set calendarMonthIndex(value) { calendarMonthIndex = value; }, set selectedCalendarDate(value) { selectedCalendarDate = value; } };';
+  const source = appSource + '\nthis.__api = { init, render, renderHistoryTrends, renderHistoryTrendsForCurrentState, renderCharts, renderCalendar, renderCalendarForCurrentState, renderCalendarDetails, renderHistoryTable, getHistoryRenderState, handleHistoryFilterSubmit, invalidateAppliedHistoryRange, handleClearHistoryFilters, ensureCalendarMonth, normalizeCalendarSelection, setHistoryView, setTrendDayCount, getChartPeriodDefaults, getMonthNavigationState, getYearNavigationState, navigateTrendMonthDraft, navigateTrendYearDraft, swapComparisonTrendDrafts, compareWithPreviousTrendDraft, setComparisonToPreviousAndCurrent, selectCustomTrendRange, selectTrendComparison, resolveCustomTrendPeriod, resolveComparisonPeriod, handleCustomTrendTypeChange, handleCustomTrendDraftInput, handleCustomTrendResolutionChange, handleCustomTrendSubmit, handleComparisonTrendTypeChange, handleComparisonTrendDraftInput, handleComparisonTrendResolutionChange, handleComparisonTrendSubmit, changeCalendarMonth, handleHistoryTrendsClick, hasUnsavedFormChanges, enterNewEntryModeForDate, enterEditMode, exitEditMode, handleFormSubmit, handleTableClick, handleEraseAll, handleExportBackup, handleImportBackup, handleImportFileChange, handleCancelImport, handleReplaceImport, adjustValueControl, resetValueControls, setValueControlValues, updateSleepControl, updateWaterControl, setBusyState, lockApp, getStorageAdapter, get entries() { return entries; }, get editingDate() { return editingDate; }, get sleepSelected() { return sleepSelected; }, get waterSelected() { return waterSelected; }, get busy() { return busy; }, get locked() { return locked; }, get pendingImport() { return pendingImport; }, get importReading() { return importReading; }, get historyView() { return historyView; }, get trendDayCount() { return trendDayCount; }, get trendMode() { return trendMode; }, get customTrendType() { return customTrendType; }, get customTrendDraftStart() { return customTrendDraftStart; }, get customTrendDraftEnd() { return customTrendDraftEnd; }, get customTrendDraftMonth() { return customTrendDraftMonth; }, get customTrendDraftYear() { return customTrendDraftYear; }, get customTrendDraftResolution() { return customTrendDraftResolution; }, get appliedCustomTrendRange() { return appliedCustomTrendRange; }, get comparisonTrendType() { return comparisonTrendType; }, get comparisonTrendDraftFirst() { return comparisonTrendDraftFirst; }, get comparisonTrendDraftSecond() { return comparisonTrendDraftSecond; }, get comparisonTrendDraftResolution() { return comparisonTrendDraftResolution; }, get appliedTrendComparison() { return appliedTrendComparison; }, get appliedHistoryRange() { return appliedHistoryRange; }, get calendarYear() { return calendarYear; }, get calendarMonthIndex() { return calendarMonthIndex; }, get selectedCalendarDate() { return selectedCalendarDate; }, set entries(value) { entries = value; }, set editingDate(value) { editingDate = value; }, set storageAdapter(value) { storageAdapter = value; }, set calendarYear(value) { calendarYear = value; }, set calendarMonthIndex(value) { calendarMonthIndex = value; }, set selectedCalendarDate(value) { selectedCalendarDate = value; } };';
   new vm.Script(coreSource + '\n' + viewsSource + '\n' + source).runInContext(sandbox);
   const realRender = sandbox.render;
   sandbox.render = () => {};
@@ -267,7 +270,7 @@ function makeViews() {
   const app = makeApp();
   const sandbox = { document: app.sandbox.document, Date };
   vm.createContext(sandbox);
-  const source = coreSource + '\n' + viewsSource + '\nthis.__views = { renderSummary, renderTable, renderCharts, renderComparisonCharts, renderAggregatedComparisonCharts, renderCalendar, renderHistoryTrends };';
+  const source = coreSource + '\n' + viewsSource + '\nthis.__views = { renderSummary, renderTable, renderCharts, renderComparisonCharts, renderAggregatedComparisonCharts, renderAggregatedYearCharts, renderCalendar, renderHistoryTrends };';
   new vm.Script(source).runInContext(sandbox);
   return { ...app, views: sandbox.__views };
 }
@@ -917,6 +920,165 @@ test('aggregated comparison renderer shows twelve monthly averages, zeroes, and 
   assert.equal(march.children[7].textContent, 'Missing');
   assert.equal(march.children[3].textContent, '0');
   assert.equal(march.children[4].textContent, '0');
+});
+
+test('aggregated single-year renderer shows 53 weekly periods with gaps, zeroes, and metadata', () => {
+  const renderer = makeViews();
+  const entries = [
+    { date: '2024-01-01', mood: 2, sleep: 0, water: 0 },
+    { date: '2024-01-07', mood: 4, sleep: 8, water: 2 },
+    { date: '2024-01-08', mood: 3, sleep: 6, water: 1 },
+    { date: '2024-01-22', mood: 5, sleep: 10, water: 3 },
+    { date: '2024-01-29', mood: 1, sleep: 4, water: 0.5 },
+  ];
+  const seriesByMetric = {
+    mood: renderer.sandbox.buildAggregatedYearSeries(entries, 'mood', 2024, 'weekly'),
+    sleep: renderer.sandbox.buildAggregatedYearSeries(entries, 'sleep', 2024, 'weekly'),
+    water: renderer.sandbox.buildAggregatedYearSeries(entries, 'water', 2024, 'weekly'),
+  };
+  const original = JSON.stringify(seriesByMetric);
+
+  renderer.views.renderAggregatedYearCharts(seriesByMetric, 2024, 'weekly');
+
+  assert.equal(seriesByMetric.mood.points.length, 53);
+  assert.equal(renderer.elements.get('trend-chart-list').children.length, 3);
+  const moodCard = trendCard(renderer, 'mood');
+  assert.match(moodCard.children[0].textContent, /Mood \(1–5\) — Weekly averages/);
+  const moodSvg = moodCard.children.find(child => child.tagName === 'SVG');
+  assert.equal(moodSvg.attributes.role, 'img');
+  assert.equal(moodSvg.attributes['data-resolution'], 'weekly');
+  assert.equal(moodSvg.attributes['data-year'], '2024');
+  assert.match(findDescendants(moodSvg, node => node.tagName === 'TITLE')[0].textContent, /2024/);
+  assert.match(findDescendants(moodSvg, node => node.tagName === 'DESC')[0].textContent, /Missing periods are shown as gaps/);
+  assert.deepEqual(findDescendants(moodSvg, node => node.className === 'trend-axis-label')
+    .filter(node => ['Jan', 'Apr', 'Jul', 'Oct', 'Dec'].includes(node.textContent))
+    .map(node => node.textContent), ['Jan', 'Apr', 'Jul', 'Oct', 'Dec']);
+  assert.equal(findDescendants(moodSvg, node => node.className &&
+    node.className.includes('trend-aggregated-year-line')).length, 2);
+  const firstPoint = findDescendants(moodSvg, node => node.className &&
+    node.className.includes('trend-aggregated-year-point'))[0];
+  assert.equal(firstPoint.attributes['data-period-key'], '01');
+  assert.equal(firstPoint.attributes['data-start-date'], '2024-01-01');
+  assert.equal(firstPoint.attributes['data-end-date'], '2024-01-07');
+  assert.equal(firstPoint.attributes['data-recorded-day-count'], '2');
+  assert.equal(firstPoint.attributes['data-calendar-day-count'], '7');
+  assert.equal(firstPoint.attributes.tabindex, undefined);
+
+  const waterSvg = trendCard(renderer, 'water').children.find(child => child.tagName === 'SVG');
+  assert.equal(findDescendants(waterSvg, node => node.className &&
+    node.className.includes('trend-aggregated-year-point') &&
+    node.attributes['data-value'] === '0').length, 0);
+  assert.deepEqual(findDescendants(waterSvg, node => node.className === 'trend-axis-label')
+    .filter(node => ['3 L', '0 L'].includes(node.textContent))
+    .map(node => node.textContent), ['3 L', '0 L']);
+
+  const table = trendDataTable(renderer);
+  assert.match(table.attributes['aria-label'], /weekly aggregated chart data for 2024/);
+  const headers = table.children.find(child => child.tagName === 'THEAD').children[0].children;
+  assert.deepEqual(headers.map(header => header.textContent), [
+    'Period', 'Date range', 'Recorded days', 'Calendar days',
+    'Mood average', 'Sleep average (h)', 'Water average (L)',
+  ]);
+  const rows = table.children.find(child => child.tagName === 'TBODY').children;
+  assert.equal(rows.length, 53);
+  assert.equal(rows[0].children[0].tagName, 'TH');
+  assert.equal(rows[0].children[0].attributes.scope, 'row');
+  assert.deepEqual(rows[0].children.map(cell => cell.textContent), [
+    'Week 1', '2024-01-01 to 2024-01-07', '2', '7', '3', '4 h', '1 L',
+  ]);
+  assert.deepEqual(rows[2].children.map(cell => cell.textContent), [
+    'Week 3', '2024-01-15 to 2024-01-21', '0', '7', 'Missing', 'Missing', 'Missing',
+  ]);
+  assert.deepEqual(rows[52].children.slice(0, 4).map(cell => cell.textContent), [
+    'Week 53', '2024-12-30 to 2024-12-31', '0', '2',
+  ]);
+  const frame = trendDataFrame(renderer);
+  assert.equal(frame.hint.id, 'trend-aggregated-year-table-hint');
+  assert.equal(frame.region.attributes['aria-describedby'], frame.hint.id);
+  assert.equal(frame.table.attributes['aria-describedby'], frame.hint.id);
+  assert.equal(JSON.stringify(seriesByMetric), original);
+});
+
+test('aggregated single-year renderer shows 12 monthly periods and display-only averages', () => {
+  const renderer = makeViews();
+  const entries = [
+    { date: '2024-02-01', mood: 1, sleep: 0, water: 0 },
+    { date: '2024-02-29', mood: 5, sleep: 3, water: 2 },
+    { date: '2024-04-10', mood: 4, sleep: 0, water: 0 },
+  ];
+  const seriesByMetric = {
+    mood: renderer.sandbox.buildAggregatedYearSeries(entries, 'mood', 2024, 'monthly'),
+    sleep: renderer.sandbox.buildAggregatedYearSeries(entries, 'sleep', 2024, 'monthly'),
+    water: renderer.sandbox.buildAggregatedYearSeries(entries, 'water', 2024, 'monthly'),
+  };
+  const exactSleepAverage = seriesByMetric.sleep.points[1].value;
+  const original = JSON.stringify(seriesByMetric);
+
+  renderer.views.renderAggregatedYearCharts(seriesByMetric, 2024, 'monthly');
+
+  assert.equal(seriesByMetric.mood.points.length, 12);
+  assert.equal(seriesByMetric.mood.points[0].label, 'January');
+  assert.equal(seriesByMetric.mood.points[11].label, 'December');
+  const sleepCard = trendCard(renderer, 'sleep');
+  assert.match(sleepCard.children[0].textContent, /Sleep \(h\) — Monthly averages/);
+  const sleepSvg = sleepCard.children.find(child => child.tagName === 'SVG');
+  assert.deepEqual(findDescendants(sleepSvg, node => node.className === 'trend-axis-label')
+    .filter(node => ['24 h', '0 h'].includes(node.textContent))
+    .map(node => node.textContent), ['24 h', '0 h']);
+  const waterSvg = trendCard(renderer, 'water').children.find(child => child.tagName === 'SVG');
+  assert.equal(findDescendants(waterSvg, node => node.className &&
+    node.className.includes('trend-aggregated-year-point') &&
+    node.attributes['data-period-key'] === '04' && node.attributes['data-value'] === '0').length, 1);
+
+  const table = trendDataTable(renderer);
+  const rows = table.children.find(child => child.tagName === 'TBODY').children;
+  assert.equal(rows.length, 12);
+  assert.deepEqual(rows[1].children.map(cell => cell.textContent), [
+    'February', '2024-02-01 to 2024-02-29', '2', '29', '3', '1.5 h', '1 L',
+  ]);
+  assert.deepEqual(rows[2].children.map(cell => cell.textContent), [
+    'March', '2024-03-01 to 2024-03-31', '0', '31', 'Missing', 'Missing', 'Missing',
+  ]);
+  assert.deepEqual(rows[3].children.slice(4).map(cell => cell.textContent), ['4', '0 h', '0 L']);
+  assert.equal(seriesByMetric.sleep.points[1].value, exactSleepAverage);
+  assert.equal(JSON.stringify(seriesByMetric), original);
+});
+
+test('aggregated single-year renderer presents empty years without inventing observations', () => {
+  const renderer = makeViews();
+  const seriesByMetric = {
+    mood: renderer.sandbox.buildAggregatedYearSeries([], 'mood', 2025, 'weekly'),
+    sleep: renderer.sandbox.buildAggregatedYearSeries([], 'sleep', 2025, 'weekly'),
+    water: renderer.sandbox.buildAggregatedYearSeries([], 'water', 2025, 'weekly'),
+  };
+
+  renderer.views.renderAggregatedYearCharts(seriesByMetric, 2025, 'weekly');
+
+  assert.equal(findDescendants(renderer.elements.get('trend-chart-list'), node =>
+    node.className === 'trend-empty-label').length, 3);
+  assert.equal(findDescendants(renderer.elements.get('trend-chart-list'), node =>
+    node.className && node.className.includes('trend-aggregated-year-point')).length, 0);
+  assert.equal(findDescendants(renderer.elements.get('trend-chart-list'), node =>
+    node.className && node.className.includes('trend-aggregated-year-line')).length, 0);
+  const descriptions = findDescendants(renderer.elements.get('trend-chart-list'), node =>
+    node.tagName === 'DESC');
+  assert.equal(descriptions.length, 3);
+  descriptions.forEach(description => assert.match(description.textContent, /No recorded/));
+  const rows = trendDataTable(renderer).children.find(child => child.tagName === 'TBODY').children;
+  assert.equal(rows.length, 53);
+  assert.equal(rows[0].children[4].textContent, 'Missing');
+  assert.equal(rows[0].children[2].textContent, '0');
+
+  const comparison = {
+    mood: renderer.sandbox.buildAggregatedYearComparisonSeries([], 'mood', 2024, 2025, 'monthly'),
+    sleep: renderer.sandbox.buildAggregatedYearComparisonSeries([], 'sleep', 2024, 2025, 'monthly'),
+    water: renderer.sandbox.buildAggregatedYearComparisonSeries([], 'water', 2024, 2025, 'monthly'),
+  };
+  renderer.views.renderAggregatedComparisonCharts(comparison, {
+    firstPeriodLabel: '2024', secondPeriodLabel: '2025',
+  }, 'monthly');
+  assert.equal(findDescendants(renderer.elements.get('trend-chart-list'), node =>
+    node.className === 'trend-comparison-legend').length, 3);
 });
 
 test('comparison rendering does not change the existing single-series chart output', () => {
@@ -1930,7 +2092,8 @@ test('custom calendar month and year periods resolve complete inclusive ranges',
   app.elements.get('trend-custom-year').value = '2024';
   app.api.handleCustomTrendSubmit({ preventDefault() {} });
   assert.deepEqual(JSON.parse(JSON.stringify(app.api.appliedCustomTrendRange)), {
-    type: 'year', year: '2024', startDate: '2024-01-01', endDate: '2024-12-31',
+    type: 'year', year: '2024', resolution: 'daily',
+    startDate: '2024-01-01', endDate: '2024-12-31',
   });
   assert.match(app.elements.get('trend-range-status').textContent, /2024-01-01 to 2024-12-31/);
   assert.equal(trendDataTable(app).children
@@ -1940,6 +2103,137 @@ test('custom calendar month and year periods resolve complete inclusive ranges',
   assert.equal(app.elements.get('trend-custom-type').value, 'year');
   assert.equal(app.elements.get('trend-custom-year').value, '2024');
   assert.equal(saveCalls, 0);
+});
+
+test('Custom calendar year starts with an independent accessible Daily display draft', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.api.setTrendDayCount(30);
+  const initialRows = trendDataTable(app).children.find(child => child.tagName === 'TBODY').children.length;
+
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+
+  const defaults = app.api.getChartPeriodDefaults();
+  assert.equal(app.elements.get('trend-custom-type').value, 'year');
+  assert.equal(app.elements.get('trend-custom-year').value, defaults.customYear);
+  assert.equal(app.elements.get('trend-custom-resolution').value, 'daily');
+  assert.equal(app.api.customTrendDraftResolution, 'daily');
+  assert.equal(app.elements.get('trend-custom-resolution-controls').hidden, false);
+  assert.equal(app.elements.get('trend-custom-resolution').attributes['aria-describedby'], 'trend-custom-error');
+  assert.match(html, /<label for="trend-custom-resolution">Display<\/label>/);
+  assert.match(html, /<option value="daily" selected>Daily<\/option>/);
+  assert.match(html, /<option value="weekly">Weekly<\/option>/);
+  assert.match(html, /<option value="monthly">Monthly<\/option>/);
+  assert.equal(initialRows, 30);
+  assert.equal(trendDataTable(app).children.find(child => child.tagName === 'TBODY').children.length, 30);
+  assert.match(app.elements.get('trend-range-status').textContent, /Showing the previously applied chart data/);
+
+  app.elements.get('trend-custom-resolution').value = 'weekly';
+  app.api.handleCustomTrendResolutionChange();
+  assert.equal(app.api.customTrendDraftResolution, 'weekly');
+  assert.equal(trendDataTable(app).children.find(child => child.tagName === 'TBODY').children.length, 30);
+  assert.match(app.elements.get('trend-range-status').textContent, /Showing the previously applied chart data/);
+  assert.equal(app.elements.get('trend-comparison-resolution').value, 'weekly');
+  assert.equal(saveCalls, 0);
+
+  const type = app.elements.get('trend-custom-type');
+  type.value = 'month';
+  app.api.handleCustomTrendTypeChange({ target: type });
+  assert.equal(app.elements.get('trend-custom-resolution-controls').hidden, true);
+  type.value = 'date-range';
+  app.api.handleCustomTrendTypeChange({ target: type });
+  assert.equal(app.elements.get('trend-custom-resolution-controls').hidden, true);
+});
+
+test('Custom calendar year applies Daily, Weekly, and Monthly rendering from committed data', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.api.entries = [
+    { date: '2024-01-01', mood: 2, sleep: 0, water: 0 },
+    { date: '2024-01-07', mood: 4, sleep: 8, water: 2 },
+    { date: '2024-02-01', mood: 5, sleep: 3, water: 0 },
+  ];
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  app.elements.get('trend-custom-year').value = '2024';
+  app.api.handleCustomTrendDraftInput({ target: app.elements.get('trend-custom-year') });
+
+  app.elements.get('trend-custom-resolution').value = 'weekly';
+  app.api.handleCustomTrendResolutionChange();
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+  assert.equal(app.api.appliedCustomTrendRange.resolution, 'weekly');
+  assert.equal(trendDataTable(app).children.find(child => child.tagName === 'TBODY').children.length, 53);
+  assert.match(app.elements.get('trend-range-status').textContent, /Weekly averages/);
+  let moodSvg = trendCard(app, 'mood').children.find(child => child.tagName === 'SVG');
+  assert.equal(moodSvg.attributes['data-resolution'], 'weekly');
+  const weeklyRows = trendDataTable(app).children.find(child => child.tagName === 'TBODY').children;
+  assert.equal(weeklyRows[0].children[4].textContent, '3');
+  assert.equal(weeklyRows[0].children[5].textContent, '4 h');
+  assert.equal(weeklyRows[1].children[4].textContent, 'Missing');
+
+  app.elements.get('trend-custom-resolution').value = 'monthly';
+  app.api.handleCustomTrendResolutionChange();
+  assert.equal(weeklyRows.length, 53);
+  assert.match(app.elements.get('trend-range-status').textContent, /Weekly averages/);
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+  assert.equal(app.api.appliedCustomTrendRange.resolution, 'monthly');
+  const monthlyRows = trendDataTable(app).children.find(child => child.tagName === 'TBODY').children;
+  assert.equal(monthlyRows.length, 12);
+  assert.equal(monthlyRows[0].children[5].textContent, '4 h');
+  assert.equal(monthlyRows[1].children[6].textContent, '0 L');
+  assert.equal(monthlyRows[2].children[4].textContent, 'Missing');
+  const waterSvg = trendCard(app, 'water').children.find(child => child.tagName === 'SVG');
+  assert.equal(findDescendants(waterSvg, node => node.className &&
+    node.className.includes('trend-aggregated-year-point') &&
+    node.attributes['data-period-key'] === '02' && node.attributes['data-value'] === '0').length, 1);
+
+  app.elements.get('trend-custom-resolution').value = 'daily';
+  app.api.handleCustomTrendResolutionChange();
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+  assert.equal(app.api.appliedCustomTrendRange.resolution, 'daily');
+  assert.equal(trendDataTable(app).children.find(child => child.tagName === 'TBODY').children.length, 366);
+  assert.match(app.elements.get('trend-range-status').textContent, /calendar year 2024/);
+  moodSvg = trendCard(app, 'mood').children.find(child => child.tagName === 'SVG');
+  assert.equal(moodSvg.attributes['data-resolution'], undefined);
+  assert.equal(saveCalls, 0);
+});
+
+test('Custom year restores its applied resolution and rejects invalid drafts without changing charts', () => {
+  const app = makeApp();
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  app.elements.get('trend-custom-year').value = '2024';
+  app.elements.get('trend-custom-resolution').value = 'monthly';
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+  const applied = JSON.stringify(app.api.appliedCustomTrendRange);
+  const status = app.elements.get('trend-range-status').textContent;
+
+  app.elements.get('trend-custom-year').value = '20x4';
+  app.elements.get('trend-custom-resolution').value = 'weekly';
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+  assert.equal(JSON.stringify(app.api.appliedCustomTrendRange), applied);
+  assert.equal(app.elements.get('trend-range-status').textContent, status);
+
+  app.api.setTrendDayCount(30);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  assert.equal(app.elements.get('trend-custom-type').value, 'year');
+  assert.equal(app.elements.get('trend-custom-year').value, '2024');
+  assert.equal(app.elements.get('trend-custom-resolution').value, 'monthly');
+  assert.equal(app.elements.get('trend-custom-error').textContent, '');
+  assert.equal(app.elements.get('trend-custom-year').attributes['aria-invalid'], undefined);
+
+  app.elements.get('trend-custom-resolution').value = 'unsupported';
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+  assert.match(app.elements.get('trend-custom-error').textContent, /valid display resolution/);
+  assert.equal(app.elements.get('trend-custom-resolution').attributes['aria-invalid'], 'true');
+  assert.equal(JSON.stringify(app.api.appliedCustomTrendRange), applied);
+  assert.equal(app.elements.get('trend-range-status').textContent, status);
+
+  app.api.setTrendDayCount(30);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  assert.equal(app.elements.get('trend-custom-resolution').value, 'monthly');
+  assert.equal(app.elements.get('trend-custom-resolution').attributes['aria-invalid'], undefined);
+  assert.equal(app.elements.get('trend-custom-error').textContent, '');
 });
 
 test('invalid custom month and year drafts show accessible errors without changing charts', () => {
@@ -2699,6 +2993,42 @@ test('charts refresh after a successful save but retain committed data after a f
   assert.equal(app.api.entries.some(entry => entry.date === today), true);
   moodSvg = trendCard(app, 'mood').children.find(child => child.tagName === 'SVG');
   assert.equal(findDescendants(moodSvg, node => node.className === 'trend-point').length, 1);
+});
+
+test('applied aggregated Custom year charts refresh after a successful entry save', async () => {
+  const app = makeApp();
+  const today = localDateKey();
+  const currentYear = today.slice(0, 4);
+  app.api.entries = [];
+  app.sandbox.render = app.realRender;
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-custom') });
+  app.elements.get('trend-custom-year').value = currentYear;
+  app.elements.get('trend-custom-resolution').value = 'weekly';
+  app.api.handleCustomTrendSubmit({ preventDefault() {} });
+
+  let rows = trendDataTable(app).children.find(child => child.tagName === 'TBODY').children;
+  let currentWeek = rows.find(row => {
+    const boundaries = row.children[1].textContent.split(' to ');
+    return boundaries[0] <= today && boundaries[1] >= today;
+  });
+  assert.equal(currentWeek.children[4].textContent, 'Missing');
+
+  app.elements.get('entry-date').value = today;
+  app.radios[3].checked = true;
+  app.api.setValueControlValues(8, 0);
+  app.api.storageAdapter = { async saveEntries() { return { ok: true }; } };
+  await submit(app);
+
+  rows = trendDataTable(app).children.find(child => child.tagName === 'TBODY').children;
+  currentWeek = rows.find(row => {
+    const boundaries = row.children[1].textContent.split(' to ');
+    return boundaries[0] <= today && boundaries[1] >= today;
+  });
+  assert.equal(currentWeek.children[4].textContent, '4');
+  assert.equal(currentWeek.children[5].textContent, '8 h');
+  assert.equal(currentWeek.children[6].textContent, '0 L');
+  assert.equal(app.api.appliedCustomTrendRange.resolution, 'weekly');
+  assert.equal(app.elements.get('trend-custom-resolution').value, 'weekly');
 });
 
 test('calendar refreshes after a successful entry save through the existing render flow', async () => {

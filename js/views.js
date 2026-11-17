@@ -656,6 +656,218 @@
       return formatted + (unit ? ' ' + unit : '');
     }
 
+    function aggregatedYearAxisTicks(series, resolution) {
+      const ticks = [
+        ['01-01', '01', 'Jan'],
+        ['04-01', '04', 'Apr'],
+        ['07-01', '07', 'Jul'],
+        ['10-01', '10', 'Oct'],
+        ['12-01', '12', 'Dec'],
+      ];
+      return ticks.map(function (tick) {
+        const index = resolution === 'monthly'
+          ? series.points.findIndex(function (point) { return point.key === tick[1]; })
+          : series.points.findIndex(function (point) {
+            const targetDate = String(series.year).padStart(4, '0') + '-' + tick[0];
+            return point.startDate <= targetDate && point.endDate >= targetDate;
+          });
+        return { index, label: tick[2] };
+      }).filter(function (tick) { return tick.index >= 0; });
+    }
+
+    function renderAggregatedYearTrendChart(container, config, series, year, resolution) {
+      const card = document.createElement('section');
+      card.className = 'trend-chart-card';
+      card.dataset.metric = config.metric;
+
+      const heading = document.createElement('h3');
+      const resolutionLabel = resolution === 'weekly' ? 'Weekly averages' : 'Monthly averages';
+      heading.textContent = config.title +
+        (config.unit ? ' (' + config.unit + ')' : ' (1–5)') + ' — ' + resolutionLabel;
+      card.appendChild(heading);
+
+      const svg = createSvgElement('svg', {
+        class: 'trend-chart',
+        viewBox: '0 0 320 180',
+        role: 'img',
+        'aria-labelledby': 'trend-year-' + config.metric + '-title trend-year-' + config.metric + '-description',
+        'data-metric': config.metric,
+        'data-resolution': resolution,
+        'data-year': String(year).padStart(4, '0'),
+      });
+      const title = createSvgElement('title', { id: 'trend-year-' + config.metric + '-title' });
+      title.textContent = config.title + ' ' + resolutionLabel.toLowerCase() + ' for ' +
+        String(year).padStart(4, '0');
+      svg.appendChild(title);
+      const description = createSvgElement('desc', {
+        id: 'trend-year-' + config.metric + '-description',
+      });
+      const populatedPoints = series.points.filter(function (point) {
+        return point.value !== null;
+      });
+      description.textContent = populatedPoints.length === 0
+        ? 'No recorded ' + config.title.toLowerCase() + ' values in ' +
+          String(year).padStart(4, '0') + '.'
+        : resolutionLabel + ' for ' + config.title.toLowerCase() + ' in ' +
+          String(year).padStart(4, '0') + '. Missing periods are shown as gaps.';
+      svg.appendChild(description);
+
+      const left = 38;
+      const top = 18;
+      const width = 266;
+      const height = 118;
+      const bottom = top + height;
+      const xFor = function (index) {
+        return series.points.length <= 1
+          ? left + width / 2
+          : left + (index / (series.points.length - 1)) * width;
+      };
+      const yFor = function (value) {
+        return top + ((config.max - value) / (config.max - config.min)) * height;
+      };
+
+      [config.max, config.min].forEach(function (value) {
+        const y = yFor(value);
+        svg.appendChild(createSvgElement('line', {
+          class: 'trend-grid-line', x1: left, y1: y, x2: left + width, y2: y,
+        }));
+        const label = createSvgElement('text', {
+          class: 'trend-axis-label', x: left - 5, y: y + 3, 'text-anchor': 'end',
+        });
+        label.textContent = String(value) + (config.unit ? ' ' + config.unit : '');
+        svg.appendChild(label);
+      });
+      svg.appendChild(createSvgElement('line', {
+        class: 'trend-axis', x1: left, y1: top, x2: left, y2: bottom,
+      }));
+      svg.appendChild(createSvgElement('line', {
+        class: 'trend-axis', x1: left, y1: bottom, x2: left + width, y2: bottom,
+      }));
+
+      const axisTicks = aggregatedYearAxisTicks(series, resolution);
+      axisTicks.forEach(function (tick, position) {
+        const label = createSvgElement('text', {
+          class: 'trend-axis-label',
+          x: xFor(tick.index),
+          y: bottom + 17,
+          'text-anchor': position === 0 ? 'start' :
+            (position === axisTicks.length - 1 ? 'end' : 'middle'),
+        });
+        label.textContent = tick.label;
+        svg.appendChild(label);
+      });
+
+      if (populatedPoints.length === 0) {
+        const emptyLabel = createSvgElement('text', {
+          class: 'trend-empty-label', x: left + width / 2, y: top + height / 2,
+        });
+        emptyLabel.textContent = 'No recorded values in this year';
+        svg.appendChild(emptyLabel);
+      } else {
+        let segment = [];
+        const appendSegment = function () {
+          if (segment.length > 1) {
+            svg.appendChild(createSvgElement('path', {
+              class: 'trend-line trend-aggregated-year-line',
+              d: segment.map(function (point, index) {
+                return (index === 0 ? 'M ' : 'L ') +
+                  xFor(point.index) + ' ' + yFor(point.value);
+              }).join(' '),
+              'data-trend-segment': String(segment.length),
+            }));
+          }
+          segment = [];
+        };
+
+        series.points.forEach(function (point, index) {
+          if (point.value === null) {
+            appendSegment();
+            return;
+          }
+          segment.push({ index, value: point.value });
+        });
+        appendSegment();
+
+        series.points.forEach(function (point, index) {
+          if (point.value === null) return;
+          svg.appendChild(createSvgElement('circle', {
+            class: 'trend-point trend-aggregated-year-point',
+            cx: xFor(index),
+            cy: yFor(point.value),
+            r: 3,
+            'data-period-key': point.key,
+            'data-start-date': point.startDate,
+            'data-end-date': point.endDate,
+            'data-value': point.value,
+            'data-recorded-day-count': point.recordedDayCount,
+            'data-calendar-day-count': point.calendarDayCount,
+          }));
+        });
+      }
+
+      card.appendChild(svg);
+      container.appendChild(card);
+    }
+
+    function renderAggregatedYearDataTable(seriesByMetric, year, resolution) {
+      const container = document.getElementById('trend-data-table-container');
+      prepareTrendDataTableContainer(container);
+      const table = document.createElement('table');
+      table.className = 'trend-data-table trend-aggregated-data-table';
+      table.setAttribute(
+        'aria-label',
+        'Exact ' + resolution + ' aggregated chart data for ' + String(year).padStart(4, '0')
+      );
+      const caption = document.createElement('caption');
+      caption.textContent = (resolution === 'weekly' ? 'Weekly' : 'Monthly') +
+        ' averages for ' + String(year).padStart(4, '0') +
+        '. Missing means no entries were recorded in that period.';
+      table.appendChild(caption);
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      [
+        'Period', 'Date range', 'Recorded days', 'Calendar days',
+        'Mood average', 'Sleep average (h)', 'Water average (L)',
+      ].forEach(function (label) {
+        const heading = document.createElement('th');
+        heading.setAttribute('scope', 'col');
+        heading.textContent = label;
+        headerRow.appendChild(heading);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      seriesByMetric.mood.points.forEach(function (moodPoint, index) {
+        const sleepPoint = seriesByMetric.sleep.points[index];
+        const waterPoint = seriesByMetric.water.points[index];
+        const row = document.createElement('tr');
+        const period = document.createElement('th');
+        period.setAttribute('scope', 'row');
+        period.textContent = moodPoint.label || moodPoint.key;
+        row.appendChild(period);
+        [
+          moodPoint.startDate + ' to ' + moodPoint.endDate,
+          moodPoint.recordedDayCount,
+          moodPoint.calendarDayCount,
+          formatAggregatedTrendValue(moodPoint.value, ''),
+          formatAggregatedTrendValue(sleepPoint.value, 'h'),
+          formatAggregatedTrendValue(waterPoint.value, 'L'),
+        ].forEach(function (value) {
+          const cell = document.createElement('td');
+          cell.textContent = String(value);
+          row.appendChild(cell);
+        });
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      appendTrendDataTableFrame(
+        container,
+        table,
+        'Scroll horizontally or vertically to view all columns and rows. The headings and Period column stay visible.',
+        'trend-aggregated-year-table-hint'
+      );
+    }
+
     function renderAggregatedComparisonDataTable(seriesByMetric, periodLabels, resolution) {
       const container = document.getElementById('trend-data-table-container');
       prepareTrendDataTableContainer(container);
@@ -754,6 +966,23 @@
         );
       });
       renderAggregatedComparisonDataTable(seriesByMetric, periodLabels, resolution);
+    }
+
+    /**
+     * Renders weekly or monthly aggregates for one complete calendar year.
+     * The caller supplies prepared series; this function performs no data
+     * aggregation and has no access to controller state or storage.
+     */
+    function renderAggregatedYearCharts(seriesByMetric, year, resolution) {
+      if (resolution !== 'weekly' && resolution !== 'monthly') return;
+      const chartList = document.getElementById('trend-chart-list');
+      chartList.replaceChildren();
+      TREND_CONFIGS.forEach(function (config) {
+        renderAggregatedYearTrendChart(
+          chartList, config, seriesByMetric[config.metric], year, resolution
+        );
+      });
+      renderAggregatedYearDataTable(seriesByMetric, year, resolution);
     }
 
     function renderTrendDataTable(seriesByMetric) {
@@ -864,6 +1093,8 @@
       const end = document.getElementById('trend-custom-end');
       const month = document.getElementById('trend-custom-month');
       const year = document.getElementById('trend-custom-year');
+      const resolution = document.getElementById('trend-custom-resolution');
+      const resolutionControls = document.getElementById('trend-custom-resolution-controls');
       const previousMonth = document.getElementById('trend-custom-month-prev');
       const nextMonth = document.getElementById('trend-custom-month-next');
       const previousYear = document.getElementById('trend-custom-year-prev');
@@ -876,6 +1107,7 @@
       if (end && viewState.customTrendDraftEnd !== undefined) end.value = viewState.customTrendDraftEnd;
       if (month && viewState.customTrendDraftMonth !== undefined) month.value = viewState.customTrendDraftMonth;
       if (year && viewState.customTrendDraftYear !== undefined) year.value = viewState.customTrendDraftYear;
+      if (resolution) resolution.value = viewState.customTrendDraftResolution || 'daily';
       if (previousMonth) previousMonth.disabled = Boolean(
         viewState.customMonthNavigation && viewState.customMonthNavigation.previousDisabled
       );
@@ -892,6 +1124,7 @@
         [dateRangeControls, type !== 'date-range'],
         [monthControls, type !== 'month'],
         [yearControls, type !== 'year'],
+        [resolutionControls, type !== 'year'],
       ].forEach(function (controlAndHidden) {
         const control = controlAndHidden[0];
         const hidden = controlAndHidden[1];
@@ -1151,6 +1384,17 @@
           renderComparisonCharts(display.seriesByMetric, display.periodLabels);
         }
         renderComparisonStatus(display.periodLabels, trendMode, trendDayCount, display.resolution);
+      } else if (display.type === 'aggregated-year') {
+        renderAggregatedYearCharts(display.seriesByMetric, display.year, display.resolution);
+        renderTrendPeriodSelection(trendMode, trendDayCount);
+        const rangeStatus = document.getElementById('trend-range-status');
+        if (rangeStatus) {
+          const resolutionLabel = display.resolution === 'weekly'
+            ? 'Weekly averages' : 'Monthly averages';
+          rangeStatus.textContent = 'Showing calendar year ' + String(display.year).padStart(4, '0') +
+            ' as ' + resolutionLabel + ' from ' + display.customRange.startDate + ' to ' +
+            display.customRange.endDate + '. Missing periods appear as gaps.';
+        }
       } else {
         renderCharts(entries, display.dayCount, display.endDate, display.customRange, trendMode);
       }

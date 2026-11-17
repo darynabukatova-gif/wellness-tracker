@@ -15,6 +15,7 @@ const {
   buildTrendSeriesForRange,
   buildMonthComparisonSeries,
   buildYearComparisonSeries,
+  buildAggregatedYearSeries,
   buildAggregatedYearComparisonSeries,
   buildCalendarMonth,
 } = require('./helpers.js').loadContext();
@@ -364,6 +365,139 @@ test('year comparisons support matching and low-numbered years without mutating 
   assert.equal(zeroYearLeapDay.firstDate, '0000-02-29');
   assert.equal(zeroYearLeapDay.secondDate, null);
   assert.equal(zeroYearLeapDay.firstValue, 0);
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('single-year weekly aggregation starts January 1 and preserves partial Week 53 blocks', () => {
+  const entries = [
+    entry('2024-12-31', 4, 0, 2),
+    entry('2024-01-07', 3, 4, 1),
+    entry('2024-12-30', 2, 6, 0),
+    entry('2024-01-01', 2, 0, 0),
+    entry('2024-01-03', 5, 1, 3),
+  ];
+  const original = JSON.stringify(entries);
+  const leap = buildAggregatedYearSeries(entries, 'sleep', 2024, 'weekly');
+  const common = buildAggregatedYearSeries([], 'sleep', 2025, 'weekly');
+
+  assert.equal(leap.metric, 'sleep');
+  assert.equal(leap.year, 2024);
+  assert.equal(leap.resolution, 'weekly');
+  assert.equal(leap.points.length, 53);
+  assert.deepEqual(JSON.parse(JSON.stringify(leap.points[0])), {
+    key: '01',
+    label: 'Week 1',
+    startDate: '2024-01-01',
+    endDate: '2024-01-07',
+    value: 5 / 3,
+    recordedDayCount: 3,
+    calendarDayCount: 7,
+  });
+  assert.equal(leap.points[1].value, null);
+  assert.equal(leap.points[1].recordedDayCount, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(leap.points[52])), {
+    key: '53',
+    label: 'Week 53',
+    startDate: '2024-12-30',
+    endDate: '2024-12-31',
+    value: 3,
+    recordedDayCount: 2,
+    calendarDayCount: 2,
+  });
+  assert.equal(common.points.length, 53);
+  assert.equal(common.points[52].startDate, '2025-12-31');
+  assert.equal(common.points[52].endDate, '2025-12-31');
+  assert.equal(common.points[52].calendarDayCount, 1);
+  assert.equal(common.points[52].value, null);
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('single-year monthly aggregation returns all months with leap boundaries, gaps, and zeroes', () => {
+  const entries = [
+    entry('2024-04-30', 3, 7, 0),
+    entry('2024-02-29', 4, 8, 2),
+    entry('2024-02-01', 2, 6, 0),
+  ];
+  const original = JSON.stringify(entries);
+  const series = buildAggregatedYearSeries(entries, 'water', 2024, 'monthly');
+
+  assert.equal(series.points.length, 12);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(series.points.map(point => point.label))),
+    [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ]
+  );
+  assert.equal(series.points[0].startDate, '2024-01-01');
+  assert.equal(series.points[0].endDate, '2024-01-31');
+  assert.equal(series.points[1].startDate, '2024-02-01');
+  assert.equal(series.points[1].endDate, '2024-02-29');
+  assert.equal(series.points[1].calendarDayCount, 29);
+  assert.equal(series.points[1].recordedDayCount, 2);
+  assert.equal(series.points[1].value, 1);
+  assert.equal(series.points[2].value, null);
+  assert.equal(series.points[2].recordedDayCount, 0);
+  assert.equal(series.points[3].value, 0);
+  assert.equal(series.points[3].recordedDayCount, 1);
+  assert.equal(series.points[11].endDate, '2024-12-31');
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('single-year aggregation validates inputs and supports years 0000 through 0099', () => {
+  const entries = [
+    entry('0099-12-31', 1, 4, 0),
+    entry('0000-02-29', 5, 8, 2),
+  ];
+  const zeroYear = buildAggregatedYearSeries(entries, 'water', 0, 'monthly');
+  const yearNinetyNine = buildAggregatedYearSeries(entries, 'sleep', 99, 'weekly');
+  const rangeError = error => error.name === 'RangeError';
+
+  assert.equal(zeroYear.year, 0);
+  assert.equal(zeroYear.points[1].endDate, '0000-02-29');
+  assert.equal(zeroYear.points[1].calendarDayCount, 29);
+  assert.equal(zeroYear.points[1].value, 2);
+  assert.equal(yearNinetyNine.points[52].startDate, '0099-12-31');
+  assert.equal(yearNinetyNine.points[52].value, 4);
+  assert.equal(yearNinetyNine.points[52].calendarDayCount, 1);
+  assert.throws(() => buildAggregatedYearSeries([], 'weight', 2024, 'weekly'), rangeError);
+  assert.throws(() => buildAggregatedYearSeries([], 'mood', -1, 'weekly'), rangeError);
+  assert.throws(() => buildAggregatedYearSeries([], 'mood', 10_000, 'monthly'), rangeError);
+  assert.throws(() => buildAggregatedYearSeries([], 'mood', 2024.5, 'monthly'), rangeError);
+  assert.throws(() => buildAggregatedYearSeries([], 'mood', 2024, 'daily'), rangeError);
+});
+
+test('single-year aggregated points remain consistent with comparison aggregation fields', () => {
+  const entries = [
+    entry('2025-07-04', 3, 0, 0),
+    entry('2024-01-02', 1, 5, 1),
+    entry('2024-01-01', 5, 7, 3),
+  ];
+  const original = JSON.stringify(entries);
+
+  ['weekly', 'monthly'].forEach(function (resolution) {
+    const first = buildAggregatedYearSeries(entries, 'mood', 2024, resolution);
+    const second = buildAggregatedYearSeries(entries, 'mood', 2025, resolution);
+    const comparison = buildAggregatedYearComparisonSeries(
+      entries, 'mood', 2024, 2025, resolution
+    );
+
+    comparison.points.forEach(function (point, index) {
+      assert.equal(point.key, first.points[index].key);
+      assert.equal(point.label, first.points[index].label);
+      assert.equal(point.firstStartDate, first.points[index].startDate);
+      assert.equal(point.firstEndDate, first.points[index].endDate);
+      assert.equal(point.firstValue, first.points[index].value);
+      assert.equal(point.firstRecordedDayCount, first.points[index].recordedDayCount);
+      assert.equal(point.firstCalendarDayCount, first.points[index].calendarDayCount);
+      assert.equal(point.secondStartDate, second.points[index].startDate);
+      assert.equal(point.secondEndDate, second.points[index].endDate);
+      assert.equal(point.secondValue, second.points[index].value);
+      assert.equal(point.secondRecordedDayCount, second.points[index].recordedDayCount);
+      assert.equal(point.secondCalendarDayCount, second.points[index].calendarDayCount);
+    });
+  });
+
   assert.equal(JSON.stringify(entries), original);
 });
 
