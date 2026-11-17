@@ -11,6 +11,8 @@ const {
   getCalendarYearRange,
   validateCalendarDateRange,
   filterEntriesByDateRange,
+  calculatePeriodStatistics,
+  comparePeriodStatistics,
   buildTrendSeries,
   buildTrendSeriesForRange,
   buildMonthComparisonSeries,
@@ -158,6 +160,179 @@ test('filterEntriesByDateRange includes boundaries, sorts newest-first, preserve
   assert.deepEqual(filterEntriesByDateRange(entries, '2026-01-01', '2026-01-02'), []);
   assert.throws(
     () => filterEntriesByDateRange(entries, '2025-06-12', '2025-06-10'),
+    error => error.name === 'RangeError'
+  );
+});
+
+test('calculatePeriodStatistics uses inclusive recorded observations for all metrics without rounding', () => {
+  const entries = [
+    entry('2024-03-01', 3, 6, 1),
+    entry('2024-02-29', 5, 0, 0),
+    entry('2024-02-28', 1, 8, 2),
+    entry('2024-02-27', 4, 7, 1.5),
+  ];
+  const original = JSON.stringify(entries);
+  const statistics = calculatePeriodStatistics(entries, '2024-02-28', '2024-03-01');
+
+  assert.deepEqual(JSON.parse(JSON.stringify(statistics)), {
+    startDate: '2024-02-28',
+    endDate: '2024-03-01',
+    recordedDayCount: 3,
+    calendarDayCount: 3,
+    metrics: {
+      mood: { average: 3, minimum: 1, maximum: 5 },
+      sleep: { average: 14 / 3, minimum: 0, maximum: 8 },
+      water: { average: 1, minimum: 0, maximum: 2 },
+    },
+  });
+  assert.equal(statistics.metrics.sleep.average, 14 / 3);
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('calculatePeriodStatistics distinguishes empty, missing, and single-observation periods', () => {
+  const entries = [entry('2025-01-15', 4, 0, 0)];
+  const empty = calculatePeriodStatistics(entries, '2025-01-01', '2025-01-14');
+  assert.deepEqual(JSON.parse(JSON.stringify(empty)), {
+    startDate: '2025-01-01',
+    endDate: '2025-01-14',
+    recordedDayCount: 0,
+    calendarDayCount: 14,
+    metrics: {
+      mood: { average: null, minimum: null, maximum: null },
+      sleep: { average: null, minimum: null, maximum: null },
+      water: { average: null, minimum: null, maximum: null },
+    },
+  });
+
+  const single = calculatePeriodStatistics(entries, '2025-01-15', '2025-01-15');
+  assert.equal(single.recordedDayCount, 1);
+  assert.equal(single.calendarDayCount, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(single.metrics)), {
+    mood: { average: 4, minimum: 4, maximum: 4 },
+    sleep: { average: 0, minimum: 0, maximum: 0 },
+    water: { average: 0, minimum: 0, maximum: 0 },
+  });
+});
+
+test('calculatePeriodStatistics supports leap days and supported calendar-year boundaries', () => {
+  const lowYear = calculatePeriodStatistics(
+    [entry('0000-02-29', 2, 6, 1)], '0000-02-28', '0000-03-01'
+  );
+  assert.equal(lowYear.calendarDayCount, 3);
+  assert.equal(lowYear.recordedDayCount, 1);
+  assert.equal(lowYear.metrics.mood.average, 2);
+
+  const earlyYear = calculatePeriodStatistics(
+    [entry('0099-02-28', 3, 7, 1.5)], '0099-02-28', '0099-03-01'
+  );
+  assert.equal(earlyYear.calendarDayCount, 2);
+  assert.equal(earlyYear.metrics.sleep.maximum, 7);
+
+  const upperYear = calculatePeriodStatistics(
+    [entry('9999-12-31', 5, 8, 2.5)], '9999-12-31', '9999-12-31'
+  );
+  assert.equal(upperYear.calendarDayCount, 1);
+  assert.equal(upperYear.metrics.water.average, 2.5);
+});
+
+test('calculatePeriodStatistics rejects invalid and reversed ranges', () => {
+  const entries = [entry('2025-01-01', 3, 6, 1)];
+  assert.throws(
+    () => calculatePeriodStatistics(entries, '2025-02-30', '2025-03-01'),
+    error => error.name === 'RangeError'
+  );
+  assert.throws(
+    () => calculatePeriodStatistics(entries, '2025-01-02', '2025-01-01'),
+    error => error.name === 'RangeError' && /on or after/.test(error.message)
+  );
+});
+
+test('comparePeriodStatistics reports second-minus-first differences without treating empty periods as zero', () => {
+  const entries = [
+    entry('2024-01-01', 1, 0, 0),
+    entry('2024-01-02', 3, 4, 1),
+    entry('2024-02-01', 4, 8, 2),
+    entry('2024-02-03', 2, 2, 0),
+  ];
+  const original = JSON.stringify(entries);
+  const firstRange = { startDate: '2024-01-01', endDate: '2024-01-02' };
+  const secondRange = { startDate: '2024-02-01', endDate: '2024-02-03' };
+  const comparison = comparePeriodStatistics(entries, firstRange, secondRange);
+
+  assert.equal(comparison.firstPeriod.calendarDayCount, 2);
+  assert.equal(comparison.secondPeriod.calendarDayCount, 3);
+  assert.equal(comparison.firstPeriod.recordedDayCount, 2);
+  assert.equal(comparison.secondPeriod.recordedDayCount, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(comparison.differences)), {
+    recordedDayCount: 0,
+    metrics: {
+      mood: { average: 1 },
+      sleep: { average: 3 },
+      water: { average: 0.5 },
+    },
+  });
+  const reversed = comparePeriodStatistics(entries, secondRange, firstRange);
+  assert.deepEqual(JSON.parse(JSON.stringify(reversed.differences)), {
+    recordedDayCount: 0,
+    metrics: {
+      mood: { average: -1 },
+      sleep: { average: -3 },
+      water: { average: -0.5 },
+    },
+  });
+  const same = comparePeriodStatistics(entries, firstRange, firstRange);
+  assert.deepEqual(JSON.parse(JSON.stringify(same.differences)), {
+    recordedDayCount: 0,
+    metrics: {
+      mood: { average: 0 },
+      sleep: { average: 0 },
+      water: { average: 0 },
+    },
+  });
+  const emptyComparison = comparePeriodStatistics(entries, {
+    startDate: '2024-03-01', endDate: '2024-03-02',
+  }, secondRange);
+  assert.equal(emptyComparison.differences.recordedDayCount, 2);
+  assert.equal(emptyComparison.differences.metrics.mood.average, null);
+  assert.equal(emptyComparison.differences.metrics.sleep.average, null);
+  assert.equal(emptyComparison.differences.metrics.water.average, null);
+  const bothEmpty = comparePeriodStatistics(entries, {
+    startDate: '2024-03-01', endDate: '2024-03-02',
+  }, {
+    startDate: '2024-04-01', endDate: '2024-04-02',
+  });
+  assert.equal(bothEmpty.differences.recordedDayCount, 0);
+  assert.equal(bothEmpty.differences.metrics.mood.average, null);
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('comparePeriodStatistics validates both range objects and matches monthly aggregation averages', () => {
+  const entries = [
+    entry('2024-01-01', 2, 0, 0),
+    entry('2024-01-07', 4, 8, 2),
+    entry('2024-02-29', 5, 3, 1),
+  ];
+  const january = { startDate: '2024-01-01', endDate: '2024-01-31' };
+  const february = { startDate: '2024-02-01', endDate: '2024-02-29' };
+  const comparison = comparePeriodStatistics(entries, january, february);
+  const moodMonths = buildAggregatedYearSeries(entries, 'mood', 2024, 'monthly');
+  const sleepMonths = buildAggregatedYearSeries(entries, 'sleep', 2024, 'monthly');
+  const waterMonths = buildAggregatedYearSeries(entries, 'water', 2024, 'monthly');
+
+  assert.equal(comparison.firstPeriod.metrics.mood.average, moodMonths.points[0].value);
+  assert.equal(comparison.secondPeriod.metrics.mood.average, moodMonths.points[1].value);
+  assert.equal(comparison.firstPeriod.metrics.sleep.average, sleepMonths.points[0].value);
+  assert.equal(comparison.secondPeriod.metrics.sleep.average, sleepMonths.points[1].value);
+  assert.equal(comparison.firstPeriod.metrics.water.average, waterMonths.points[0].value);
+  assert.equal(comparison.secondPeriod.metrics.water.average, waterMonths.points[1].value);
+  assert.throws(
+    () => comparePeriodStatistics(entries, null, february),
+    error => error.name === 'RangeError' && /First period/.test(error.message)
+  );
+  assert.throws(
+    () => comparePeriodStatistics(entries, january, {
+      startDate: '2024-02-30', endDate: '2024-02-31',
+    }),
     error => error.name === 'RangeError'
   );
 });

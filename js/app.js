@@ -648,6 +648,7 @@
     }
 
     function renderHistoryTrendsForCurrentState() {
+      const chartDisplay = getActiveTrendDisplay();
       renderHistoryTrends(entries, {
         activeView: historyView,
         trendDayCount,
@@ -672,7 +673,8 @@
         comparisonSecondYearNavigation: getYearNavigationState(comparisonTrendDraftSecond),
         comparisonShortcuts: getComparisonShortcutState(),
         appliedTrendComparison,
-        chartDisplay: getActiveTrendDisplay(),
+        chartDisplay,
+        statisticsDisplay: getActiveTrendStatistics(chartDisplay),
         calendar: getCalendarRenderState(false),
       });
     }
@@ -690,7 +692,9 @@
       trendMode = 'preset';
       trendDayCount = dayCount;
       activeTrendDisplay = { type: 'preset', dayCount };
+      const chartDisplay = getActiveTrendDisplay();
       renderCharts(entries, trendDayCount, localDateString(new Date()), null, trendMode);
+      renderActiveTrendStatistics(chartDisplay);
       renderComparisonTrendControls({ trendMode });
     }
 
@@ -1050,6 +1054,59 @@
         endDate: localDateString(new Date()),
         customRange: null,
       };
+    }
+
+    function getActiveTrendStatistics(display) {
+      if (display.type === 'comparison' && appliedTrendComparison) {
+        const comparison = appliedTrendComparison;
+        const firstRange = comparison.type === 'month'
+          ? getCalendarMonthRange(comparison.first.year, comparison.first.monthIndex)
+          : getCalendarYearRange(comparison.first);
+        const secondRange = comparison.type === 'month'
+          ? getCalendarMonthRange(comparison.second.year, comparison.second.monthIndex)
+          : getCalendarYearRange(comparison.second);
+        return {
+          type: 'comparison',
+          firstPeriodLabel: display.periodLabels.firstPeriodLabel,
+          secondPeriodLabel: display.periodLabels.secondPeriodLabel,
+          statistics: comparePeriodStatistics(entries, firstRange, secondRange),
+        };
+      }
+
+      let startDate;
+      let endDate;
+      let label;
+      if (display.customRange) {
+        startDate = display.customRange.startDate;
+        endDate = display.customRange.endDate;
+        if (display.customRange.type === 'month') {
+          label = 'Calendar month ' + formatComparisonPeriodLabel(
+            'month', display.customRange.month || startDate.slice(0, 7)
+          );
+        } else if (display.customRange.type === 'year') {
+          label = 'Calendar year ' + String(display.customRange.year).padStart(4, '0');
+        } else {
+          label = 'Custom date range';
+        }
+      } else {
+        endDate = display.endDate;
+        startDate = addCalendarDays(endDate, 1 - display.dayCount);
+        label = 'Last ' + display.dayCount + ' calendar days';
+      }
+      return {
+        type: 'period',
+        label,
+        statistics: calculatePeriodStatistics(entries, startDate, endDate),
+      };
+    }
+
+    function renderActiveTrendStatistics(display) {
+      const statisticsDisplay = getActiveTrendStatistics(display);
+      if (statisticsDisplay.type === 'comparison') {
+        renderComparisonStatistics(statisticsDisplay);
+      } else {
+        renderPeriodStatistics(statisticsDisplay);
+      }
     }
 
     function resolveCustomTrendPeriod(type, startDate, endDate, month, year, resolution) {

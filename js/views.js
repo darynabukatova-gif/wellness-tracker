@@ -1236,6 +1236,172 @@
       }
     }
 
+    function formatStatisticValue(value, unit) {
+      if (value === null) return '—';
+      return value.toFixed(1) + (unit ? ' ' + unit : '');
+    }
+
+    function formatStatisticDifference(value, unit) {
+      if (value === null) return '—';
+      if (value === 0) return '0' + (unit ? ' ' + unit : '');
+      return (value > 0 ? '+' : '−') + Math.abs(value).toFixed(1) +
+        (unit ? ' ' + unit : '');
+    }
+
+    function formatStatisticCountDifference(value) {
+      if (value === 0) return '0';
+      return (value > 0 ? '+' : '−') + String(Math.abs(value));
+    }
+
+    function appendStatisticsCell(row, text, header) {
+      const cell = document.createElement(header ? 'th' : 'td');
+      if (header) cell.setAttribute('scope', 'row');
+      cell.textContent = text;
+      row.appendChild(cell);
+    }
+
+    function appendStatisticsTable(container, className, captionText, headers, rows) {
+      const frame = document.createElement('div');
+      frame.className = 'trend-statistics-table-wrap';
+      const table = document.createElement('table');
+      table.className = 'trend-statistics-table ' + className;
+      const caption = document.createElement('caption');
+      caption.textContent = captionText;
+      table.appendChild(caption);
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      headers.forEach(function (label) {
+        const cell = document.createElement('th');
+        cell.setAttribute('scope', 'col');
+        cell.textContent = label;
+        headerRow.appendChild(cell);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      rows.forEach(function (rowValues) {
+        const row = document.createElement('tr');
+        rowValues.forEach(function (value, index) {
+          appendStatisticsCell(row, value, index === 0);
+        });
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      frame.appendChild(table);
+      container.appendChild(frame);
+    }
+
+    function renderPeriodStatistics(statisticsDisplay) {
+      const container = document.getElementById('trend-statistics');
+      if (!container) return;
+      container.replaceChildren();
+      if (!statisticsDisplay) return;
+
+      const statistics = statisticsDisplay.statistics;
+      const heading = document.createElement('h3');
+      heading.textContent = 'Period statistics';
+      container.appendChild(heading);
+      const description = document.createElement('p');
+      description.textContent = statisticsDisplay.label + ': ' + statistics.startDate + ' to ' +
+        statistics.endDate + '. Averages use recorded days only.';
+      container.appendChild(description);
+      const coverage = document.createElement('p');
+      coverage.className = 'trend-statistics-coverage';
+      coverage.textContent = statistics.recordedDayCount + ' recorded ' +
+        (statistics.recordedDayCount === 1 ? 'day' : 'days') + ' out of ' +
+        statistics.calendarDayCount + ' calendar ' +
+        (statistics.calendarDayCount === 1 ? 'day.' : 'days.');
+      container.appendChild(coverage);
+      appendStatisticsTable(
+        container,
+        'trend-period-statistics-table',
+        'Statistics for the applied chart period.',
+        ['Metric', 'Average', 'Minimum', 'Maximum'],
+        [
+          ['Mood (score)', formatStatisticValue(statistics.metrics.mood.average, ''),
+            formatStatisticValue(statistics.metrics.mood.minimum, ''),
+            formatStatisticValue(statistics.metrics.mood.maximum, '')],
+          ['Sleep', formatStatisticValue(statistics.metrics.sleep.average, 'h'),
+            formatStatisticValue(statistics.metrics.sleep.minimum, 'h'),
+            formatStatisticValue(statistics.metrics.sleep.maximum, 'h')],
+          ['Water', formatStatisticValue(statistics.metrics.water.average, 'L'),
+            formatStatisticValue(statistics.metrics.water.minimum, 'L'),
+            formatStatisticValue(statistics.metrics.water.maximum, 'L')],
+        ]
+      );
+    }
+
+    function renderComparisonStatistics(statisticsDisplay) {
+      const container = document.getElementById('trend-statistics');
+      if (!container) return;
+      container.replaceChildren();
+      if (!statisticsDisplay) return;
+
+      const statistics = statisticsDisplay.statistics;
+      const first = statistics.firstPeriod;
+      const second = statistics.secondPeriod;
+      const firstLabel = statisticsDisplay.firstPeriodLabel;
+      const secondLabel = statisticsDisplay.secondPeriodLabel;
+      const heading = document.createElement('h3');
+      heading.textContent = 'Comparison statistics';
+      container.appendChild(heading);
+      const description = document.createElement('p');
+      description.textContent = 'Comparing ' + firstLabel + ' with ' + secondLabel +
+        '. Differences are second period minus first period. Averages use recorded days only.';
+      container.appendChild(description);
+      appendStatisticsTable(
+        container,
+        'trend-comparison-statistics-coverage-table',
+        'Recorded-day coverage for the comparison periods.',
+        ['Period', 'Recorded days', 'Calendar days', 'Recorded-day difference (second − first)'],
+        [
+          [firstLabel, String(first.recordedDayCount), String(first.calendarDayCount), '—'],
+          [secondLabel, String(second.recordedDayCount), String(second.calendarDayCount),
+            formatStatisticCountDifference(statistics.differences.recordedDayCount)],
+        ]
+      );
+      appendStatisticsTable(
+        container,
+        'trend-comparison-statistics-table',
+        'Average values and differences for the comparison periods.',
+        ['Metric', firstLabel + ' average', secondLabel + ' average', 'Difference (second − first)'],
+        [
+          ['Mood (score)', formatStatisticValue(first.metrics.mood.average, ''),
+            formatStatisticValue(second.metrics.mood.average, ''),
+            formatStatisticDifference(statistics.differences.metrics.mood.average, '')],
+          ['Sleep', formatStatisticValue(first.metrics.sleep.average, 'h'),
+            formatStatisticValue(second.metrics.sleep.average, 'h'),
+            formatStatisticDifference(statistics.differences.metrics.sleep.average, 'h')],
+          ['Water', formatStatisticValue(first.metrics.water.average, 'L'),
+            formatStatisticValue(second.metrics.water.average, 'L'),
+            formatStatisticDifference(statistics.differences.metrics.water.average, 'L')],
+        ]
+      );
+      const extremes = document.createElement('details');
+      extremes.className = 'trend-statistics-extremes';
+      const summary = document.createElement('summary');
+      summary.textContent = 'Show minimum and maximum values';
+      extremes.appendChild(summary);
+      appendStatisticsTable(
+        extremes,
+        'trend-comparison-statistics-extremes-table',
+        'Minimum and maximum values for the comparison periods.',
+        ['Metric', firstLabel + ' minimum', firstLabel + ' maximum', secondLabel + ' minimum', secondLabel + ' maximum'],
+        [
+          ['Mood (score)', formatStatisticValue(first.metrics.mood.minimum, ''),
+            formatStatisticValue(first.metrics.mood.maximum, ''), formatStatisticValue(second.metrics.mood.minimum, ''),
+            formatStatisticValue(second.metrics.mood.maximum, '')],
+          ['Sleep', formatStatisticValue(first.metrics.sleep.minimum, 'h'),
+            formatStatisticValue(first.metrics.sleep.maximum, 'h'), formatStatisticValue(second.metrics.sleep.minimum, 'h'),
+            formatStatisticValue(second.metrics.sleep.maximum, 'h')],
+          ['Water', formatStatisticValue(first.metrics.water.minimum, 'L'),
+            formatStatisticValue(first.metrics.water.maximum, 'L'), formatStatisticValue(second.metrics.water.minimum, 'L'),
+            formatStatisticValue(second.metrics.water.maximum, 'L')],
+        ]
+      );
+      container.appendChild(extremes);
+    }
+
     /* ── Calendar ────────────────────────────────────────────────── */
 
     function formatCalendarMonth(year, monthIndex) {
@@ -1358,7 +1524,7 @@
     }
 
     function renderHistoryTrends(entries, viewState) {
-      const { activeView, trendDayCount, trendEndDate, trendMode, appliedCustomTrendRange, chartDisplay, calendar } = viewState;
+      const { activeView, trendDayCount, trendEndDate, trendMode, appliedCustomTrendRange, chartDisplay, statisticsDisplay, calendar } = viewState;
       const chartsPanel = document.getElementById('history-charts-panel');
       const calendarPanel = document.getElementById('history-calendar-panel');
       const chartsButton = document.getElementById('history-view-charts');
@@ -1397,6 +1563,11 @@
         }
       } else {
         renderCharts(entries, display.dayCount, display.endDate, display.customRange, trendMode);
+      }
+      if (statisticsDisplay && statisticsDisplay.type === 'comparison') {
+        renderComparisonStatistics(statisticsDisplay);
+      } else {
+        renderPeriodStatistics(statisticsDisplay);
       }
       renderCustomTrendControls(viewState);
       renderComparisonTrendControls(viewState);

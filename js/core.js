@@ -478,12 +478,125 @@
      *                  not modified or copied.
      * @throws {RangeError} When the requested range is invalid.
      */
+    function filterEntriesInValidatedDateRange(entries, range) {
+      return entries.filter(function (entry) {
+        return entry.date >= range.startDate && entry.date <= range.endDate;
+      });
+    }
+
     function filterEntriesByDateRange(entries, startDate, endDate) {
       const range = validateCalendarDateRange(startDate, endDate);
       if (!range.ok) throw new RangeError(range.error);
-      return sortByDateDesc(entries.filter(function (entry) {
-        return entry.date >= range.startDate && entry.date <= range.endDate;
-      }));
+      return sortByDateDesc(filterEntriesInValidatedDateRange(entries, range));
+    }
+
+    function calculateMetricStatistics(entries, metric) {
+      if (entries.length === 0) {
+        return { average: null, minimum: null, maximum: null };
+      }
+
+      let total = 0;
+      let minimum = entries[0][metric];
+      let maximum = entries[0][metric];
+      entries.forEach(function (entry) {
+        const value = entry[metric];
+        total += value;
+        if (value < minimum) minimum = value;
+        if (value > maximum) maximum = value;
+      });
+      return {
+        average: total / entries.length,
+        minimum,
+        maximum,
+      };
+    }
+
+    /**
+     * calculatePeriodStatistics(entries, startDate, endDate)
+     *
+     * Calculates unrounded descriptive statistics from saved observations in
+     * an inclusive local-calendar range. Missing calendar dates are not
+     * observations and therefore never contribute zero values. A genuine
+     * stored zero remains an ordinary numeric value.
+     *
+     * @returns {{startDate: string, endDate: string, recordedDayCount: number,
+     *            calendarDayCount: number, metrics: {
+     *              mood: {average: number|null, minimum: number|null, maximum: number|null},
+     *              sleep: {average: number|null, minimum: number|null, maximum: number|null},
+     *              water: {average: number|null, minimum: number|null, maximum: number|null}
+     *            }}}
+     * @throws {RangeError} When the requested date range is invalid.
+     */
+    function calculatePeriodStatistics(entries, startDate, endDate) {
+      const range = validateCalendarDateRange(startDate, endDate);
+      if (!range.ok) throw new RangeError(range.error);
+      const recordedEntries = filterEntriesInValidatedDateRange(entries, range);
+
+      return {
+        startDate: range.startDate,
+        endDate: range.endDate,
+        recordedDayCount: recordedEntries.length,
+        calendarDayCount: range.dayCount,
+        metrics: {
+          mood: calculateMetricStatistics(recordedEntries, 'mood'),
+          sleep: calculateMetricStatistics(recordedEntries, 'sleep'),
+          water: calculateMetricStatistics(recordedEntries, 'water'),
+        },
+      };
+    }
+
+    function validateStatisticsRange(range, label) {
+      if (!range || typeof range !== 'object') {
+        throw new RangeError(label + ' period must provide startDate and endDate.');
+      }
+      const result = validateCalendarDateRange(range.startDate, range.endDate);
+      if (!result.ok) throw new RangeError(result.error);
+      return result;
+    }
+
+    /**
+     * comparePeriodStatistics(entries, firstRange, secondRange)
+     *
+     * Calculates statistics for two inclusive local-calendar periods. Every
+     * difference is second period minus first period. Average differences are
+     * null whenever either period has no recorded observations, so a missing
+     * average is never misrepresented as zero.
+     *
+     * @param {Array} entries Valid saved entries; never mutated.
+     * @param {{startDate: string, endDate: string}} firstRange
+     * @param {{startDate: string, endDate: string}} secondRange
+     * @returns {{firstPeriod: Object, secondPeriod: Object, differences: {
+     *   recordedDayCount: number,
+     *   metrics: {mood: {average: number|null}, sleep: {average: number|null},
+     *             water: {average: number|null}}
+     * }}}
+     * @throws {RangeError} When either range is invalid.
+     */
+    function comparePeriodStatistics(entries, firstRange, secondRange) {
+      const first = validateStatisticsRange(firstRange, 'First');
+      const second = validateStatisticsRange(secondRange, 'Second');
+      const firstPeriod = calculatePeriodStatistics(entries, first.startDate, first.endDate);
+      const secondPeriod = calculatePeriodStatistics(entries, second.startDate, second.endDate);
+      const averageDifference = function (metric) {
+        const firstAverage = firstPeriod.metrics[metric].average;
+        const secondAverage = secondPeriod.metrics[metric].average;
+        return firstAverage === null || secondAverage === null
+          ? null
+          : secondAverage - firstAverage;
+      };
+
+      return {
+        firstPeriod,
+        secondPeriod,
+        differences: {
+          recordedDayCount: secondPeriod.recordedDayCount - firstPeriod.recordedDayCount,
+          metrics: {
+            mood: { average: averageDifference('mood') },
+            sleep: { average: averageDifference('sleep') },
+            water: { average: averageDifference('water') },
+          },
+        },
+      };
     }
 
     function validateTrendMetric(metric) {

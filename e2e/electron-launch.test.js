@@ -1468,3 +1468,54 @@ test('Electron E2E: swaps and prepares comparison shortcuts without applying ear
     await finishIsolatedTest(applications, temporaryDirectory, testFailure);
   }
 });
+
+test('Electron E2E: displays applied period and comparison statistics from committed entries', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    await createEntryThroughForm(window, { date: '2024-01-01', mood: 2, sleep: 0, water: 0 });
+    await createEntryThroughForm(window, { date: '2024-01-02', mood: 4, sleep: 8, water: 2 });
+    await createEntryThroughForm(window, { date: '2025-01-01', mood: 5, sleep: 6, water: 1 });
+
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="custom"]').click();
+    await window.locator('#trend-custom-type').selectOption('year');
+    await window.locator('#trend-custom-year').fill('2024');
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-statistics').filter({ hasText: 'Period statistics' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await window.locator('#trend-statistics').textContent(),
+      /2 recorded days out of 366 calendar days/);
+    const periodRows = window.locator('#trend-statistics tbody tr');
+    assert.deepEqual(await periodRows.nth(1).locator('th, td').allTextContents(), ['Sleep', '4.0 h', '0.0 h', '8.0 h']);
+    assert.deepEqual(await periodRows.nth(2).locator('th, td').allTextContents(), ['Water', '1.0 L', '0.0 L', '2.0 L']);
+
+    await window.locator('#trend-custom-year').fill('2025');
+    assert.match(await window.locator('#trend-statistics').textContent(), /2024-01-01 to 2024-12-31/);
+
+    await window.locator('.trend-period-btn[data-trend-days="compare"]').click();
+    await window.locator('#trend-comparison-type').selectOption('year');
+    await window.locator('#trend-comparison-first-year').fill('2024');
+    await window.locator('#trend-comparison-second-year').fill('2025');
+    await window.locator('#apply-trend-comparison-btn').click();
+    await window.locator('#trend-statistics').filter({ hasText: 'Comparison statistics' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await window.locator('#trend-statistics').textContent(), /Differences are second period minus first period/);
+    const comparisonTables = window.locator('#trend-statistics table');
+    const comparisonRows = comparisonTables.nth(1).locator('tbody tr');
+    assert.deepEqual(await comparisonRows.nth(1).locator('th, td').allTextContents(), ['Sleep', '4.0 h', '6.0 h', '+2.0 h']);
+    assert.deepEqual(await comparisonRows.nth(2).locator('th, td').allTextContents(), ['Water', '1.0 L', '1.0 L', '0 L']);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
