@@ -31,6 +31,7 @@
     let customTrendDraftEnd = '';
     let customTrendDraftMonth = '';
     let customTrendDraftYear = '';
+    let customTrendDraftResolution = 'daily';
     let appliedCustomTrendRange = null;
     let comparisonTrendType = 'month';
     let comparisonTrendDraftFirst = '';
@@ -39,10 +40,243 @@
     let appliedTrendComparison = null;
     let activeTrendDisplay = { type: 'preset', dayCount: 30 };
     let appliedHistoryRange = null;
+    let historyPage = 1;
+    const HISTORY_PAGE_SIZE = 25;
+    const selectedTrendPoints = { mood: null, sleep: null, water: null };
     let pendingImport = null;
+    let pendingMergePreview = null;
     let importReading = false;
+    let pendingUndoEntry = null;
     const MAX_BACKUP_FILE_BYTES = 5 * 1024 * 1024;
-    const HISTORY_RESULT_LIMIT = 100;
+
+    function clearTrendPointSelections() {
+      selectedTrendPoints.mood = null;
+      selectedTrendPoints.sleep = null;
+      selectedTrendPoints.water = null;
+    }
+
+    function setTrendPointVisual(point, selected) {
+      if (!point) return;
+      if (selected) point.setAttribute('data-selected', 'true');
+      else if (typeof point.removeAttribute === 'function') point.removeAttribute('data-selected');
+    }
+
+    function clearTrendPointVisuals(metric) {
+      const card = document.querySelector(
+        '.trend-chart-card[data-metric="' + metric + '"]'
+      );
+      if (!card || typeof card.querySelectorAll !== 'function') return;
+      card.querySelectorAll('[data-interactive-point="true"]').forEach(function (point) {
+        setTrendPointVisual(point, false);
+      });
+    }
+
+    function getTrendPointDetail(point) {
+      if (!point || !point.dataset || !point.dataset.metric) return null;
+      const detail = {
+        type: point.dataset.pointType === 'aggregated' ? 'aggregated' : 'daily',
+        metric: point.dataset.metric,
+        series: point.dataset.comparisonSeries || null,
+        key: point.dataset.periodKey || null,
+        date: point.dataset.date || null,
+        label: point.dataset.periodLabel || point.dataset.periodKey || null,
+        seriesLabel: point.dataset.seriesLabel || null,
+        startDate: point.dataset.startDate || null,
+        endDate: point.dataset.endDate || null,
+        value: point.dataset.value === undefined ? null : Number(point.dataset.value),
+        recordedDayCount: point.dataset.recordedDayCount === undefined
+          ? null : Number(point.dataset.recordedDayCount),
+        calendarDayCount: point.dataset.calendarDayCount === undefined
+          ? null : Number(point.dataset.calendarDayCount),
+      };
+      return detail.type === 'daily' && !detail.date ? null : detail;
+    }
+
+    function positionTrendPointTooltip(point) {
+      const tooltip = document.getElementById('trend-point-details-' + point.dataset.metric);
+      const card = point.closest('.trend-chart-card');
+      if (!tooltip || !card || typeof point.getBoundingClientRect !== 'function' ||
+          typeof card.getBoundingClientRect !== 'function' ||
+          typeof tooltip.getBoundingClientRect !== 'function') return;
+
+      const pointRect = point.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      const viewportWidth = (window.innerWidth || document.documentElement.clientWidth || cardRect.width);
+      const viewportHeight = (window.innerHeight || document.documentElement.clientHeight || 0);
+      const margin = 8;
+      const pointX = pointRect.left - cardRect.left + pointRect.width / 2;
+      const pointTop = pointRect.top - cardRect.top;
+      const pointBottom = pointRect.bottom - cardRect.top;
+
+      // Keep the tooltip's containing block local to the card, but use its
+      // viewport rectangle to account for page and ancestor scrolling.
+      tooltip.style.maxWidth = Math.max(160, viewportWidth - margin * 2) + 'px';
+      tooltip.style.transform = 'none';
+      tooltip.classList.remove('is-below');
+      tooltip.style.left = pointX + 'px';
+      tooltip.style.top = Math.max(margin, pointTop - margin) + 'px';
+      let tooltipRect = tooltip.getBoundingClientRect();
+      let left = pointX - tooltipRect.width / 2;
+      let top = pointTop - tooltipRect.height - margin;
+      const fitsAbove = cardRect.top + top >= margin;
+      const belowTop = pointBottom + margin;
+      const fitsBelow = viewportHeight === 0 || cardRect.top + belowTop + tooltipRect.height <= viewportHeight - margin;
+
+      if (!fitsAbove && fitsBelow) {
+        top = belowTop;
+        tooltip.classList.add('is-below');
+      }
+      tooltip.style.left = left + 'px';
+      tooltip.style.top = top + 'px';
+      tooltipRect = tooltip.getBoundingClientRect();
+      left += Math.max(margin - tooltipRect.left, 0);
+      left -= Math.max(tooltipRect.right - (viewportWidth - margin), 0);
+      if (viewportHeight > 0) {
+        top += Math.max(margin - tooltipRect.top, 0);
+        top -= Math.max(tooltipRect.bottom - (viewportHeight - margin), 0);
+      }
+      tooltip.style.left = left + 'px';
+      tooltip.style.top = top + 'px';
+    }
+
+    function repositionOpenTrendTooltips() {
+      ['mood', 'sleep', 'water'].forEach(function (metric) {
+        const selection = selectedTrendPoints[metric];
+        if (!selection) return;
+        const points = getInteractiveTrendPoints(metric, selection.series);
+        const point = points.find(function (candidate) {
+          return candidate.dataset.pointIndex === selection.index;
+        });
+        if (point) positionTrendPointTooltip(point);
+      });
+    }
+
+    function selectTrendPoint(point, pinned) {
+      const detail = getTrendPointDetail(point);
+      if (!detail) return { ok: false, reason: 'invalid-point' };
+      clearTrendPointVisuals(detail.metric);
+      selectedTrendPoints[detail.metric] = {
+        series: detail.series,
+        index: point.dataset.pointIndex,
+        pinned: pinned !== false,
+      };
+      if (detail.series) {
+        const seriesSelect = document.getElementById(
+          'trend-comparison-series-' + detail.metric
+        );
+        if (seriesSelect) seriesSelect.value = detail.series;
+      }
+      renderTrendPointDetails(detail.metric, detail, pinned !== false);
+      setTrendPointVisual(point, true);
+      positionTrendPointTooltip(point);
+      return { ok: true, detail };
+    }
+
+    function hideTrendPointTooltip(metric) {
+      const selection = selectedTrendPoints[metric];
+      if (selection && selection.pinned) return;
+      clearTrendPointVisuals(metric);
+      selectedTrendPoints[metric] = null;
+      renderTrendPointDetails(metric, null);
+    }
+
+    function closePinnedTrendTooltips() {
+      ['mood', 'sleep', 'water'].forEach(function (metric) {
+        clearTrendPointVisuals(metric);
+        selectedTrendPoints[metric] = null;
+        renderTrendPointDetails(metric, null);
+      });
+    }
+
+    function getInteractiveTrendPoints(metric, series) {
+      const card = document.querySelector(
+        '.trend-chart-card[data-metric="' + metric + '"]'
+      );
+      if (!card || typeof card.querySelectorAll !== 'function') return [];
+      return Array.from(card.querySelectorAll('[data-interactive-point="true"]'))
+        .filter(function (point) {
+          return !series || point.dataset.comparisonSeries === series;
+        });
+    }
+
+    function getTrendExplorerSeries(metric) {
+      const seriesSelect = document.getElementById('trend-comparison-series-' + metric);
+      return seriesSelect ? seriesSelect.value : null;
+    }
+
+    function moveTrendPointSelection(metric, offset, series) {
+      const points = getInteractiveTrendPoints(metric, series);
+      if (points.length === 0) return { ok: false, reason: 'no-recorded-points' };
+      const current = selectedTrendPoints[metric];
+      let currentIndex = points.findIndex(function (point) {
+        return current && point.dataset.pointIndex === current.index &&
+          (point.dataset.comparisonSeries || null) === current.series;
+      });
+      if (currentIndex < 0) currentIndex = offset > 0 ? -1 : points.length;
+      const nextIndex = currentIndex + offset;
+      if (nextIndex < 0 || nextIndex >= points.length) {
+        return { ok: false, reason: 'boundary' };
+      }
+      return selectTrendPoint(points[nextIndex]);
+    }
+
+    function selectFirstTrendPoint(metric, series) {
+      const points = getInteractiveTrendPoints(metric, series);
+      return points.length > 0
+        ? selectTrendPoint(points[0])
+        : { ok: false, reason: 'no-recorded-points' };
+    }
+
+    function handleTrendPointKeydown(event) {
+      if (event.key === 'Escape') {
+        closePinnedTrendTooltips();
+        return;
+      }
+      const explorer = event.target.closest('.trend-chart-explorer');
+      if (!explorer || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
+      event.preventDefault();
+      const metric = explorer.dataset.chartExplorerMetric;
+      moveTrendPointSelection(
+        metric,
+        event.key === 'ArrowRight' ? 1 : -1,
+        getTrendExplorerSeries(metric)
+      );
+    }
+
+    function handleTrendPointSeriesChange(event) {
+      const selector = event.target.closest('.trend-comparison-series-select');
+      if (!selector) return;
+      const metric = selector.dataset.chartExplorerMetric;
+      clearTrendPointVisuals(metric);
+      selectedTrendPoints[metric] = null;
+      renderTrendPointDetails(metric, null);
+    }
+
+    function handleHistoryTrendsPointerOver(event) {
+      const point = event.target.closest('[data-interactive-point="true"]');
+      if (!point) return;
+      const selection = selectedTrendPoints[point.dataset.metric];
+      if (selection && selection.pinned) return;
+      selectTrendPoint(point, false);
+    }
+
+    function isWithinTrendPointInteraction(target, metric) {
+      if (!target || typeof target.closest !== 'function') return false;
+      const point = target.closest('[data-interactive-point="true"]');
+      if (point && point.dataset.metric === metric) return true;
+      const tooltip = target.closest('.trend-point-tooltip');
+      return Boolean(tooltip && tooltip.dataset.metric === metric);
+    }
+
+    function handleHistoryTrendsPointerOut(event) {
+      const point = event.target.closest('[data-interactive-point="true"]');
+      const tooltip = event.target.closest('.trend-point-tooltip');
+      const metric = point
+        ? point.dataset.metric
+        : (tooltip ? tooltip.dataset.metric : null);
+      if (!metric || isWithinTrendPointInteraction(event.relatedTarget, metric)) return;
+      hideTrendPointTooltip(metric);
+    }
 
     function getStorageAdapter() {
       if (window.wellnessStorage &&
@@ -80,8 +314,11 @@
       [
         '#entry-date', '#save-btn', '#cancel-edit-btn', '#erase-all-btn',
         '#export-backup-btn', '#import-backup-btn', '#import-backup-input',
+        '#preview-merge-backup-btn', '#merge-backup-input', '#merge-backup-btn', '#cancel-merge-preview-btn',
+        '#merge-keep-all-existing-btn', '#merge-use-all-backup-btn',
         '#entry-sleep', '#entry-water', '#sleep-minus', '#sleep-plus',
-        '#water-minus', '#water-plus'
+        '#water-minus', '#water-plus', '#copy-previous-values-btn',
+        '#edit-existing-entry-btn', '#undo-delete-btn'
       ].forEach(function (selector) {
         const control = document.querySelector(selector);
         if (control) control.disabled = disabled;
@@ -99,11 +336,46 @@
       if (replaceImportButton) {
         replaceImportButton.disabled = !pendingImport || busy || locked || importReading;
       }
+      const mergeButton = document.getElementById('merge-backup-btn');
+      const cancelMergeButton = document.getElementById('cancel-merge-preview-btn');
+      if (mergeButton) {
+        let mergeCandidate = null;
+        if (pendingMergePreview && !disabled) {
+          try {
+            mergeCandidate = buildBackupMergeCandidate(
+              entries,
+              pendingMergePreview.backup.entries,
+              pendingMergePreview.conflictResolutions
+            );
+          } catch (error) {
+            mergeCandidate = null;
+          }
+        }
+        mergeButton.disabled = !mergeCandidate || !mergeCandidate.ok || disabled;
+      }
+      if (cancelMergeButton) {
+        cancelMergeButton.disabled = !pendingMergePreview || busy || locked || importReading;
+      }
+      const previousMergePageButton = document.getElementById('merge-preview-new-prev');
+      const nextMergePageButton = document.getElementById('merge-preview-new-next');
+      if (pendingMergePreview && !disabled) {
+        const pageState = paginateEntries(
+          pendingMergePreview.analysis.newEntries,
+          pendingMergePreview.newEntriesPage,
+          25
+        );
+        if (previousMergePageButton) previousMergePageButton.disabled = !pageState.hasPreviousPage;
+        if (nextMergePageButton) nextMergePageButton.disabled = !pageState.hasNextPage;
+      } else {
+        if (previousMergePageButton) previousMergePageButton.disabled = true;
+        if (nextMergePageButton) nextMergePageButton.disabled = true;
+      }
       if (!disabled) {
         updateSleepControl();
         updateWaterControl();
       }
       updateEraseAllBtn();
+      updateEntryDateControls();
     }
 
     function roundWater(value) {
@@ -150,6 +422,117 @@
       waterSelected = true;
       updateSleepControl();
       updateWaterControl();
+    }
+
+    function updateEntryDateControls() {
+      const dateInput = document.getElementById('entry-date');
+      const previousButton = document.getElementById('entry-date-prev');
+      const nextButton = document.getElementById('entry-date-next');
+      const copyButton = document.getElementById('copy-previous-values-btn');
+      const editButton = document.getElementById('edit-existing-entry-btn');
+      const status = document.getElementById('entry-date-status');
+      if (!dateInput || !previousButton || !nextButton || !copyButton || !editButton || !status) return;
+
+      let validDate = false;
+      try {
+        validDate = validateCalendarDateRange(dateInput.value, dateInput.value).ok;
+      } catch (error) {
+        validDate = false;
+      }
+      const navigationDate = validDate ? dateInput.value : localDateString(new Date());
+      const atFirstDate = navigationDate === '0000-01-01';
+      const atLastDate = navigationDate === '9999-12-31';
+      const blocked = isMutationBlocked();
+      const editing = editingDate !== null;
+
+      previousButton.disabled = blocked || editing || atFirstDate;
+      nextButton.disabled = blocked || editing || atLastDate;
+      copyButton.disabled = true;
+      editButton.hidden = true;
+
+      if (!validDate) {
+        status.textContent = 'Enter a valid calendar date to check for a saved entry.';
+        return;
+      }
+
+      const existing = getEntryByDate(entries, dateInput.value);
+      if (existing) {
+        status.textContent = editing
+          ? 'Editing the saved entry for ' + dateInput.value + '.'
+          : 'An entry is already saved for ' + dateInput.value + '. Choose Edit existing entry to change it.';
+        editButton.hidden = editing;
+        editButton.setAttribute('aria-label', 'Edit existing entry for ' + dateInput.value);
+        editButton.disabled = blocked;
+      } else {
+        status.textContent = 'No entry is saved for ' + dateInput.value + '. You can create one.';
+      }
+
+      if (!existing && !editing && !blocked) {
+        const previous = findPreviousSavedEntry(entries, dateInput.value);
+        copyButton.disabled = previous === null;
+      }
+    }
+
+    function handleEntryDateInput() {
+      if (editingDate !== null) {
+        document.getElementById('entry-date').value = editingDate;
+        return;
+      }
+      clearFormError();
+      updateEntryDateControls();
+    }
+
+    function navigateEntryDate(offset) {
+      if (!Number.isInteger(offset) || offset === 0 || isMutationBlocked() || editingDate !== null) {
+        return { ok: false, reason: 'blocked' };
+      }
+      const dateInput = document.getElementById('entry-date');
+      let currentDate;
+      try {
+        currentDate = validateCalendarDateRange(dateInput.value, dateInput.value).ok
+          ? dateInput.value
+          : localDateString(new Date());
+      } catch (error) {
+        currentDate = localDateString(new Date());
+      }
+      if (offset < 0 && currentDate === '0000-01-01') return { ok: false, reason: 'boundary' };
+      if (offset > 0 && currentDate === '9999-12-31') return { ok: false, reason: 'boundary' };
+
+      const nextDate = addCalendarDays(currentDate, offset);
+      dateInput.value = nextDate;
+      clearFormError();
+      updateEntryDateControls();
+      return { ok: true, date: nextDate };
+    }
+
+    function copyPreviousValues() {
+      if (isMutationBlocked() || editingDate !== null) {
+        return { ok: false, reason: 'blocked' };
+      }
+      const date = document.getElementById('entry-date').value;
+      let previous;
+      try {
+        if (getEntryByDate(entries, date)) {
+          return { ok: false, reason: 'existing-entry' };
+        }
+        previous = findPreviousSavedEntry(entries, date);
+      } catch (error) {
+        return { ok: false, reason: 'invalid-date' };
+      }
+      if (!previous) {
+        const status = document.getElementById('entry-date-status');
+        status.textContent = 'No earlier saved entry is available to copy.';
+        return { ok: false, reason: 'no-previous-entry' };
+      }
+
+      document.querySelectorAll('input[name="mood"]').forEach(function (radio) {
+        radio.checked = Number(radio.value) === previous.mood;
+      });
+      setValueControlValues(previous.sleep, previous.water);
+      clearFormError();
+      document.getElementById('entry-date-status').textContent =
+        'Copied values from ' + previous.date + '. These values have not been saved.';
+      return { ok: true, sourceDate: previous.date };
     }
 
     function adjustValueControl(kind, direction) {
@@ -303,6 +686,67 @@
       el.classList.remove('is-visible');
     }
 
+    function showUndoStatus(text, undoAvailable) {
+      const status = document.getElementById('undo-delete-status');
+      const message = document.getElementById('undo-delete-message');
+      const button = document.getElementById('undo-delete-btn');
+      if (!status || !message || !button) return;
+      message.textContent = text;
+      status.classList.add('is-visible');
+      button.hidden = !undoAvailable;
+      button.disabled = !undoAvailable || isMutationBlocked();
+    }
+
+    function clearUndoStatus() {
+      const status = document.getElementById('undo-delete-status');
+      const message = document.getElementById('undo-delete-message');
+      const button = document.getElementById('undo-delete-btn');
+      if (!status || !message || !button) return;
+      message.textContent = '';
+      status.classList.remove('is-visible');
+      button.hidden = true;
+    }
+
+    async function handleUndoDeletion() {
+      if (!pendingUndoEntry || isMutationBlocked() || !storageAdapter) return;
+
+      let candidate;
+      try {
+        candidate = buildUndoDeletionCandidate(entries, pendingUndoEntry);
+      } catch (error) {
+        pendingUndoEntry = null;
+        showUndoStatus('Undo is no longer available because the deleted entry is invalid.', false);
+        return;
+      }
+      if (!candidate.ok) {
+        pendingUndoEntry = null;
+        showUndoStatus('Undo is no longer available because that date already contains an entry.', false);
+        return;
+      }
+
+      const restoredDate = pendingUndoEntry.date;
+      setBusyState(true);
+      let restored = false;
+      try {
+        const saved = await storageAdapter.saveEntries(candidate.entries);
+        if (!saved || !saved.ok) {
+          showUndoStatus('Could not restore the entry — storage may be unavailable. Please try Undo again.', true);
+          return;
+        }
+        entries = candidate.entries;
+        pendingUndoEntry = null;
+        invalidateMergePreview();
+        render();
+        showUndoStatus('Entry for ' + restoredDate + ' restored.', false);
+        restored = true;
+      } catch (error) {
+        showUndoStatus('Could not restore the entry — storage may be unavailable. Please try Undo again.', true);
+      } finally {
+        setBusyState(false);
+        if (restored) document.getElementById('entries-heading').focus();
+      }
+    }
+
     function showBackupError(message) {
       const el = document.getElementById('backup-error');
       el.classList.add('is-visible');
@@ -321,6 +765,13 @@
 
     function clearBackupStatus() {
       document.getElementById('backup-status').textContent = '';
+    }
+
+    function invalidateMergePreview() {
+      if (!pendingMergePreview) return;
+      pendingMergePreview = null;
+      renderMergePreview(null);
+      showBackupStatus('Merge preview closed because saved entries changed.');
     }
 
     function handleExportBackup() {
@@ -393,6 +844,21 @@
       preview.hidden = false;
     }
 
+    function readBackupFile(file) {
+      if (typeof file.size === 'number' && file.size > MAX_BACKUP_FILE_BYTES) {
+        return Promise.resolve({ ok: false, error: 'Backup file is too large. Choose a JSON backup smaller than 5 MiB.' });
+      }
+      if (typeof file.text !== 'function') {
+        return Promise.resolve({ ok: false, error: 'This browser cannot read the selected backup file.' });
+      }
+      return file.text().then(function (text) {
+        const result = parseBackupDocument(text);
+        return result.ok ? result : { ok: false, error: 'Could not validate the backup file: ' + result.error };
+      }).catch(function () {
+        return { ok: false, error: 'Could not read the selected backup file. Your saved entries have not changed.' };
+      });
+    }
+
     function handleImportBackup() {
       if (isMutationBlocked()) return;
       clearBackupError();
@@ -413,26 +879,14 @@
         resetImportFileInput();
         return;
       }
-      if (typeof file.size === 'number' && file.size > MAX_BACKUP_FILE_BYTES) {
-        showBackupError('Backup file is too large. Choose a JSON backup smaller than 5 MiB.');
-        resetImportFileInput();
-        return;
-      }
-      if (typeof file.text !== 'function') {
-        showBackupError('This browser cannot read the selected backup file.');
-        resetImportFileInput();
-        return;
-      }
-
       importReading = true;
       clearBackupError();
       clearBackupStatus();
       updateMutatingControls();
       try {
-        const text = await file.text();
-        const result = parseBackupDocument(text);
+        const result = await readBackupFile(file);
         if (!result.ok) {
-          showBackupError('Could not validate the backup file: ' + result.error);
+          showBackupError(result.error);
           return;
         }
         if (locked || busy || pendingImport !== null) return;
@@ -444,6 +898,210 @@
         importReading = false;
         resetImportFileInput();
         updateMutatingControls();
+      }
+    }
+
+    function handlePreviewMergeBackup() {
+      if (isMutationBlocked()) return;
+      clearBackupError();
+      clearBackupStatus();
+      const input = document.getElementById('merge-backup-input');
+      input.value = '';
+      input.click();
+    }
+
+    function getCommittedEntriesSignature(sourceEntries) {
+      return JSON.stringify(sortByDateDesc(copyImportedEntries(sourceEntries)));
+    }
+
+    function renderCurrentMergePreview() {
+      if (!pendingMergePreview) {
+        renderMergePreview(null);
+        return;
+      }
+      let candidate = null;
+      const newEntriesPagination = paginateEntries(
+        pendingMergePreview.analysis.newEntries,
+        pendingMergePreview.newEntriesPage,
+        25
+      );
+      pendingMergePreview.newEntriesPage = newEntriesPagination.page;
+      try {
+        candidate = buildBackupMergeCandidate(
+          entries,
+          pendingMergePreview.backup.entries,
+          pendingMergePreview.conflictResolutions
+        );
+      } catch (error) {
+        candidate = null;
+      }
+      renderMergePreview(
+        pendingMergePreview.analysis,
+        pendingMergePreview.backup.exportedAt,
+        pendingMergePreview.conflictResolutions,
+        candidate,
+        newEntriesPagination
+      );
+    }
+
+    async function handleMergeBackupFileChange(event) {
+      const input = event.target;
+      const file = input && input.files ? input.files[0] : null;
+      if (!file) return;
+      if (isMutationBlocked()) {
+        input.value = '';
+        return;
+      }
+
+      importReading = true;
+      clearBackupError();
+      clearBackupStatus();
+      updateMutatingControls();
+      try {
+        const result = await readBackupFile(file);
+        if (!result.ok) {
+          showBackupError(result.error);
+          return;
+        }
+        if (locked || busy) return;
+        pendingMergePreview = {
+          backup: result.backup,
+          analysis: analyzeBackupMerge(entries, result.backup.entries),
+          conflictResolutions: {},
+          currentEntriesSnapshot: copyImportedEntries(entries),
+          newEntriesPage: 1,
+        };
+        renderCurrentMergePreview();
+      } catch (error) {
+        showBackupError('Could not prepare the merge preview. Your saved entries have not changed.');
+      } finally {
+        importReading = false;
+        input.value = '';
+        updateMutatingControls();
+      }
+    }
+
+    function handleCancelMergePreview() {
+      if (!pendingMergePreview || busy || locked || importReading) return;
+      pendingMergePreview = null;
+      renderMergePreview(null);
+      clearBackupError();
+      clearBackupStatus();
+      document.getElementById('merge-backup-input').value = '';
+      document.getElementById('preview-merge-backup-btn').focus();
+    }
+
+    function handleMergeResolutionChange(event) {
+      if (!pendingMergePreview || isMutationBlocked()) return;
+      const input = event.target.closest('input[data-merge-conflict-date]');
+      if (!input || !input.dataset.mergeConflictDate) return;
+      pendingMergePreview.conflictResolutions[input.dataset.mergeConflictDate] = input.value;
+      renderCurrentMergePreview();
+    }
+
+    function handleMergeBulkResolution(event) {
+      if (!pendingMergePreview || isMutationBlocked()) return false;
+      const button = event.target.closest('button[data-merge-bulk-resolution]');
+      if (!button) return false;
+      const resolution = button.dataset.mergeBulkResolution;
+      if (resolution !== 'keep-existing' && resolution !== 'use-backup') return false;
+      pendingMergePreview.analysis.conflicts.forEach(function (conflict) {
+        pendingMergePreview.conflictResolutions[conflict.date] = resolution;
+      });
+      renderCurrentMergePreview();
+      return true;
+    }
+
+    function handleMergePreviewClick(event) {
+      if (!pendingMergePreview || isMutationBlocked()) return;
+      if (handleMergeBulkResolution(event)) return;
+      const pageButton = event.target.closest('[data-merge-new-page]');
+      if (!pageButton) return;
+      const currentPage = pendingMergePreview.newEntriesPage;
+      pendingMergePreview.newEntriesPage = pageButton.dataset.mergeNewPage === 'next'
+        ? currentPage + 1 : currentPage - 1;
+      renderCurrentMergePreview();
+    }
+
+    async function handleMergeBackup() {
+      if (busy || locked || importReading || !pendingMergePreview || !storageAdapter) return;
+
+      const previewAtConfirmation = pendingMergePreview;
+      const currentSignature = getCommittedEntriesSignature(entries);
+      const previewSignature = getCommittedEntriesSignature(previewAtConfirmation.currentEntriesSnapshot);
+      if (currentSignature !== previewSignature) {
+        previewAtConfirmation.analysis = analyzeBackupMerge(entries, previewAtConfirmation.backup.entries);
+        previewAtConfirmation.conflictResolutions = {};
+        previewAtConfirmation.currentEntriesSnapshot = copyImportedEntries(entries);
+        renderCurrentMergePreview();
+        showBackupError('Saved entries changed while this preview was open. Review the refreshed merge preview before continuing.');
+        return;
+      }
+
+      setBusyState(true);
+      let merged = false;
+      try {
+        let candidate = buildBackupMergeCandidate(
+          entries,
+          previewAtConfirmation.backup.entries,
+          previewAtConfirmation.conflictResolutions
+        );
+        if (!candidate.ok) {
+          showBackupError('Resolve every backup conflict before merging.');
+          return;
+        }
+        const validationError = validateStoredEntries(candidate.entries);
+        if (validationError) {
+          showBackupError('The merge candidate is invalid: ' + validationError);
+          return;
+        }
+        if (!candidate.hasChanges) {
+          pendingMergePreview = null;
+          renderMergePreview(null);
+          clearBackupError();
+          showBackupStatus('No changes needed. Your saved entries already match the selected merge choices.');
+          return;
+        }
+
+        if (candidate.counts.replaced > 0 && !window.confirm(
+          'Merge this backup and replace ' + candidate.counts.replaced +
+          ' existing ' + (candidate.counts.replaced === 1 ? 'entry' : 'entries') +
+          ' with the explicitly selected backup values? New entries will be added and unrelated entries will remain.'
+        )) return;
+
+        // Reconstruct immediately after confirmation so the persisted
+        // candidate is still derived from the current committed collection.
+        candidate = buildBackupMergeCandidate(
+          entries,
+          previewAtConfirmation.backup.entries,
+          previewAtConfirmation.conflictResolutions
+        );
+        if (!candidate.ok) {
+          showBackupError('Saved entries changed while this merge was being confirmed. Review the refreshed preview.');
+          return;
+        }
+
+        const saved = await storageAdapter.saveEntries(candidate.entries);
+        if (!saved || !saved.ok) {
+          showBackupError('Could not merge the backup — storage may be unavailable. Your saved entries have not changed.');
+          return;
+        }
+
+        entries = candidate.entries;
+        pendingUndoEntry = null;
+        pendingMergePreview = null;
+        renderMergePreview(null);
+        clearUndoStatus();
+        clearBackupError();
+        render();
+        showBackupStatus('Backup merged. Added ' + candidate.counts.added + ', replaced ' +
+          candidate.counts.replaced + ', and kept ' + candidate.counts.unchanged + ' unchanged.');
+        merged = true;
+      } catch (error) {
+        showBackupError('Could not merge the backup — storage may be unavailable. Your saved entries have not changed.');
+      } finally {
+        setBusyState(false);
+        if (merged) document.getElementById('preview-merge-backup-btn').focus();
       }
     }
 
@@ -506,6 +1164,9 @@
         }
 
         entries = candidate;
+        pendingUndoEntry = null;
+        invalidateMergePreview();
+        clearUndoStatus();
         pendingImport = null;
         resetImportFileInput();
         exitEditMode();
@@ -579,22 +1240,57 @@
           appliedRange: null,
           matchingCount: 0,
           visibleEntries: [],
+          page: 1,
+          pageSize: HISTORY_PAGE_SIZE,
+          totalPages: 0,
+          hasPreviousPage: false,
+          hasNextPage: false,
         };
       }
 
       const matchingEntries = filterEntriesByDateRange(
         entries, appliedHistoryRange.startDate, appliedHistoryRange.endDate
       );
+      const pagination = paginateEntries(matchingEntries, historyPage, HISTORY_PAGE_SIZE);
       return {
         totalEntryCount: entries.length,
         appliedRange: appliedHistoryRange,
         matchingCount: matchingEntries.length,
-        visibleEntries: matchingEntries.slice(0, HISTORY_RESULT_LIMIT),
+        visibleEntries: pagination.entries,
+        page: pagination.page,
+        pageSize: pagination.pageSize,
+        totalPages: pagination.totalPages,
+        hasPreviousPage: pagination.hasPreviousPage,
+        hasNextPage: pagination.hasNextPage,
       };
     }
 
     function renderHistoryTable() {
-      renderTable(getHistoryRenderState());
+      const state = getHistoryRenderState();
+      historyPage = state.page;
+      renderTable(state);
+    }
+
+    function initializeHistoryDateDefaults() {
+      const fromInput = document.getElementById('history-from-date');
+      const toInput = document.getElementById('history-to-date');
+      if (!fromInput || !toInput) return;
+
+      let earliest;
+      let latest;
+      if (entries.length > 0) {
+        entries.forEach(function (entry) {
+          if (!earliest || entry.date < earliest) earliest = entry.date;
+          if (!latest || entry.date > latest) latest = entry.date;
+        });
+      } else {
+        const today = new Date();
+        earliest = localDateString(new Date(today.getFullYear(), today.getMonth(), 1));
+        latest = localDateString(today);
+      }
+
+      if (!fromInput.value) fromInput.value = earliest;
+      if (!toInput.value) toInput.value = latest;
     }
 
     function showHistoryFilterError(message) {
@@ -609,26 +1305,61 @@
       error.classList.remove('is-visible');
     }
 
+    function applyHistoryDateRange(startDate, endDate) {
+      const result = validateCalendarDateRange(startDate, endDate);
+      if (!result.ok) {
+        renderHistoryTable();
+        showHistoryFilterError(result.error);
+        return result;
+      }
+
+      appliedHistoryRange = { startDate: result.startDate, endDate: result.endDate };
+      historyPage = 1;
+      clearHistoryFilterError();
+      renderHistoryTable();
+      return result;
+    }
+
     function handleHistoryFilterSubmit(event) {
       event.preventDefault();
       const startDate = document.getElementById('history-from-date').value;
       const endDate = document.getElementById('history-to-date').value;
-      const result = validateCalendarDateRange(startDate, endDate);
-      if (!result.ok) {
-        appliedHistoryRange = null;
-        renderHistoryTable();
-        showHistoryFilterError(result.error);
-        return;
-      }
+      applyHistoryDateRange(startDate, endDate);
+    }
 
-      appliedHistoryRange = { startDate: result.startDate, endDate: result.endDate };
-      clearHistoryFilterError();
-      renderHistoryTable();
+    function showEntryInHistory(date) {
+      let entry;
+      try {
+        entry = getEntryByDate(entries, date);
+      } catch (error) {
+        return { ok: false, reason: 'invalid-date' };
+      }
+      if (!entry) return { ok: false, reason: 'missing-entry' };
+
+      const fromInput = document.getElementById('history-from-date');
+      const toInput = document.getElementById('history-to-date');
+      fromInput.value = date;
+      toInput.value = date;
+      const result = applyHistoryDateRange(date, date);
+      if (!result.ok) return result;
+
+      const buttons = Array.from(document.querySelectorAll('#entries-container .btn-edit'));
+      const target = buttons.find(function (button) {
+        return button.dataset.date === date;
+      });
+      if (target) {
+        if (typeof target.scrollIntoView === 'function') {
+          target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+        target.focus();
+      }
+      return { ok: true, entry };
     }
 
     function invalidateAppliedHistoryRange() {
       if (!appliedHistoryRange) return;
       appliedHistoryRange = null;
+      historyPage = 1;
       renderHistoryTable();
     }
 
@@ -641,22 +1372,43 @@
       document.getElementById('history-from-date').value = '';
       document.getElementById('history-to-date').value = '';
       appliedHistoryRange = null;
+      historyPage = 1;
       clearHistoryFilterError();
       renderHistoryTable();
       document.getElementById('history-from-date').focus();
     }
 
+    function changeHistoryPage(offset) {
+      if (!appliedHistoryRange || !Number.isInteger(offset) || offset === 0) return;
+      const state = getHistoryRenderState();
+      const nextPage = state.page + offset;
+      if (nextPage < 1 || nextPage > state.totalPages) return;
+      historyPage = nextPage;
+      renderHistoryTable();
+      const targetId = offset < 0 ? 'history-next-page-btn' : 'history-previous-page-btn';
+      const target = document.getElementById(targetId);
+      if (target && !target.disabled) target.focus();
+      else {
+        const current = document.getElementById('history-page-status');
+        if (current && typeof current.focus === 'function') current.focus();
+      }
+    }
+
     function renderHistoryTrendsForCurrentState() {
+      clearTrendPointSelections();
+      const chartDisplay = getActiveTrendDisplay();
+      const today = localDateString(new Date());
       renderHistoryTrends(entries, {
         activeView: historyView,
         trendDayCount,
-        trendEndDate: localDateString(new Date()),
+        trendEndDate: today,
         trendMode,
         customTrendType,
         customTrendDraftStart,
         customTrendDraftEnd,
         customTrendDraftMonth,
         customTrendDraftYear,
+        customTrendDraftResolution,
         customMonthNavigation: getMonthNavigationState(customTrendDraftMonth),
         customYearNavigation: getYearNavigationState(customTrendDraftYear),
         appliedCustomTrendRange,
@@ -670,15 +1422,28 @@
         comparisonSecondYearNavigation: getYearNavigationState(comparisonTrendDraftSecond),
         comparisonShortcuts: getComparisonShortcutState(),
         appliedTrendComparison,
-        chartDisplay: getActiveTrendDisplay(),
+        chartDisplay,
+        statisticsDisplay: getActiveTrendStatistics(chartDisplay),
         calendar: getCalendarRenderState(false),
+        dashboardModel: historyView === 'dashboard'
+          ? buildDashboardModel(entries, today)
+          : null,
       });
     }
 
     function setHistoryView(view) {
-      if (view !== 'charts' && view !== 'calendar') return;
+      if (view !== 'charts' && view !== 'calendar' && view !== 'dashboard') return;
       historyView = view;
       renderHistoryTrendsForCurrentState();
+    }
+
+    function showEntryHistorySection() {
+      const section = document.getElementById('entries-section');
+      const heading = document.getElementById('entries-heading');
+      if (section && typeof section.scrollIntoView === 'function') {
+        section.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      }
+      if (heading && typeof heading.focus === 'function') heading.focus();
     }
 
     function setTrendDayCount(dayCount) {
@@ -688,7 +1453,9 @@
       trendMode = 'preset';
       trendDayCount = dayCount;
       activeTrendDisplay = { type: 'preset', dayCount };
+      const chartDisplay = getActiveTrendDisplay();
       renderCharts(entries, trendDayCount, localDateString(new Date()), null, trendMode);
+      renderActiveTrendStatistics(chartDisplay);
       renderComparisonTrendControls({ trendMode });
     }
 
@@ -873,6 +1640,7 @@
         customTrendDraftMonth = applied ? applied.month : defaults.customMonth;
       } else if (type === 'year') {
         customTrendDraftYear = applied ? applied.year : defaults.customYear;
+        customTrendDraftResolution = applied ? applied.resolution || 'daily' : 'daily';
       }
     }
 
@@ -913,6 +1681,7 @@
         const defaults = getChartPeriodDefaults();
         customTrendDraftMonth = defaults.customMonth;
         customTrendDraftYear = defaults.customYear;
+        customTrendDraftResolution = 'daily';
       }
       renderHistoryTrendsForCurrentState();
     }
@@ -1017,11 +1786,27 @@
         };
       }
       if (activeTrendDisplay.type === 'custom' && activeTrendDisplay.range) {
+        const range = activeTrendDisplay.range;
+        const resolution = range.type === 'year' ? range.resolution || 'daily' : 'daily';
+        if (range.type === 'year' && (resolution === 'weekly' || resolution === 'monthly')) {
+          const year = Number(range.year);
+          return {
+            type: 'aggregated-year',
+            seriesByMetric: {
+              mood: buildAggregatedYearSeries(entries, 'mood', year, resolution),
+              sleep: buildAggregatedYearSeries(entries, 'sleep', year, resolution),
+              water: buildAggregatedYearSeries(entries, 'water', year, resolution),
+            },
+            year,
+            resolution,
+            customRange: range,
+          };
+        }
         return {
           type: 'single',
           dayCount: trendDayCount,
           endDate: localDateString(new Date()),
-          customRange: activeTrendDisplay.range,
+          customRange: range,
         };
       }
       return {
@@ -1032,7 +1817,60 @@
       };
     }
 
-    function resolveCustomTrendPeriod(type, startDate, endDate, month, year) {
+    function getActiveTrendStatistics(display) {
+      if (display.type === 'comparison' && appliedTrendComparison) {
+        const comparison = appliedTrendComparison;
+        const firstRange = comparison.type === 'month'
+          ? getCalendarMonthRange(comparison.first.year, comparison.first.monthIndex)
+          : getCalendarYearRange(comparison.first);
+        const secondRange = comparison.type === 'month'
+          ? getCalendarMonthRange(comparison.second.year, comparison.second.monthIndex)
+          : getCalendarYearRange(comparison.second);
+        return {
+          type: 'comparison',
+          firstPeriodLabel: display.periodLabels.firstPeriodLabel,
+          secondPeriodLabel: display.periodLabels.secondPeriodLabel,
+          statistics: comparePeriodStatistics(entries, firstRange, secondRange),
+        };
+      }
+
+      let startDate;
+      let endDate;
+      let label;
+      if (display.customRange) {
+        startDate = display.customRange.startDate;
+        endDate = display.customRange.endDate;
+        if (display.customRange.type === 'month') {
+          label = 'Calendar month ' + formatComparisonPeriodLabel(
+            'month', display.customRange.month || startDate.slice(0, 7)
+          );
+        } else if (display.customRange.type === 'year') {
+          label = 'Calendar year ' + String(display.customRange.year).padStart(4, '0');
+        } else {
+          label = 'Custom date range';
+        }
+      } else {
+        endDate = display.endDate;
+        startDate = addCalendarDays(endDate, 1 - display.dayCount);
+        label = 'Last ' + display.dayCount + ' calendar days';
+      }
+      return {
+        type: 'period',
+        label,
+        statistics: calculatePeriodStatistics(entries, startDate, endDate),
+      };
+    }
+
+    function renderActiveTrendStatistics(display) {
+      const statisticsDisplay = getActiveTrendStatistics(display);
+      if (statisticsDisplay.type === 'comparison') {
+        renderComparisonStatistics(statisticsDisplay);
+      } else {
+        renderPeriodStatistics(statisticsDisplay);
+      }
+    }
+
+    function resolveCustomTrendPeriod(type, startDate, endDate, month, year, resolution) {
       if (type === 'date-range') {
         const result = validateCalendarDateRange(startDate, endDate, { maximumDays: 366 });
         return result.ok
@@ -1066,12 +1904,17 @@
         if (!/^\d{4}$/.test(year)) {
           return { ok: false, error: 'Enter a calendar year from 0000 through 9999.' };
         }
+        const yearResolution = resolution || 'daily';
+        if (['daily', 'weekly', 'monthly'].indexOf(yearResolution) === -1) {
+          return { ok: false, error: 'Choose a valid display resolution.' };
+        }
         try {
           const range = getCalendarYearRange(Number(year));
           return {
             ok: true,
             type,
             year,
+            resolution: yearResolution,
             startDate: range.startDate,
             endDate: range.endDate,
           };
@@ -1106,6 +1949,15 @@
       }
     }
 
+    function handleCustomTrendResolutionChange() {
+      if (isMutationBlocked()) return;
+      const resolution = document.getElementById('trend-custom-resolution').value;
+      if (['daily', 'weekly', 'monthly'].indexOf(resolution) === -1) return;
+      customTrendDraftResolution = resolution;
+      clearCustomTrendError();
+      renderHistoryTrendsForCurrentState();
+    }
+
     function handleCustomTrendSubmit(event) {
       event.preventDefault();
       if (isMutationBlocked()) return;
@@ -1115,12 +1967,14 @@
       customTrendDraftEnd = document.getElementById('trend-custom-end').value;
       customTrendDraftMonth = document.getElementById('trend-custom-month').value;
       customTrendDraftYear = document.getElementById('trend-custom-year').value;
+      customTrendDraftResolution = document.getElementById('trend-custom-resolution').value;
       const result = resolveCustomTrendPeriod(
         customTrendType,
         customTrendDraftStart,
         customTrendDraftEnd,
         customTrendDraftMonth,
-        customTrendDraftYear
+        customTrendDraftYear,
+        customTrendDraftResolution
       );
       const error = document.getElementById('trend-custom-error');
       if (!result.ok) {
@@ -1128,7 +1982,12 @@
         error.classList.add('is-visible');
         const invalidIds = customTrendType === 'date-range'
           ? ['trend-custom-start', 'trend-custom-end']
-          : [customTrendType === 'month' ? 'trend-custom-month' : 'trend-custom-year'];
+          : customTrendType === 'month'
+            ? ['trend-custom-month']
+            : /^\d{4}$/.test(customTrendDraftYear) &&
+                ['daily', 'weekly', 'monthly'].indexOf(customTrendDraftResolution) === -1
+              ? ['trend-custom-resolution']
+              : ['trend-custom-year'];
         invalidIds.forEach(function (id) {
           document.getElementById(id).setAttribute('aria-invalid', 'true');
         });
@@ -1141,7 +2000,10 @@
         endDate: result.endDate,
       };
       if (result.month !== undefined) appliedCustomTrendRange.month = result.month;
-      if (result.year !== undefined) appliedCustomTrendRange.year = result.year;
+      if (result.year !== undefined) {
+        appliedCustomTrendRange.year = result.year;
+        appliedCustomTrendRange.resolution = result.resolution;
+      }
       activeTrendDisplay = { type: 'custom', range: appliedCustomTrendRange };
       renderHistoryTrendsForCurrentState();
     }
@@ -1156,7 +2018,7 @@
         const input = document.getElementById(id);
         if (input && typeof input.removeAttribute === 'function') input.removeAttribute('aria-invalid');
       });
-      ['trend-custom-month', 'trend-custom-year'].forEach(function (id) {
+      ['trend-custom-month', 'trend-custom-year', 'trend-custom-resolution'].forEach(function (id) {
         const input = document.getElementById(id);
         if (input && typeof input.removeAttribute === 'function') input.removeAttribute('aria-invalid');
       });
@@ -1273,6 +2135,54 @@
     }
 
     function handleHistoryTrendsClick(event) {
+      const point = event.target.closest('[data-interactive-point="true"]');
+      const explorer = event.target.closest('.trend-chart-explorer');
+      const historyAction = event.target.closest('.trend-point-history-action');
+      const dashboardHistoryAction = event.target.closest('.dashboard-history-action');
+      const dashboardShortcut = event.target.closest('.dashboard-shortcut');
+      const tooltip = event.target.closest('.trend-point-tooltip');
+      const seriesSelect = event.target.closest('.trend-comparison-series-select');
+      if (!point && !explorer && !historyAction && !dashboardHistoryAction &&
+          !dashboardShortcut && !tooltip && !seriesSelect) {
+        closePinnedTrendTooltips();
+      }
+
+      if (point) {
+        selectTrendPoint(point, true);
+        return;
+      }
+
+      if (explorer) {
+        const metric = explorer.dataset.chartExplorerMetric;
+        selectFirstTrendPoint(metric, getTrendExplorerSeries(metric));
+        return;
+      }
+
+      if (historyAction) {
+        const result = showEntryInHistory(historyAction.dataset.historyDate);
+        if (!result.ok && typeof showAppError === 'function') {
+          showAppError('That entry is no longer available in Entry History.');
+        }
+        return;
+      }
+
+      if (dashboardHistoryAction) {
+        const result = showEntryInHistory(dashboardHistoryAction.dataset.historyDate);
+        if (!result.ok && typeof showAppError === 'function') {
+          showAppError('That entry is no longer available in Entry History.');
+        }
+        return;
+      }
+
+      if (dashboardShortcut) {
+        if (dashboardShortcut.dataset.dashboardAction === 'charts') {
+          setHistoryView('charts');
+        } else if (dashboardShortcut.dataset.dashboardAction === 'history') {
+          showEntryHistorySection();
+        }
+        return;
+      }
+
       const viewButton = event.target.closest('.history-view-btn');
       if (viewButton) {
         setHistoryView(viewButton.dataset.historyView);
@@ -1413,6 +2323,7 @@
       if (!confirmDiscardUnsavedFormChanges()) return false;
       exitEditMode();
       document.getElementById('entry-date').value = date;
+      updateEntryDateControls();
       return true;
     }
 
@@ -1439,6 +2350,7 @@
       document.getElementById('save-btn').textContent = 'Save changes';
       document.getElementById('cancel-edit-btn').hidden = false;
       clearFormError();
+      updateEntryDateControls();
       document.querySelector('input[name="mood"]').focus();
       return true;
     }
@@ -1453,6 +2365,7 @@
       document.getElementById('save-btn').textContent = 'Save entry';
       document.getElementById('cancel-edit-btn').hidden = true;
       clearFormError();
+      updateEntryDateControls();
     }
 
     /* ── Initialisation ──────────────────────────────────────────── */
@@ -1508,6 +2421,7 @@
         }
 
         entries = result.entries;
+        initializeHistoryDateDefaults();
         render();
       } catch (error) {
         showAppError('The stored data could not be read. Existing data has been preserved.');
@@ -1535,6 +2449,19 @@
       document.getElementById('entry-form')
         .addEventListener('submit', handleFormSubmit);
 
+      document.getElementById('entry-date')
+        .addEventListener('input', handleEntryDateInput);
+      document.getElementById('entry-date-prev')
+        .addEventListener('click', function () { navigateEntryDate(-1); });
+      document.getElementById('entry-date-next')
+        .addEventListener('click', function () { navigateEntryDate(1); });
+      document.getElementById('copy-previous-values-btn')
+        .addEventListener('click', copyPreviousValues);
+      document.getElementById('edit-existing-entry-btn')
+        .addEventListener('click', function () {
+          enterEditMode(document.getElementById('entry-date').value);
+        });
+
       document.getElementById('entries-container')
         .addEventListener('click', handleTableClick);
 
@@ -1544,17 +2471,34 @@
       document.getElementById('clear-history-filters-btn')
         .addEventListener('click', handleClearHistoryFilters);
 
+      document.getElementById('undo-delete-btn')
+        .addEventListener('click', handleUndoDeletion);
+
       ['history-from-date', 'history-to-date'].forEach(function (id) {
         document.getElementById(id).addEventListener('input', handleHistoryFilterInput);
       });
 
       document.getElementById('history-trends-section')
         .addEventListener('click', handleHistoryTrendsClick);
+      document.getElementById('history-trends-section')
+        .addEventListener('pointerover', handleHistoryTrendsPointerOver);
+      document.getElementById('history-trends-section')
+        .addEventListener('pointerout', handleHistoryTrendsPointerOut);
+      document.getElementById('history-trends-section')
+        .addEventListener('keydown', handleTrendPointKeydown);
+      document.getElementById('history-trends-section')
+        .addEventListener('change', handleTrendPointSeriesChange);
+      if (window && typeof window.addEventListener === 'function') {
+        window.addEventListener('resize', repositionOpenTrendTooltips);
+        window.addEventListener('scroll', repositionOpenTrendTooltips, true);
+      }
 
       document.getElementById('trend-custom-form')
         .addEventListener('submit', handleCustomTrendSubmit);
       document.getElementById('trend-custom-type')
         .addEventListener('change', handleCustomTrendTypeChange);
+      document.getElementById('trend-custom-resolution')
+        .addEventListener('change', handleCustomTrendResolutionChange);
       ['trend-custom-start', 'trend-custom-end', 'trend-custom-month', 'trend-custom-year']
         .forEach(function (id) {
           document.getElementById(id).addEventListener('input', handleCustomTrendDraftInput);
@@ -1585,11 +2529,28 @@
       document.getElementById('import-backup-input')
         .addEventListener('change', handleImportFileChange);
 
+      document.getElementById('preview-merge-backup-btn')
+        .addEventListener('click', handlePreviewMergeBackup);
+
+      document.getElementById('merge-backup-input')
+        .addEventListener('change', handleMergeBackupFileChange);
+
+      document.getElementById('merge-preview')
+        .addEventListener('change', handleMergeResolutionChange);
+      document.getElementById('merge-preview')
+        .addEventListener('click', handleMergePreviewClick);
+
       document.getElementById('cancel-import-btn')
         .addEventListener('click', handleCancelImport);
 
       document.getElementById('replace-import-btn')
         .addEventListener('click', handleReplaceImport);
+
+      document.getElementById('cancel-merge-preview-btn')
+        .addEventListener('click', handleCancelMergePreview);
+
+      document.getElementById('merge-backup-btn')
+        .addEventListener('click', handleMergeBackup);
 
       document.getElementById('entry-sleep').addEventListener('input', function () {
         if (isMutationBlocked()) return;
@@ -1705,6 +2666,7 @@
           }
 
           entries = updated;
+          invalidateMergePreview();
           exitEditMode();
           render();
           focusEditedEntry = true;
@@ -1762,6 +2724,7 @@
         }
 
         entries = updated;
+        invalidateMergePreview();
         clearFormError();
         event.target.reset();
         document.getElementById('entry-date').value = localDateString(new Date());
@@ -1799,6 +2762,11 @@
      *   5. Only update state and re-render on success.
      */
     async function handleTableClick(event) {
+      const pageButton = event.target.closest('.history-page-btn');
+      if (pageButton) {
+        changeHistoryPage(Number(pageButton.dataset.historyPageOffset));
+        return;
+      }
       if (isMutationBlocked() || !storageAdapter) return;
 
       const editBtn = event.target.closest('.btn-edit');
@@ -1834,6 +2802,7 @@
       if (!window.confirm(confirmation)) return;
 
       const updated = entries.filter(entry => entry.date !== dateToDelete);
+      const deletedEntry = getEntryByDate(entries, dateToDelete);
       const source = options.source || 'history';
       const deletedIndex = options.deletedIndex ?? -1;
       let restored = false;
@@ -1845,9 +2814,12 @@
           return;
         }
         entries = updated;
+        pendingUndoEntry = deletedEntry;
+        invalidateMergePreview();
         clearTableError();
         if (editingDate === dateToDelete) exitEditMode();
         render();
+        showUndoStatus('Entry for ' + dateToDelete + ' deleted.', true);
         restored = true;
       } catch (error) {
         showTableError('Could not delete the entry — storage may be unavailable. Please try again.');
@@ -1894,6 +2866,9 @@
         }
 
         entries = [];
+        pendingUndoEntry = null;
+        invalidateMergePreview();
+        clearUndoStatus();
         clearTableError();
         exitEditMode();
         render();

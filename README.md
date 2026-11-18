@@ -1,867 +1,291 @@
 # Wellness Tracker
 
-A browser application and Linux Electron desktop application for recording daily
-wellness data. The renderer uses plain HTML, CSS, and vanilla JavaScript: its
-structure is in `index.html`, with CSS and JavaScript loaded from local files.
-Electron and electron-builder provide the optional desktop shell and AppImage
-packaging.
+Wellness Tracker is a private, offline-first application for recording daily Mood, Sleep, and Water values and reviewing them through a calendar, charts, statistics, a recent-activity dashboard, and filtered Entry History.
 
-> **Demo only: use fictional data. Not for medical use.**
-
----
-
-## Contents
-
-- [Features](#features)
-- [Technology and architecture](#technology-and-architecture)
-- [How to run](#how-to-run)
-- [Data storage](#data-storage)
-- [Backup & Restore](#backup--restore)
-- [Validation rules](#validation-rules)
-- [Testing](#testing)
-- [Maintenance guide](#maintenance-guide)
-
----
+It runs in a browser with `localStorage` or as an Electron desktop application with a local JSON data file. It is a personal record-keeping tool, not a medical device, diagnostic tool, or source of medical advice.
 
 ## Features
 
-| Feature | Detail |
-|---|---|
-| **Log an entry** | Record mood, sleep duration, and water intake for any date using accessible sliders |
-| **Slider controls** | Adjust sleep in 0.5-hour steps and water in 0.1-litre steps with range sliders or minus/plus buttons |
-| **Unselected values** | Sleep and water begin with "Choose a value"; explicitly selected zero is valid |
-| **One entry per day** | Each calendar date can hold exactly one entry |
-| **Entry history** | Filter by an inclusive From/To date range; newest 100 matching records are displayed |
-| **Edit an entry** | Load an existing entry and save updated mood, sleep, or water values |
-| **Cancel editing** | Leave edit mode without changing stored data |
-| **Delete an entry** | Remove any row with a confirmation prompt |
-| **Erase all** | Remove every entry with a confirmation prompt |
-| **7-entry summary** | Rolling averages for mood, sleep, and water across the seven most recent entries |
-| **History & Trends** | Switch between a monthly calendar and three read-only trend charts |
-| **Monthly calendar** | Monday-first month navigation, saved-entry indicators, and selectable date details |
-| **Calendar actions** | Create, edit, or delete an entry from the selected calendar date with confirmation and focus restoration |
-| **Trend charts** | Responsive SVG charts for mood, sleep, and water over 7, 30, 90, or a custom range of up to 366 calendar days |
-| **Calendar-period charts** | Select complete calendar months or years, or compare two calendar months or years |
-| **Year resolutions** | View year comparisons as daily values, weekly averages, or monthly averages; weekly averages are the default |
-| **Exact chart data** | A keyboard-accessible expandable table gives exact values, comparison boundaries, averages, and recorded-day counts |
-| **Backup & Restore** | Export committed entries, preview a strictly validated JSON backup, then explicitly replace all entries if desired |
-| **Persistence** | Browser entries use `localStorage`; Electron entries use a JSON file in the app data directory |
-| **Offline desktop app** | The Electron version runs locally without a network connection |
-| **Responsive layout** | Usable at desktop widths and at narrow mobile viewports (≥ 320 px) |
-| **Keyboard accessible** | All controls reachable and operable by keyboard alone |
+### Daily entry management
 
-### Mood scale
+- Record one entry per calendar date: Mood (integer 1–5), Sleep (0–24 hours in 0.5-hour increments), and Water (0–3 litres in 0.1-litre increments).
+- Create entries and explicitly edit or delete existing entries.
+- Move the native date picker backward or forward by one day while creating an entry. Direct date entry remains available.
+- Copy values from the nearest earlier saved entry without copying its date or saving automatically.
+- See when the selected date already has an entry and choose **Edit existing entry** rather than accidentally creating a duplicate.
+- Preserve form values while navigating to History or changing History & Trends views.
 
-| Value | Label |
-|---|---|
-| 1 | Very poor |
-| 2 | Poor |
-| 3 | Fair |
-| 4 | Good |
-| 5 | Excellent |
-
----
-
-## Technology and architecture
-
-The shared renderer is split into local files:
-
-- `index.html` provides the document structure and references the local assets.
-- `styles/app.css` contains all application styles.
-- `js/core.js` contains data, validation, local-calendar, browser-storage, and
-  backup helpers.
-- `js/views.js` contains DOM rendering for the summary, history, calendar, and
-  charts, using explicit entries and view-state inputs.
-- `js/app.js` owns mutable application state, event handlers, storage-adapter
-  selection, initialisation, and view-state assembly.
-
-`index.html` loads `js/core.js`, `js/views.js`, and `js/app.js` as classic
-deferred scripts in that order. They intentionally share one browser global
-JavaScript environment; they are not ES modules and use no imports, exports, or
-bundler. The Electron desktop shell is deliberately small: its main process,
-restricted preload bridge, and JSON-file storage backend live under `electron/`.
-
-### Dependencies
-
-- No JavaScript frameworks or libraries
-- No CSS frameworks
-- Electron and electron-builder are development dependencies
-- `playwright-core` is a development-only dependency for optional Electron E2E tests;
-  it launches the project's Electron runtime and does not download a separate browser
-- No backend, accounts, or network calls are required at runtime
-- No cookies
-
-### Code organisation
-
-The files have separated responsibilities. `app.js` owns and normalises mutable
-state, then passes entries and explicit view-state objects to `views.js`.
-Rendering functions update the DOM only: they do not read or change controller
-state. `core.js` remains a shared dependency because it supplies pure summary,
-sorting, calendar, and trend-series helpers to both layers.
-
-```
-Browser localStorage ─┐
-                      ├─ async storage adapter ─→ entry arrays
-Electron IPC/JSON ────┘                              │
-                                                     ▼
-sortByDateDesc() / calcSummary()       ← pure data processing (no DOM, no storage)
-localDateString() / addCalendarDays() / buildTrendSeries() / buildCalendarMonth()
-                                       ← pure local-calendar helpers
-isValidEntryShape() / validateStoredEntries() / validateEntry()  ← pure validation
-createBackupDocument() / parseBackupDocument()                  ← pure backup envelope handling
-    │
-    ▼
-renderSummary() / renderTable() / renderCalendar() / renderCharts()
-                                       ← DOM rendering (explicit inputs, writes DOM)
-    │
-    ▼
-handleFormSubmit() / handleTableClick() / handleEraseAll() / init()
-                                       ← event handlers (orchestrate the layers above)
-```
-
-### Data flow on key events
-
-**Page load**
-1. `init()` sets the date input to today's local date.
-2. The asynchronous storage adapter loads browser `localStorage` or Electron's
-   `entries.json`. A missing Electron file starts as an empty dataset.
-3. On a read, parse, or integrity failure: the app locks — Save, Delete, and Erase all are
-   disabled — and a prominent error banner is shown above the form.
-4. On success: `render()` populates the summary, History & Trends views, and entry table.
-
-**Saving an entry**
-1. `validateEntry()` checks all four fields.  On error the relevant field receives
-   focus and the message appears inline.
-2. A candidate array is built with `entries.concat([newEntry])`.
-3. The storage adapter writes **before** the in-memory state is
-   updated.  If the write fails the existing state is preserved.
-4. On success: state updated, form reset, summary and table re-rendered.
-
-**Editing an entry**
-1. Click **Edit** in the entry history to load that entry into the form.
-2. The date remains read-only while editing; mood, sleep, and water can be changed
-   with the sliders or their minus/plus buttons.
-3. Click **Save changes** to replace the existing entry without creating a second
-   entry. Click **Cancel editing** to discard form changes without modifying storage.
-
-**Deleting an entry**
-1. `window.confirm()` asks for confirmation.
-2. `entries.filter()` builds the candidate array without mutating `entries`.
-3. The storage adapter writes first.  On failure, state is unchanged.
-4. On success: focus is restored to the Delete button at the same row position
-   (or the previous row, or the Entry History heading if the table is now empty).
-
-**Restoring a backup**
-1. The selected file is read and fully validated before the app creates an import preview.
-2. **Replace all entries** asks for an explicit confirmation, including the current
-   and backup entry counts and any unsaved form changes.
-3. A detached replacement array is written through the active storage adapter before
-   `entries` changes. If the write fails, the current data, form, and preview remain intact.
-4. On success, the preview is cleared, the form returns to new-entry mode, and all
-   derived views are re-rendered.
+The summary near the entry form describes up to the seven most recently saved entries. This is separate from the Dashboard's seven-calendar-day reporting period.
 
 ### History & Trends
 
-The **History & Trends** section sits between the recent summary and entry
-history. Its two view buttons use a pressed-state indicator; they are ordinary
-buttons rather than ARIA tabs, so normal Tab and Enter/Space behaviour applies.
+History & Trends contains three views:
 
-**Calendar** is the default view. It shows a Monday-first monthly grid with
-previous/next-month controls. Each date is a button with an accessible label;
-dates with saved entries have both a visible **Entry** label and an accessible
-entry-recorded description. Selecting a date only shows read-only details—it
-does not save or change the form. The detail panel offers:
+- **Calendar** — the initial view. It shows saved dates for a selected month, supports month navigation, and provides Edit and Delete actions.
+- **Detailed Charts** — configurable single-period and comparison charts with statistics, exact-data tables, and point exploration.
+- **Dashboard** — a compact view of the most recent seven calendar days ending on the current local date.
 
-- **Edit entry** for a date that has an entry. It reuses edit mode, preserves
-  the entry date, scrolls to the form, and focuses the mood control.
-- **Create entry** for an empty date. It returns the form to new-entry mode,
-  pre-fills that date, and leaves mood, sleep, and water unselected.
+Switching views does not save data, change Entry History filters, discard unsaved entry-form values, or apply pending chart controls.
 
-If either action would discard a changed form, the app asks for confirmation.
-Cancelling preserves both the form and calendar selection. Calendar actions are
-disabled during a save and when storage has locked the application; selecting a
-date and month navigation remain read-only operations.
+### Detailed Charts
 
-**Charts** contains separate responsive SVG line charts for Mood (1–5), Sleep
-(0–24 h), and Water (0–3 L). Select **7 days**, **30 days** (the default), or
-**90 days** to show that inclusive number of local calendar days ending today.
-Choose **Custom** for one of three single-period selectors:
+Single-period charts support:
 
-- **Date range** accepts an inclusive local-calendar start and end date, limited
-  to 366 days.
-- **Calendar month** accepts one `YYYY-MM` value and includes the complete
-  month, including February 29 in leap years.
-- **Calendar year** accepts one `YYYY` value and includes January 1 through
-  December 31.
+- Seven-, 30-, and 90-day presets.
+- A custom date range of up to 366 inclusive calendar days.
+- A calendar month.
+- A calendar year displayed as Daily values, Weekly averages, or Monthly averages. Daily is the initial Custom-year display.
 
-When Custom is opened for the first time, or when no Custom period has been
-successfully applied, **Calendar year** is selected and the current local year
-is filled in as a draft. The current local month is used when Calendar month is
-selected. These defaults do not change the charts until **Apply custom period**
-is clicked. If a Custom period has already been applied, its original type and
-values are restored instead.
+Custom mode initially selects the current local calendar year. Calendar-month and calendar-year controls support direct entry plus Previous/Next navigation. A changed draft year, month, range, or display resolution does not affect the displayed charts until **Apply custom period** is selected. Returning to Custom restores the last successfully applied Custom selection.
 
-Calendar month and Calendar year controls include accessible Previous and Next
-chevron buttons alongside the native month picker or editable four-digit year
-input. The buttons move only the draft selection, handle January/December and
-year boundaries, and are disabled at years `0000` and `9999` where movement is
-not possible. Direct year entry remains available; malformed or empty input is
-handled safely for navigation and cannot be applied without validation.
+Comparison charts support:
 
-Custom selections apply only after validation. Draft changes do not alter the
-currently rendered charts; switching to a preset and back restores the last
-successfully applied custom period. Historical and future calendar periods are
-allowed, subject to the custom date-range limit. Charts use committed saved data
-only and refresh after successful writes, never after failed writes or from
-unsaved form values.
+- Two calendar months aligned by day of month and displayed as daily values.
+- Two calendar years displayed as Daily values, Weekly averages, or Monthly averages. Weekly is the initial year-comparison display.
+- Previous/Next period navigation, **Swap periods**, **Compare with previous**, and **Previous & current** shortcuts.
 
-Choose **Compare periods** to compare two calendar months or two calendar years.
-Month comparisons align corresponding day numbers and remain daily. Year
-comparisons align by month and day, so March 1 does not shift when one year is a
-leap year; February 29 is explicitly shown as **Not in period** for a common
-year. Year comparisons offer:
+Comparison controls are also drafts: charts change only after **Apply comparison**. Comparison differences are always second period minus first period; the application does not interpret a positive or negative difference as a health improvement or deterioration.
 
-- **Daily values**, one point per valid month/day alignment.
-- **Weekly averages**, using consecutive seven-day blocks beginning January 1
-  (the default for a new year comparison). The final Week 53 may contain one or
-  two days depending on the year.
-- **Monthly averages**, one period for each calendar month.
+Aggregation and missing-data rules:
 
-New month comparisons start with the previous and current local calendar month;
-new year comparisons start with the previous and current local calendar year,
-with Weekly averages selected for a new year comparison. The comparison form
-also provides draft-only **Swap periods**, **Compare with previous**, and
-**Previous & current** shortcuts. Swap exchanges the two drafts; Compare with
-previous derives the first period from the second; and Previous & current resets
-both drafts relative to the current local period. None of these actions applies
-the comparison or writes storage. The last successfully applied period pair and
-year resolution are restored when returning to Compare periods.
+- Weekly calendar-year periods are consecutive seven-day blocks beginning January 1. There are 53 blocks; the final block contains one day in a common year or two in a leap year.
+- Monthly periods use actual calendar-month boundaries.
+- Averages use recorded entries only. Missing dates are not treated as zero.
+- Genuine recorded zero values for Sleep or Water remain observations.
+- Missing observations remain gaps and chart lines are not drawn across them.
+- Year-chart axes use January, April, July, October, and December reference labels where applicable.
 
-Aggregated averages use only recorded days: missing days never count as zero,
-recorded zeroes do count, and empty periods display **Missing** with a recorded
-day count of zero. The exact-data tables include the alignment period, actual
-boundaries for both years, averages, recorded-day counts, and calendar-day
-counts. Every exact-data table—single-period daily data, daily comparisons, and
-weekly/monthly aggregated comparisons—uses the same bounded two-axis scroll
-region. Its column headings remain visible during vertical scrolling, and its
-first column (Date, Alignment, or Period) remains visible during horizontal
-scrolling. The top-left header stays above both. A text hint outside the scroll
-region explains the interaction. The table's native disclosure reads **Show
-exact chart data** when collapsed and **Hide exact chart data** when open.
+Each applied period has a collapsed **Period statistics** or **Comparison statistics** disclosure. Statistics include recorded-day and calendar-day coverage, averages, minima, and maxima. Comparisons additionally include second-minus-first average and recorded-day differences. Statistics use committed entries and the entire applied period, independent of whether a year chart is displayed daily, weekly, or monthly.
 
-A date with no saved entry is represented as a gap, never as zero; lines are not
-drawn across that gap. A recorded zero is retained as a plotted point. The SVG
-charts have titles, descriptions, legends, and fixed metric scales for assistive
-technology. The exact-data table is the best way to inspect individual values or
-comparison periods with a screen reader or keyboard. On narrow screens, only
-the table region scrolls; the rest of the page does not gain horizontal
-overflow.
+Interactive chart points provide:
 
-**Entry History** is independent of Calendar and Charts. It is hidden initially;
-enter both From and To dates and choose **Show entries** to apply an inclusive
-range. Changing either date hides previous results until the range is applied
-again. **Clear filters** restores the hidden initial state. Matching entries are
-sorted newest first, with the newest 100 shown when more records match; the total
-saved-entry count remains visible. Filtering never writes storage.
+- A compact hover tooltip for quick mouse inspection.
+- A pinned tooltip after click or touch, with full details and dismissal by Escape or an outside click.
+- One keyboard exploration entry point per metric chart; Left and Right move through recorded observations without creating hundreds of tab stops.
+- An explicit First/Second series selector for comparison charts.
+- **Show entry in History** for daily observations. Aggregated points describe their date range and coverage instead of navigating to an arbitrary entry.
 
-Calendar **Delete entry** uses the same confirmation and storage-safe deletion path
-as History Delete. After successful deletion, the selected date remains selected
-and shows **Create entry**. Cancelling or a failed write preserves the entry and
-form state; deleting the currently edited entry warns about unsaved changes.
+Exact chart data remains available in semantic, expandable tables. The tables have bounded two-axis scrolling, sticky headings and first columns, and stationary scroll instructions outside their scroll regions.
 
-### CSS design tokens
+### Personal Dashboard
 
-All colours, spacing values, font sizes, and border radii are defined as CSS custom
-properties in `:root`. To restyle the application, edit the token values at the top
-of `styles/app.css` — no other selectors need changing.
+The Dashboard covers the most recent seven calendar days ending on the current local date, not the last seven saved entries. Near the lower supported calendar boundary it uses the shorter available range.
 
----
+It includes:
 
-## How to run
+- Four summary cards: recorded days, Average Mood, Average Sleep, and Average Water.
+- Compact daily Mood, Sleep, and Water trends with accessible exact-value disclosures.
+- Today's saved-entry status.
+- Recent entries from the reporting period, newest first.
+- Shortcuts to Detailed Charts and Entry History, plus date-specific **Show in History** actions.
 
-1. Download or clone this repository.
-2. Install the Electron development dependency:
+Dashboard averages use recorded days only. Missing dates remain missing and recorded zero values remain zero. The model refreshes after successful committed-data changes. There is no midnight timer: if the Dashboard remains open across midnight without another rendering event, reopen it to rebuild the report for the new local date.
+
+### Entry History
+
+- Filter by inclusive From and To dates using **Show entries**.
+- After entries load, initial draft dates cover the earliest through latest saved dates. With no entries they cover the first day of the current local month through today.
+- Draft changes do not replace displayed results until **Show entries** is selected. **Clear filters** clears both inputs and applied results.
+- Matching entries are ordered newest first and paginated at 25 entries per page. All matches remain accessible, including result sets larger than 100.
+- The table scrolls within its own bounded region. Its header row and Date column remain sticky, while summaries and pagination stay outside the scroll region.
+- Edit and Delete target entries by saved date, including on later pages.
+- Chart tooltips and Dashboard actions can reveal an exact saved date through the same filtering and focus workflow without entering Edit mode automatically.
+
+### Undo deletion
+
+After a successful individual deletion from Calendar or Entry History, a session-only Undo action can restore that entry.
+
+- Only the most recent successful individual deletion is available; another successful deletion replaces it.
+- Restoration is built from the current committed collection, so unrelated entries created or edited afterward are preserved.
+- Undo never overwrites a newer entry with the same date. A same-date conflict makes that Undo unavailable.
+- A failed restoration save keeps Undo available for retry and leaves committed data unchanged.
+- Successful **Erase all**, **Replace all from backup**, or a changed backup merge invalidates pending Undo. Successful Undo and ending the session also clear it.
+- Previewing or cancelling a merge, a failed merge, and a no-op merge do not invalidate a safe pending Undo.
+
+Undo state is not persisted or restored after restarting the application.
+
+### Backup and Restore
+
+Wellness Tracker exports and imports its version-1 JSON backup format. Backup files contain complete entry values and should be treated as sensitive personal data.
+
+#### Export
+
+**Export JSON backup** downloads a version-1 backup containing the current entries.
+
+#### Replace all from backup
+
+Replace all validates a selected backup, asks for confirmation, and replaces the complete saved collection. Existing entries absent from the backup are removed. This is intentionally separate from merging.
+
+#### Preview and merge a backup
+
+**Preview merge from backup** validates a version-1 backup without modifying saved entries. It classifies imported entries as:
+
+- **New** — the date is not currently saved and would be added.
+- **Identical** — the date and all values already match.
+- **Conflicting** — the date exists with one or more different values.
+
+The preview shows imported date coverage, paginates new entries at 25 per page, and displays both complete versions of every conflict. Each conflict begins unresolved. Select **Keep existing** or **Use backup** for every date. **Keep all existing** and **Use all backup** set all current draft choices, but do not save or merge; individual choices can still be changed.
+
+**Merge backup** remains unavailable until every conflict is resolved and always requires an explicit action. Before saving, the application rechecks the imported data and choices against current committed entries. A stale preview is invalidated or refreshed rather than applying old decisions unexpectedly.
+
+A changed merge adds genuinely new entries, keeps unrelated current entries, and replaces only conflicts explicitly marked **Use backup**. It saves the complete candidate once and updates the interface only after persistence succeeds. If the result already matches saved data, it reports that no changes are needed and avoids a save. Cancelling never changes entries; a failed merge leaves committed entries unchanged and preserves still-valid choices for retry.
+
+## Technology and architecture
+
+- HTML, CSS, and vanilla JavaScript.
+- Electron for the desktop shell.
+- Node's built-in test runner and Playwright Core connected to Electron.
+- Electron Builder for Linux AppImage packaging.
+- No charting framework or runtime web service.
+
+Responsibilities are separated across `js/core.js` (pure calculations and validation), `js/views.js` (DOM/SVG rendering), `js/app.js` (controller state, events, storage-first mutations, and focus), and `electron/` (desktop shell, preload bridge, persistence, and E2E profile checks).
+
+## Running the application
+
+### Prerequisites
+
+- Node.js and npm. Node.js 24 is used by current CI.
+- A graphical Linux environment for Electron, or Xvfb for headless E2E testing.
 
 ```bash
 npm install
-```
-
-3. To use the browser version, open `index.html` in any modern browser (Chrome 105+, Firefox 121+, Safari 15.4+,
-   Edge 105+).
-4. To run the Electron desktop version from source on Linux:
-
-```bash
 npm start
 ```
 
-The desktop application is self-contained and works offline after dependencies
-have been installed.
+The static browser version can also be served or opened in a modern browser. Browser and Electron storage are separate; there is no automatic migration.
 
-```
-# macOS
-open index.html
+### Tests
 
-# Linux
-xdg-open index.html
-
-# Windows
-start index.html
+```bash
+npm test
+npm run test:e2e
 ```
 
-Or drag the file into an open browser window.
+The E2E runner creates verified isolated Electron `userData` profiles, keeps Chromium sandboxing enabled, and refuses unsafe profile paths before data mutations.
 
-### Build a Linux AppImage
+### Linux package and installation
 
-Build the x86_64 Linux package with:
+Build the x64 Linux AppImage:
 
 ```bash
 npm run dist
 ```
 
-The generated AppImage is written to `dist/`, using a name similar to
-`Wellness Tracker-1.0.0.AppImage`. Make it executable and launch it:
+Artifacts are written under ignored `dist/`. For a user-local installation of a built AppImage, the repository provides:
 
 ```bash
-chmod +x "dist/Wellness Tracker-1.0.0.AppImage"
-"dist/Wellness Tracker-1.0.0.AppImage"
+bash scripts/install-linux.sh
 ```
 
-Running from source uses `npm start`; running the AppImage does not require
-Node.js or the repository checkout. The AppImage needs a compatible x86_64
-Linux system with glibc 2.25 or later (Ubuntu 20.04 provides glibc 2.31) and FUSE 2 support
-(`libfuse2` on Ubuntu) to mount the image. The AppImage uses the custom
-512×512 Linux icon at `assets/wellness-tracker-512.png`.
+The installer uses user-owned locations and does not require `sudo`. Review its usage output before replacing an installation.
 
-### Install the Ubuntu desktop launcher
+## Data storage and privacy
 
-After building the AppImage, install it for the current user and add its desktop
-launcher with:
+### Browser
 
-```bash
-./scripts/install-linux.sh
-```
+The browser build stores entries in `localStorage` for the page origin.
 
-The script does not use `sudo`. It installs the AppImage as
-`~/Applications/WellnessTracker.AppImage`, copies the icon into
-`~/.local/share/icons/`, and creates
-`~/.local/share/applications/wellness-tracker.desktop`. The generated launcher
-uses absolute paths and sets `StartupWMClass=wellness-tracker` so Ubuntu can
-associate the launcher with the application window.
+### Electron
 
-After rebuilding with `npm run dist`, rerun the same script to refresh the
-installed AppImage, icon, and launcher. It replaces only those three files and
-does not access or modify Wellness Tracker data.
+Electron stores entries in `entries.json` under its application `userData` directory. Writes use a temporary file followed by rename and are serialized. The renderer receives only the narrow `loadEntries` and `saveEntries` preload API.
 
-If the launcher was installed by the older script that predates ownership
-markers, verify and adopt it once before refreshing it:
+Electron uses context isolation, renderer sandboxing, disabled Node integration, restricted navigation/window creation, and IPC sender validation.
 
-```bash
-./scripts/install-linux.sh --adopt-legacy
-```
+### Privacy notes
 
-This option verifies the existing launcher, AppImage, and icon before creating
-the marker. It refuses unrelated files; later refreshes use the normal command.
+- Saved entries and exported backups are local and are not encrypted by the application.
+- Anyone with access to the operating-system account, data directory, or backup file may be able to read them.
+- Keep backups in a location appropriate for personal wellness information.
+- There is no online account or sync service. Normal tracking, charting, History, Dashboard, and backup workflows work offline after installation.
+- Browser storage can be cleared by settings, private-browsing behavior, or origin changes. Keep independent backups of important data.
 
-### Desktop storage
+## Backup format and validation
 
-Electron stores entries in an unencrypted `entries.json` file under Electron's
-`app.getPath('userData')` directory. The browser version continues to use the
-`wellness-tracker-demo-v1` `localStorage` key. Browser and desktop data are
-separate, and no automatic migration is performed between them. Use fictional
-demo data only.
+Current exports use backup version 1 and include an ISO timestamp plus validated entries. Imports reject malformed JSON, unsupported versions, invalid values or dates, and duplicate dates. Merge candidates preserve date uniqueness and newest-first ordering; merging does not introduce a second format.
 
-### `file://` URL behaviour
+Validation rules:
 
-`localStorage` behaviour when a page is opened via a `file://` URL is
-browser-dependent and not guaranteed by any specification.  Most major browsers
-do support `localStorage` for local files, but some apply stricter quotas, isolate
-storage per directory, or restrict it in private / incognito windows.  If storage
-is unavailable the app will show an error banner above the form and lock all write
-operations to protect any existing data.  For the most predictable behaviour,
-serve the file from a local web server (e.g. `npx serve .` or VS Code Live Server).
+- Dates use `YYYY-MM-DD` and support years `0000`–`9999` where native controls permit entry.
+- Entry dates must be unique.
+- Mood is an integer from 1 to 5.
+- Sleep is 0–24 hours in 0.5-hour increments.
+- Water is 0–3 litres in 0.1-litre increments.
+- Custom manual chart ranges allow at most 366 inclusive days.
+- Invalid or reversed ranges are rejected rather than silently swapped.
 
----
+Calendar calculations preserve leap-day behavior and avoid JavaScript's special remapping of years 0–99.
 
-## Data storage
+## Testing and verification
 
-### Browser key
+At completion of `feature/wellness-experience`, the repository declares:
 
-Entries are stored under a single `localStorage` key:
+- 374 individual Node tests.
+- 32 Electron E2E scenarios.
 
-```
-wellness-tracker-demo-v1
-```
+Coverage includes validation and calendar arithmetic, charts and statistics, point interaction, logging helpers, History pagination, Undo, backup replacement and merging, Dashboard behavior, storage failures, accessibility markup, responsive geometry, and isolated persistence.
 
-To wipe browser data manually, open browser DevTools → Application → Local Storage →
-find the key → delete it. The browser app will start fresh on the next page load.
+E2E includes rendered checks at 320, 375, 420, and 1024 CSS pixels, keyboard navigation, Chromium accessibility-tree inspection, and cleanup/profile safety. Exact totals should be reconfirmed whenever tests change.
 
-### Desktop file
+Linux verification also included `git diff --check`, a successful AppImage build, launching it with an isolated profile, opening all three History & Trends views and Entry History, and confirming fictional-entry persistence after restart.
 
-The Electron application stores the same entry-array format in `entries.json`
-under its user-data directory. It does not read, modify, or migrate the browser's
-`localStorage` data.
+Known verification limitations:
 
-### Entry object
+- Chromium accessibility metadata and keyboard behavior were inspected, but no actual screen-reader application was used.
+- Physical touch and trackpad gestures were not tested.
+- Linux packaging emits a non-blocking warning because `package.json` has no author metadata.
 
-Each entry is a plain JavaScript object with exactly four fields:
+### Suggested manual regression checks
 
-```json
-{
-  "date":  "2025-06-12",
-  "mood":  4,
-  "sleep": 7.5,
-  "water": 1.8
-}
-```
+1. Create, edit, delete, and Undo entries; confirm restart persistence.
+2. Navigate dates and copy previous values without an automatic save.
+3. Exercise Calendar, Detailed Charts, and Dashboard with keyboard-only navigation.
+4. Confirm draft chart controls do not change charts before Apply.
+5. Explore daily and aggregated chart points with mouse, keyboard, and touch-capable input where available.
+6. Inspect statistics and exact-data scrolling at 320, 375, 420, and desktop widths.
+7. Filter more than 25 History entries and edit/delete on a later page.
+8. Test backup export, Replace all, and a merge containing new, identical, and conflicting entries.
+9. Confirm individual and bulk conflict choices still require **Merge backup**.
+10. For release accessibility assurance, repeat major workflows with the target screen reader and platform.
 
-| Field | Type | Stored as |
-|---|---|---|
-| `date` | ISO 8601 string (`YYYY-MM-DD`) | string |
-| `mood` | Integer 1–5 | number |
-| `sleep` | Number, multiples of 0.5 | number |
-| `water` | Number, multiples of 0.1 | number |
+## Platform support
 
-In the browser, entries are serialised to a JSON array and written as a single
-`localStorage` string. In Electron, the same array-of-entry-objects format is
-stored in `entries.json` under the application's user-data directory.
-
-### Storage operations
+The Electron application and AppImage have been built and exercised on Linux. Electron E2E runs on Linux with Chromium sandboxing, including an Ubuntu/Xvfb CI environment.
 
-| Operation | What happens in storage |
-|---|---|
-| Save entry | Existing array read, new entry appended, whole array rewritten |
-| Delete entry | Entry filtered out, whole array rewritten |
-| Erase all | Empty array `[]` written (key is not removed) |
-| Load on start | JSON is parsed; storage failures lock the application and preserve existing data |
-
-### Privacy note
-
-Browser `localStorage` and Electron's `entries.json` are both unencrypted and
-are not intended for personal health information. Electron data is a regular
-user-data file, not an encrypted vault. **Use fictional demo data only.**
-
----
-
-## Backup & Restore
-
-The **Backup & Restore** section works offline in both the browser and Electron
-desktop application. It uses browser-standard download and file-selection APIs;
-no Electron IPC, network service, or separate storage format is required.
-
-### Export a backup
-
-Select **Export backup** to download every committed entry as a readable JSON file
-named `wellness-tracker-backup-YYYY-MM-DD.json`, where the date is the UTC export
-date. Unsaved form values are never included, and exporting never writes to the
-application's normal storage. A healthy empty dataset can also be exported.
-
-Backup files are **unencrypted**. Store them appropriately and use fictional demo
-data only.
-
-### Import and preview a backup
-
-Select **Import backup** and choose a JSON file. The file's name and MIME type are
-not trusted: its complete contents must be valid JSON and pass strict backup and
-entry validation. Files larger than 5 MiB are rejected before reading. Invalid or
-unreadable files show an error and leave the current entries and form untouched.
-
-For a valid file, the app displays a read-only preview with the backup entry count,
-current saved-entry count, exported timestamp, and date range. A valid empty backup
-is shown as **No entries in backup**. While a preview is active, ordinary data
-mutations, export, and another import are disabled; chart and calendar browsing
-remain available. **Cancel import** clears only the preview and does not change
-saved data.
-
-### Replace all entries
-
-The initial import mode is deliberately **replace all**, not merge. Choose
-**Replace all entries** in the preview and confirm the dialog to overwrite the
-currently saved dataset with the validated backup. The dialog states both entry
-counts, warns that replacement is not a merge, advises exporting current data first,
-and explains that an empty backup deletes all current entries. If the form has
-unsaved changes, the dialog also warns that those values are discarded only after a
-successful save.
-
-The app saves through the same browser `localStorage` or Electron `entries.json`
-adapter used by normal entry changes. It does not update in-memory entries, clear
-the form, or remove the preview until that write succeeds. A failed write preserves
-the existing entries, unsaved form values, and validated preview so the user can
-retry or cancel.
-
-### Version 1 backup format
-
-Backups are separate from Electron's internal `entries.json` array. Version 1 has
-exactly these top-level fields:
-
-```json
-{
-  "application": "wellness-tracker",
-  "backupVersion": 1,
-  "exportedAt": "2026-10-13T12:34:56.789Z",
-  "entries": [
-    { "date": "2026-10-12", "mood": 4, "sleep": 7.5, "water": 1.8 }
-  ]
-}
-```
-
-`exportedAt` must be a canonical ISO 8601 UTC timestamp. Each entry must have
-exactly `date`, `mood`, `sleep`, and `water`, and must meet the normal date, range,
-step, and unique-date rules. Unsupported versions, unexpected fields, malformed
-JSON, invalid entries, and duplicate dates are rejected as a whole; records are
-never repaired, skipped, or partially imported.
-
----
-
-## Validation rules
-
-All four fields are required.  The form uses `novalidate` so the browser's
-built-in popups are suppressed and all messages are displayed inline.
-
-| Field | Rule |
-|---|---|
-| Date | Must be a real calendar date in `YYYY-MM-DD` format |
-| Mood | Integer, 1–5 (selected via radio buttons) |
-| Sleep | Number, 0–24 hours, in increments of **0.5 h** (e.g. `6`, `6.5`, `7`) |
-| Water | Number, 0–3 litres, in increments of **0.1 L** (e.g. `1.0`, `1.5`, `2.3`) |
-| Date uniqueness | Only one entry is allowed per calendar date |
-
-Step increments are validated in JavaScript using a floating-point–safe tolerance
-check (`Math.abs(value/step - Math.round(value/step)) < 1e-9`).  This is necessary
-because `0.1` cannot be represented exactly in IEEE 754 binary floating point
-(unlike `0.5`, which is exactly representable), so a naive modulo check such as
-`value % 0.1 === 0` produces unreliable results for values like `1.1` or `2.3`.
-
-When validation fails, focus moves to the first field with an error so keyboard
-users do not have to search for it.
-
-### Stored-data integrity
-
-On startup, `validateStoredEntries()` checks every loaded entry for correct types,
-field ranges, valid calendar dates, and step increments.  It also checks for
-duplicate dates in the stored array.  Any failure locks the application to prevent
-accidental data loss.
-
----
-
-## Testing
-
-### Automated tests (Node.js)
-
-The `test/` directory contains a permanent automated test suite using Node.js 24's
-built-in `node:test` runner (no external test-framework dependency).
-
-```
-test/
-├── helpers.js                 — vm extraction helper and in-memory localStorage stub
-├── backup.test.js              — Backup envelope creation and strict parsing tests
-├── pure.test.js               — 91 tests covering the pure functions
-├── storage.test.js            — 20 localStorage tests
-├── file-storage.test.js       — JSON-file storage tests using temporary directories
-├── electron-security.test.js  — Electron URL/frame and window-focus policy tests
-├── e2e-config.test.js         — Isolated Electron test-profile configuration tests
-├── install-script.test.js     — Linux installer syntax and ownership tests
-├── edit.test.js               — DOM-mock integration tests for the renderer workflow
-└── trends-calendar.test.js    — Local-calendar and trend-series helper tests
-```
-
-**Run all tests:**
-
-```bash
-npm test
-```
-
-Expected output: **287 individual test declarations, 287 pass, 0 fail, 0 skipped.**
-
-**How it works:** `helpers.js` reads `js/core.js` and evaluates it in an isolated
-`vm` context (no `eval()`, no code copying). `edit.test.js` evaluates the real
-`js/core.js`, `js/views.js`, and `js/app.js` sources in browser execution order for
-controller integration coverage, and evaluates `core.js` plus `views.js` alone for
-isolated renderer-contract coverage. `frontend-assets.test.js` verifies that
-`index.html` references the stylesheet and all three deferred scripts, and that
-electron-builder includes those asset folders. This means the tests exercise the
-same source files that run in the browser.
-
-**Coverage:**
-
-| File | Functions tested |
-|------|-----------------|
-| `pure.test.js` | `localDateString`, `isValidStep`, `isValidEntryShape`, `validateStoredEntries`, `validateEntry`, `sortByDateDesc`, `calcSummary` |
-| `trends-calendar.test.js` | Local-calendar date arithmetic, inclusive 7/30/90-day series, gaps versus zeroes, and Monday-first calendar months |
-| `backup.test.js` | Version-1 backup envelope creation, strict parsing, timestamps, detached copies, empty backups, zeroes, and invalid records |
-| `storage.test.js` | `loadEntries`, `saveEntries` (round-trip, corrupt data, write failure, read failure) |
-| `file-storage.test.js` | JSON-file load/save behavior, atomic replacement, failures, and serialized writes |
-| `electron-security.test.js` | Expected local URL/main-frame policy and single-instance window restoration helpers |
-| `install-script.test.js` | Shell syntax, atomic replacement safeguards, and legacy-installation adoption checks |
-| `edit.test.js` | Isolated core-plus-view rendering contracts; Browser/Electron adapters, async startup, edit-mode loading, saving, validation, failed writes, cancellation, deletion conflicts, erase-all mode handling, sliders, busy/locked controls, calendar actions, single-period charts, month/year comparisons, daily/weekly/monthly resolutions, exact-data tables, and backup export/import/replace workflow |
-
-The edit tests use a small DOM mock to exercise the event-handler workflow in Node.js
-without adding a dependency. Full browser rendering, responsive layout, native
-focus behavior, keyboard activation, and real localStorage behavior still require
-manual browser testing.
-
-### Optional Electron E2E tests (Linux)
-
-The real Electron UI suite is deliberately separate from the fast Node suite:
-
-```bash
-npm run test:e2e
-```
-
-`npm test` runs the 287 Node unit and integration test declarations only.
-`npm run test:e2e` runs seventeen serial, source-Electron tests through
-`playwright-core`: isolated startup, create/edit/delete persistence across
-restarts, calendar actions and deletion, on-demand history filtering, preset and
-custom charts, month and year comparisons, daily/weekly/monthly year resolutions,
-backup export, import preview/cancellation, and confirmed replacement restore.
-The existing Node test workflow runs automatically on pushes and pull requests. The
-Electron E2E workflow runs automatically for pull requests targeting `main`, and can
-also be started manually in GitHub: open **Actions**, select **Wellness Tracker
-Electron E2E**, choose **Run workflow**, and select the branch. It uses
-`ubuntu-22.04`, `npm ci`, and Xvfb to run `npm run test:e2e`; it does not download
-Playwright-managed browsers or weaken Chromium sandboxing.
-
-Each E2E test creates a unique direct child of the system temporary directory with a
-`wellness-tracker-e2e-` prefix. Electron accepts that profile only when both explicit
-E2E environment variables are present, validates it before acquiring its
-single-instance lock, and refuses malformed or production-data paths. The test
-rechecks Electron's actual `userData` path before every data mutation and removes only
-the exact test-created profile after Electron exits. E2E entries, fixtures, and
-downloads are fictional test data.
-
-These tests need a Linux graphical display (X11, Wayland, or a correctly configured
-Xvfb environment) and a host where Chromium sandboxing is available; they never use
-`--no-sandbox`. They have passed locally on Ubuntu 20.04, but that release is outside
-Playwright's currently supported Ubuntu baseline, so it is a locally verified setup
-rather than a support guarantee. The suite does not yet cover packaged-AppImage
-launches, a forced storage-write failure, or a deliberate conflict with an already
-running normal desktop instance.
-
-### Manual browser tests
-
-These behaviours require a live browser and cannot be checked with Node.js:
-
-#### Normal workflow
-1. Open `index.html` — date field pre-fills with today's date.
-2. Fill in all four fields and click **Save entry** — entry appears at the top of
-   the table; summary updates.
-3. Close and reopen the tab — entries persist.
-
-#### Slider controls
-4. Open a new form — Sleep and Water both show **Choose a value**.
-5. Move each slider with the mouse and keyboard arrows — the displayed value updates.
-6. Use minus/plus — Sleep changes by 0.5 hours and Water by 0.1 litres; buttons
-   disable at the minimum and maximum.
-7. Explicitly select zero and save — zero is accepted as a valid value.
-8. Submit without selecting Sleep or Water — the appropriate required-field error
-   appears.
-
-#### Editing
-9. Click **Edit** on an entry — its values load into the sliders and the date becomes
-   read-only.
-10. Change mood, sleep, or water and click **Save changes** — the same row updates
-   without increasing the entry count.
-11. Click **Cancel editing** after changing a value — stored data remains unchanged
-   and the form returns to new-entry mode.
-12. While editing, delete another entry and confirm — the edit form remains intact.
-   Delete the entry being edited or use **Erase all demo entries** — edit mode ends
-   only after the storage write succeeds.
-
-#### Validation
-13. Submit the form with one field empty — an inline error appears and focus moves to
-   the empty field.
-14. Enter `6.3` for sleep — step-increment error shown, focus on sleep field.
-15. Enter `1.15` for water — step-increment error shown, focus on water field.
-16. Save an entry, then try to save another for the same date — duplicate-date error
-   shown, focus on date field.
-
-#### Deletion and erase
-17. Click **Delete** on a row, then **Cancel** — entry remains; focus unchanged.
-18. Click **Delete**, then **OK** — entry removed; focus moves to the Delete button
-   at the same row position (or the previous row if the deleted row was last; or the
-   **Entry History** heading if the table is now empty).
-19. Click **Erase all demo entries**, then **OK** — table shows "No entries yet";
-    summary shows "No entries yet" and "—" dashes.
-
-#### Storage error simulation
-20. Open DevTools → Application → Local Storage → set `wellness-tracker-demo-v1`
-    to an invalid value (e.g. `not json`).
-21. Reload the page — a red error banner appears above the form; Save, Delete, and
-    Erase all are disabled; existing storage is not overwritten.
-
-#### Summary window
-22. Save 8 entries on consecutive dates.  The summary shows count = 7 and averages
-    computed from the 7 most recent dates only.
-
-#### Keyboard navigation
-23. Tab through the form — date → mood radios (then arrow keys within the group) →
-    sleep → water → Save entry.
-24. Tab into the entry table — Delete buttons are reachable.
-25. Activate a Delete button with **Space** or **Enter** — confirmation dialog
-    appears.
-26. All interactive elements show a visible blue focus outline when focused by
-    keyboard.
-
-#### History & Trends
-27. In **Calendar**, use previous/next month across a year boundary. Select both
-    a saved date and an empty date; confirm the detail text and **Entry** marker
-    are correct.
-28. Use **Edit entry** and **Create entry** from the calendar. With a changed form,
-    cancel the discard confirmation and verify the form and selected date remain
-    unchanged. Confirm once and verify focus moves to the form.
-29. In **Entry History**, verify no rows appear initially. Apply an inclusive
-    From/To range, confirm newest-first matching rows and the count, then change a
-    date input and verify results hide until Show entries is selected again. Test
-    Clear filters and a filtered Edit/Delete action.
-30. In **Calendar**, select a saved date, choose **Delete entry**, cancel and then
-    confirm. Verify the date remains selected, Create entry appears, focus is
-    restored, and the deletion persists after restart.
-31. In **Charts**, switch among 7, 30, and 90 days. Verify the range ends on
-    today, a deliberately missing date creates a visible line gap, and a saved
-    zero appears as a point at the baseline rather than as a gap.
-32. Choose **Custom** with no previously applied Custom period. Confirm Calendar
-    year is selected with the current local year and that charts do not change
-    until Apply. Switch to Calendar month and Date range, verify their local
-    defaults/empty fields, then apply each type and confirm the original type and
-    values return after switching away and back. Test Previous/Next controls,
-    direct year entry, and the `0000`/`9999` disabled boundaries. Apply a
-    historical nonconsecutive range, verify inclusive endpoints, missing gaps,
-    and zero values, then try incomplete, reversed, and over-366-day ranges.
-33. Open **Show exact chart data** and navigate the table with a keyboard and a
-    screen reader. Verify it distinguishes **Missing** from zero values.
-34. Choose **Compare periods**. Confirm new month comparisons start with the
-    previous/current local months and new year comparisons start with the
-    previous/current local years, with **Weekly averages** selected by default.
-    Test Swap periods, Compare with previous, and Previous & current; verify
-    their accessible names, January/year-boundary handling, and that drafts do
-    not update charts until Apply or write storage. Then compare two months and
-    two years, applying Daily values and Monthly averages. Confirm invalid input
-    preserves the last valid chart and switching away and back restores the last
-    applied periods and resolution.
-35. Compare a leap year with a common year. Confirm February 29 is **Not in
-    period** for the common year and March 1 remains aligned. In weekly and
-    monthly tables, verify averages use only recorded days, zeroes are retained,
-    empty periods say **Missing**, and the final partial week has correct day
-    counts.
-36. Open each exact-data table type: a single-period table, a daily month/year
-    comparison, and weekly/monthly aggregated comparisons. At 320, 375, 420,
-    and desktop widths, scroll horizontally and vertically where available.
-    Confirm the Date, Alignment, or Period first column and all column headings
-    remain visible, the top-left corner stays above both, the scroll hint stays
-    below the table, and no page-level horizontal scrollbar appears.
-
-#### Responsive layout
-37. Resize the browser window below 600 px, including 320 CSS pixels — form,
-    calendar, and charts fit without page-level horizontal overflow; the table
-    scrolls only within its own data wrapper. Confirm month/year controls wrap or
-    stack without clipping and keep visible keyboard focus indicators.
-
-#### Backup & Restore
-38. Export a populated dataset and an empty dataset. Verify the downloaded JSON is
-    readable, has backup version 1, preserves zero values, and does not change the
-    form, calendar selection, charts, or saved entries.
-39. Select a valid backup and verify its preview count, date range, and explicit
-    replace-all warning. Cancel the preview and verify no data changes.
-40. Try malformed JSON, a backup with an unsupported version, duplicate dates, and
-    an invalid field value. Verify each is rejected without changing saved data.
-41. Restore a populated backup, then an empty backup. Check the confirmation text,
-    refreshed history/summary/calendar/charts, form reset, and keyboard focus.
-42. With an edited or partially filled form, begin a restore and cancel the
-    confirmation; verify both the form and import preview remain unchanged. Where
-    practical, simulate a failed write and verify retry/cancel remain available.
-
----
+macOS and Windows desktop packages are not configured or verified, so support for them should not be assumed. The browser build uses standards-based HTML, CSS, and JavaScript, but browser/platform combinations outside the tested Chromium environment should be verified before making compatibility claims.
 
 ## Maintenance guide
 
-### Changing a field range or step
-
-If you want to change, for example, the maximum water intake from 3 L to 5 L:
-
-1. **HTML** — update `max="3"` on `#entry-water`.
-2. **`validateEntry()`** — update the range check: `waterNum > 3`.
-3. **`isValidEntryShape()`** — update the range check: `entry.water > 3`.
-4. **Error messages** — update the user-facing string in `validateEntry()`.
-
-### Adding a new field
-
-1. Add the input to the HTML form with an appropriate `<label>`.
-2. Add a CSS style for the new field group if needed.
-3. Extend `validateEntry()` with a required-field check and range/step checks.
-4. Extend `isValidEntryShape()` to check the new field on stored entries.
-5. Read the value in `handleFormSubmit()` and include it in `newEntry`.
-6. Add a column to `renderTable()` using `createElement` + `textContent`.
-7. Update `calcSummary()` if the new field should appear in the summary panel.
-8. Update `renderSummary()` and add a `<dd>` in the summary HTML.
-9. Update tests to cover the new field's validation logic.
-
-### Changing the localStorage key
-
-The key is defined as a single constant near the top of `js/core.js`:
-
-```js
-const STORAGE_KEY = 'wellness-tracker-demo-v1';
-```
-
-Changing this value means existing entries stored under the old key will no longer
-be found.  If you need to migrate data, do so before changing the key.
-
-### Regression checklist after any change
-
-- [ ] Node automated tests pass (`npm test`)
-- [ ] Optional Linux Electron E2E tests pass when changing Electron or end-to-end workflows (`npm run test:e2e`)
-- [ ] Form submits a valid entry and it appears in the table
-- [ ] Summary averages recalculate correctly
-- [ ] Entry persists after page reload
-- [ ] Invalid values in every modified field produce the expected error messages
-- [ ] Duplicate-date submission is rejected
-- [ ] Delete removes the correct entry and restores focus correctly
-- [ ] Erase all clears the table and shows the empty state
-- [ ] Calendar month navigation and date details stay in sync with saved entries
-- [ ] Calendar Create/Edit actions preserve unsaved form changes when confirmation is cancelled
-- [ ] Charts show the selected inclusive local-calendar range, with gaps for missing dates and points for zeroes
-- [ ] Charts and calendar refresh only after successful storage writes
-- [ ] Export contains committed entries only and does not write storage
-- [ ] Invalid backups and cancelled imports leave entries and form values unchanged
-- [ ] Restore replaces data only after successful storage persistence; empty backups are confirmed explicitly
-- [ ] App locks and shows the error banner when localStorage contains invalid JSON
-- [ ] All form controls are reachable and operable by keyboard alone
-- [ ] Layout is usable at 320 px viewport width
-
----
+1. Keep calculations and validation pure in `js/core.js` where practical.
+2. Keep `js/views.js` rendering-only and controller state in `js/app.js`.
+3. Preserve storage-first mutations: save candidates before changing committed memory.
+4. Preserve draft/applied separation for chart and History controls.
+5. Treat missing observations differently from recorded zeroes.
+6. Keep backup Replace all and Merge workflows separate.
+7. Maintain Electron sandboxing, context isolation, navigation restrictions, and isolated E2E profiles.
+8. Add focused Node coverage and proportional Electron coverage.
+9. Run `npm test`, `npm run test:e2e`, and `git diff --check` before handoff.
+10. Rebuild with `npm run dist` when package metadata, Electron configuration, preload, storage, or packaged assets change.
 
 ## File structure
 
-```
-Wellness tracker/
-├── .github/workflows/tests.yml # Automated test workflow
-├── .gitignore                  # Generated dependency and build-output exclusions
-├── assets/
-│   └── wellness-tracker-512.png # Linux application icon
-├── electron/
-│   ├── e2e-config.js       # Validated, isolated userData profile setup for E2E only
-│   ├── main.js              # Electron main process and IPC handlers
-│   ├── preload.js           # Restricted renderer storage bridge
-│   ├── security.js          # Trusted renderer/navigation and IPC checks
-│   └── storage.js           # JSON-file storage backend
-├── index.html               # Browser and Electron renderer document structure
+```text
+.
+├── index.html
+├── styles/app.css
 ├── js/
-│   ├── core.js              # Data, validation, storage, date, and backup helpers
-│   ├── views.js             # Summary, history, calendar, and chart rendering
-│   └── app.js               # State, event handlers, storage adapter, and startup
-├── styles/
-│   └── app.css              # Application stylesheet
+│   ├── core.js
+│   ├── views.js
+│   └── app.js
+├── electron/
+│   ├── main.js
+│   ├── preload.js
+│   ├── storage.js
+│   └── e2e-config.js
+├── scripts/install-linux.sh
+├── test/
 ├── e2e/
-│   └── electron-launch.test.js # Serial real-Electron UI and persistence tests
-├── package.json             # npm scripts and Electron build configuration
-├── package-lock.json        # Locked npm dependency versions
-├── scripts/
-│   └── install-linux.sh     # User-local Ubuntu launcher installer
-├── test/                    # Node.js automated tests and lightweight mocks
-├── README.md                # This file
-└── wellness-tracker-plan.md # Original incremental development plan
+├── package.json
+└── README.md
 ```
 
----
-
-*This project was built incrementally as a learning exercise.
-It is not intended for clinical, medical, or production use.*
+`dist/`, `node_modules/`, and the local `backups/` working directory are ignored by Git.

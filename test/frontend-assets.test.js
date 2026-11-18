@@ -72,6 +72,18 @@ test('calendar period navigation controls retain direct inputs, icon buttons, an
   assert.match(css, /#apply-trend-comparison-btn\s*\{[\s\S]*?justify-self:\s*start/);
 });
 
+test('daily entry date navigation uses accessible chevrons and a responsive readable input layout', () => {
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'styles', 'app.css'), 'utf8');
+
+  assert.match(html, /id="entry-date-prev"[^>]*aria-label="Previous day"[^>]*><svg class="trend-navigation-icon"[^>]*aria-hidden="true"/);
+  assert.match(html, /id="entry-date-next"[^>]*aria-label="Next day"[^>]*><svg class="trend-navigation-icon"[^>]*aria-hidden="true"/);
+  assert.match(html, /type="date"[^>]*id="entry-date"/);
+  assert.match(css, /\.entry-date-navigation\s*\{[\s\S]*?grid-template-columns:\s*2\.5rem minmax\(13rem, 1fr\) 2\.5rem/);
+  assert.match(css, /\.entry-date-nav-btn\s*\{[\s\S]*?min-height:\s*2\.5rem/);
+  assert.match(css, /@media \(max-width: 420px\)[\s\S]*?\.entry-date-navigation input\[type="date"\][\s\S]*?grid-column:\s*1 \/ -1[\s\S]*?grid-row:\s*2/);
+});
+
 test('all exact-data tables share accessible scrolling and sticky layering', () => {
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   const css = fs.readFileSync(path.join(root, 'styles', 'app.css'), 'utf8');
@@ -85,4 +97,22 @@ test('all exact-data tables share accessible scrolling and sticky layering', () 
   assert.match(css, /\.trend-data-table th:first-child,[\s\S]*?\.trend-data-table td:first-child[\s\S]*?position:\s*sticky[\s\S]*?left:\s*0/);
   assert.match(css, /\.trend-data-table thead th\s*\{[\s\S]*?position:\s*sticky[\s\S]*?top:\s*0[\s\S]*?z-index:\s*2/);
   assert.match(css, /\.trend-data-table thead th:first-child\s*\{[\s\S]*?left:\s*0[\s\S]*?z-index:\s*3/);
+});
+
+test('dashboard renderer styles remain compact, responsive, and horizontally contained', () => {
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'styles', 'app.css'), 'utf8');
+
+  assert.match(html, /id="history-view-calendar"[\s\S]*?aria-pressed="true"/);
+  assert.match(html, /id="history-view-dashboard"[\s\S]*?data-history-view="dashboard"[\s\S]*?aria-controls="history-dashboard-panel"/);
+  assert.match(html, /id="history-dashboard-panel" hidden>[\s\S]*?id="dashboard-container"/);
+  assert.match(css, /\.dashboard-summary-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/);
+  assert.match(css, /\.dashboard-shortcuts\s*\{[\s\S]*?display:\s*flex[\s\S]*?flex-wrap:\s*wrap/);
+  assert.match(css, /#history-dashboard-panel,[\s\S]*?\.dashboard-recent\s*\{[\s\S]*?min-width:\s*0[\s\S]*?max-width:\s*100%/);
+  assert.match(css, /\.dashboard-trend-grid\s*\{[\s\S]*?repeat\(auto-fit, minmax\(min\(100%, 13rem\), 1fr\)\)[\s\S]*?align-items:\s*start/);
+  assert.match(css, /\.dashboard-table-scroll\s*\{[\s\S]*?width:\s*100%[\s\S]*?min-width:\s*0[\s\S]*?max-width:\s*100%[\s\S]*?overflow-x:\s*auto/);
+  assert.match(css, /\.dashboard-recent-table\s*\{[\s\S]*?min-width:\s*36rem/);
+  assert.match(css, /@media \(max-width: 600px\)[\s\S]*?\.dashboard-summary-grid\s*\{[\s\S]*?repeat\(2, minmax\(0, 1fr\)\)[\s\S]*?\.dashboard-trend-grid\s*\{[\s\S]*?grid-template-columns:\s*1fr/);
+  assert.match(css, /@media \(max-width: 360px\)[\s\S]*?\.dashboard-summary-grid\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)/);
+  assert.match(css, /@media \(max-width: 360px\)[\s\S]*?\.dashboard-shortcuts\s*\{[\s\S]*?flex-direction:\s*column/);
 });

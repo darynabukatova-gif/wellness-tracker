@@ -44,6 +44,184 @@
       }
     }
 
+    function formatMergeMetricValue(metric, value) {
+      if (metric === 'sleep') return String(value) + ' h';
+      if (metric === 'water') return String(value) + ' L';
+      return String(value);
+    }
+
+    /**
+     * renderMergePreview(analysis, exportedAt, conflictResolutions, candidate, newEntriesPagination)
+     *
+     * Renders only the supplied, read-only backup merge analysis. It does not
+     * choose conflict values, construct a merged collection, or access state.
+     */
+    function renderMergePreview(analysis, exportedAt, conflictResolutions, candidate, newEntriesPagination) {
+      const preview = document.getElementById('merge-preview');
+      if (!preview) return;
+      conflictResolutions = conflictResolutions || {};
+      const summary = document.getElementById('merge-preview-summary');
+      const dateRange = document.getElementById('merge-preview-date-range');
+      const exportedAtElement = document.getElementById('merge-preview-exported-at');
+      const newEmpty = document.getElementById('merge-preview-new-empty');
+      const newScroll = document.getElementById('merge-preview-new-scroll');
+      const newBody = document.querySelector('#merge-preview-new-table tbody');
+      const newPagination = document.getElementById('merge-preview-new-pagination');
+      const newPageSummary = document.getElementById('merge-preview-new-page-summary');
+      const newPageStatus = document.getElementById('merge-preview-new-page-status');
+      const newPrevious = document.getElementById('merge-preview-new-prev');
+      const newNext = document.getElementById('merge-preview-new-next');
+      const identicalHeading = document.getElementById('merge-preview-identical-heading');
+      const identicalList = document.getElementById('merge-preview-identical-list');
+      const conflictsEmpty = document.getElementById('merge-preview-conflicts-empty');
+      const conflictScroll = document.getElementById('merge-preview-conflicts-scroll');
+      const conflictBody = document.querySelector('#merge-preview-conflicts-table tbody');
+      const bulkControls = document.getElementById('merge-preview-bulk-controls');
+      const conflictControls = document.getElementById('merge-preview-conflict-controls');
+      const resolutionStatus = document.getElementById('merge-preview-resolution-status');
+      const finalSummary = document.getElementById('merge-preview-final-summary');
+      const mergeButton = document.getElementById('merge-backup-btn');
+
+      if (!analysis) {
+        preview.hidden = true;
+        summary.textContent = '';
+        dateRange.textContent = '';
+        exportedAtElement.textContent = '';
+        newBody.replaceChildren();
+        conflictBody.replaceChildren();
+        bulkControls.hidden = true;
+        conflictControls.replaceChildren();
+        resolutionStatus.textContent = '';
+        finalSummary.textContent = '';
+        mergeButton.disabled = true;
+        newPagination.hidden = true;
+        newPageSummary.textContent = '';
+        newPageStatus.textContent = '';
+        return;
+      }
+
+      preview.hidden = false;
+      summary.textContent = 'Backup contains ' + analysis.totalImportedCount + ' ' +
+        (analysis.totalImportedCount === 1 ? 'entry' : 'entries') + ': ' +
+        analysis.counts.new + ' new, ' + analysis.counts.identical + ' identical, and ' +
+        analysis.counts.conflicting + ' conflicting.';
+      dateRange.textContent = analysis.importedDateRange
+        ? 'Imported date range: ' + analysis.importedDateRange.startDate + ' to ' + analysis.importedDateRange.endDate + '.'
+        : 'The backup contains no dates.';
+      exportedAtElement.textContent = exportedAt ? 'Backup exported at ' + exportedAt + '.' : '';
+
+      newBody.replaceChildren();
+      const page = newEntriesPagination || paginateEntries(analysis.newEntries, 1, 25);
+      const visibleNewEntries = page.entries;
+      visibleNewEntries.forEach(function (entry) {
+        const row = document.createElement('tr');
+        [entry.date, String(entry.mood), formatMergeMetricValue('sleep', entry.sleep),
+          formatMergeMetricValue('water', entry.water)].forEach(function (value) {
+          const cell = document.createElement('td');
+          cell.textContent = value;
+          row.appendChild(cell);
+        });
+        newBody.appendChild(row);
+      });
+      newScroll.hidden = analysis.newEntries.length === 0;
+      newEmpty.textContent = analysis.newEntries.length === 0
+        ? 'No new entries would be added.'
+        : '';
+      newPagination.hidden = page.totalPages <= 1;
+      if (page.totalEntries > 0) {
+        const firstItem = ((page.page - 1) * page.pageSize) + 1;
+        const lastItem = firstItem + page.entries.length - 1;
+        newPageSummary.textContent = 'Showing ' + firstItem + '–' + lastItem +
+          ' of ' + page.totalEntries + ' new entries.';
+      } else {
+        newPageSummary.textContent = '';
+      }
+      newPageStatus.textContent = page.totalPages > 1
+        ? 'Page ' + page.page + ' of ' + page.totalPages
+        : '';
+      newPrevious.disabled = !page.hasPreviousPage;
+      newNext.disabled = !page.hasNextPage;
+
+      identicalHeading.textContent = 'Identical entries (' + analysis.counts.identical + ')';
+      identicalList.textContent = analysis.identicalEntries.length === 0
+        ? 'No identical entries.'
+        : analysis.identicalEntries.map(function (entry) { return entry.date; }).join(', ');
+
+      conflictBody.replaceChildren();
+      analysis.conflicts.forEach(function (conflict) {
+        ['mood', 'sleep', 'water'].forEach(function (metric) {
+          const row = document.createElement('tr');
+          const values = [
+            conflict.date,
+            metric.charAt(0).toUpperCase() + metric.slice(1),
+            formatMergeMetricValue(metric, conflict.existingEntry[metric]),
+            formatMergeMetricValue(metric, conflict.importedEntry[metric]),
+          ];
+          values.forEach(function (value) {
+            const cell = document.createElement('td');
+            cell.textContent = value;
+            row.appendChild(cell);
+          });
+          conflictBody.appendChild(row);
+        });
+      });
+      conflictScroll.hidden = analysis.conflicts.length === 0;
+      bulkControls.hidden = analysis.conflicts.length === 0;
+      conflictsEmpty.textContent = analysis.conflicts.length === 0
+        ? 'No conflicting entries require a decision.'
+        : 'Both saved and backup values are shown. No version has been selected.';
+
+      conflictControls.replaceChildren();
+      analysis.conflicts.forEach(function (conflict) {
+        const fieldset = document.createElement('fieldset');
+        fieldset.className = 'merge-conflict-choice';
+        const legend = document.createElement('legend');
+        legend.textContent = 'Resolution for ' + conflict.date;
+        fieldset.appendChild(legend);
+
+        [['keep-existing', 'Keep existing saved values'], ['use-backup', 'Use backup values']]
+          .forEach(function (choice, index) {
+            const id = 'merge-conflict-' + conflict.date + '-' + index;
+            const label = document.createElement('label');
+            const input = document.createElement('input');
+            input.type = 'radio';
+            input.name = 'merge-conflict-' + conflict.date;
+            input.id = id;
+            input.value = choice[0];
+            input.dataset.mergeConflictDate = conflict.date;
+            input.checked = conflictResolutions[conflict.date] === choice[0];
+            label.htmlFor = id;
+            label.appendChild(input);
+            const text = document.createElement('span');
+            text.textContent = choice[1];
+            label.appendChild(text);
+            fieldset.appendChild(label);
+          });
+        conflictControls.appendChild(fieldset);
+      });
+
+      const resolvedCount = analysis.conflicts.filter(function (conflict) {
+        return conflictResolutions[conflict.date] === 'keep-existing' ||
+          conflictResolutions[conflict.date] === 'use-backup';
+      }).length;
+      resolutionStatus.textContent = analysis.conflicts.length === 0
+        ? 'No conflicts need resolution.'
+        : resolvedCount + ' of ' + analysis.conflicts.length + ' conflicts resolved.';
+      if (!candidate || !candidate.ok) {
+        finalSummary.textContent = analysis.conflicts.length === 0
+          ? 'The merge is ready to review.'
+          : 'Resolve every conflict before confirming the merge.';
+        mergeButton.disabled = true;
+      } else {
+        finalSummary.textContent = 'Merge summary: add ' + candidate.counts.added +
+          ' new entries, leave ' + candidate.counts.identical + ' identical entries unchanged, keep ' +
+          candidate.counts.keptExisting + ' conflicting entries, and replace ' +
+          candidate.counts.replaced + ' conflicting entries, for ' + candidate.entries.length +
+          ' entries total. Unrelated existing entries remain.';
+        mergeButton.disabled = false;
+      }
+    }
+
     /**
      * renderTable(historyState)
      *
@@ -67,7 +245,9 @@
      * delegated listener on #entries-container instead.
      *
      * @param {{totalEntryCount: number, appliedRange: Object|null,
-     *           matchingCount: number, visibleEntries: Array}} historyState
+     *           matchingCount: number, visibleEntries: Array,
+     *           page: number, totalPages: number,
+     *           hasPreviousPage: boolean, hasNextPage: boolean}} historyState
      */
     function renderTable(historyState) {
       const container = document.getElementById('entries-container');
@@ -98,14 +278,6 @@
         ' to ' + appliedRange.endDate + '. ' + totalEntryCount + ' saved ' +
         (totalEntryCount === 1 ? 'entry total.' : 'entries total.');
 
-      if (matchingCount > visibleEntries.length) {
-        const notice = document.createElement('p');
-        notice.className = 'history-status';
-        notice.textContent = 'Showing the newest ' + visibleEntries.length + ' of ' +
-          matchingCount + ' matching entries. Narrow the date range to view older entries.';
-        container.appendChild(notice);
-      }
-
       if (matchingCount === 0) {
         const empty = document.createElement('p');
         empty.className = 'empty-state';
@@ -117,6 +289,7 @@
       // ── Build the table ───────────────────────────────────────────
       // <table>
       const table = document.createElement('table');
+      table.className = 'history-table';
       table.setAttribute('aria-label', 'Wellness entry history');
 
       // ── <thead> ───────────────────────────────────────────────────
@@ -127,6 +300,7 @@
       columns.forEach(function (label) {
         const th = document.createElement('th');
         th.setAttribute('scope', 'col');
+        if (label === 'Date') th.className = 'history-date-column';
         th.textContent = label;
         headerRow.appendChild(th);
       });
@@ -142,6 +316,7 @@
 
         // Date cell
         const tdDate = document.createElement('td');
+        tdDate.className = 'history-date-column';
         tdDate.textContent = entry.date;
         row.appendChild(tdDate);
 
@@ -184,7 +359,48 @@
       });
 
       table.appendChild(tbody);
-      container.appendChild(table);
+      const tableScroll = document.createElement('div');
+      tableScroll.className = 'history-table-scroll';
+      tableScroll.appendChild(table);
+      container.appendChild(tableScroll);
+
+      const firstDisplayed = (historyState.page - 1) * historyState.pageSize + 1;
+      const lastDisplayed = firstDisplayed + visibleEntries.length - 1;
+      const pagination = document.createElement('nav');
+      pagination.className = 'history-pagination' +
+        (historyState.totalPages > 1 ? '' : ' history-pagination-single');
+      pagination.setAttribute('aria-label', 'Entry History pagination');
+      const pageStatus = document.createElement('span');
+      pageStatus.id = 'history-page-status';
+      pageStatus.className = 'history-page-status';
+      pageStatus.tabIndex = -1;
+      pageStatus.setAttribute('aria-live', 'polite');
+      pageStatus.textContent = 'Showing ' + firstDisplayed + '–' + lastDisplayed + ' of ' +
+        matchingCount + ' matching entries. Page ' + historyState.page + ' of ' + historyState.totalPages + '.';
+      if (historyState.totalPages > 1) {
+        const previous = document.createElement('button');
+        previous.type = 'button';
+        previous.id = 'history-previous-page-btn';
+        previous.className = 'btn-neutral history-page-btn';
+        previous.dataset.historyPageOffset = '-1';
+        previous.textContent = 'Previous page';
+        previous.disabled = !historyState.hasPreviousPage;
+        previous.setAttribute('aria-label', 'Show previous Entry History page');
+        pagination.appendChild(previous);
+      }
+      pagination.appendChild(pageStatus);
+      if (historyState.totalPages > 1) {
+        const next = document.createElement('button');
+        next.type = 'button';
+        next.id = 'history-next-page-btn';
+        next.className = 'btn-neutral history-page-btn';
+        next.dataset.historyPageOffset = '1';
+        next.textContent = 'Next page';
+        next.disabled = !historyState.hasNextPage;
+        next.setAttribute('aria-label', 'Show next Entry History page');
+        pagination.appendChild(next);
+      }
+      container.appendChild(pagination);
     }
 
     /* ── History and Trends ──────────────────────────────────────── */
@@ -218,6 +434,136 @@
     function formatTrendValue(value, unit) {
       if (value === null) return '— Missing';
       return String(value) + (unit ? ' ' + unit : '');
+    }
+
+    function appendTrendPointDetailRow(list, label, value) {
+      const term = document.createElement('dt');
+      term.textContent = label;
+      const description = document.createElement('dd');
+      description.textContent = value;
+      list.appendChild(term);
+      list.appendChild(description);
+    }
+
+    /**
+     * renderTrendPointDetails(metric, detail)
+     *
+     * Renders one explicitly supplied chart-point selection.  The controller
+     * owns the selection and supplies either a daily observation or an
+     * aggregated period; this function never reads chart or application state.
+     */
+    function renderTrendPointDetails(metric, detail, pinned) {
+      const panel = document.getElementById('trend-point-details-' + metric);
+      if (!panel) return;
+      panel.replaceChildren();
+      if (!detail) {
+        panel.hidden = true;
+        panel.removeAttribute('data-pinned');
+        return;
+      }
+
+      const config = TREND_CONFIGS.find(function (candidate) {
+        return candidate.metric === metric;
+      });
+      if (!config) return;
+      panel.dataset.pinned = pinned !== false ? 'true' : 'false';
+
+      const heading = document.createElement('h4');
+      heading.textContent = detail.type === 'aggregated'
+        ? config.title + ' period average'
+        : config.title + ' observation';
+      panel.appendChild(heading);
+
+      const list = document.createElement('dl');
+      list.className = 'trend-point-details-list';
+      if (detail.series) {
+        appendTrendPointDetailRow(
+          list,
+          'Comparison period',
+          (detail.series === 'first' ? 'First period: ' : 'Second period: ') +
+            (detail.seriesLabel || detail.periodLabel)
+        );
+      }
+      if (detail.type === 'aggregated') {
+        appendTrendPointDetailRow(list, 'Period', detail.label || detail.key);
+        appendTrendPointDetailRow(list, 'Date range', detail.startDate + ' to ' + detail.endDate);
+        appendTrendPointDetailRow(
+          list, 'Average', formatAggregatedTrendValue(detail.value, config.unit)
+        );
+        appendTrendPointDetailRow(list, 'Recorded days', String(detail.recordedDayCount));
+        if (pinned !== false) {
+          appendTrendPointDetailRow(list, 'Calendar days', String(detail.calendarDayCount));
+        }
+        panel.appendChild(list);
+        if (pinned !== false) {
+          const note = document.createElement('p');
+          note.textContent = 'This value is an average of the recorded days in the period.';
+          panel.appendChild(note);
+        }
+      } else {
+        appendTrendPointDetailRow(list, 'Date', detail.date);
+        appendTrendPointDetailRow(list, 'Value', formatTrendValue(detail.value, config.unit));
+        panel.appendChild(list);
+        if (pinned !== false) {
+          const historyButton = document.createElement('button');
+          historyButton.type = 'button';
+          historyButton.className = 'trend-point-history-action btn-neutral';
+          historyButton.dataset.historyDate = detail.date;
+          historyButton.textContent = 'Show entry in History';
+          historyButton.setAttribute('aria-label', 'Show entry for ' + detail.date + ' in History');
+          panel.appendChild(historyButton);
+        }
+      }
+      panel.hidden = false;
+    }
+
+    function appendTrendPointExplorer(card, config, populatedCount, pointType, periodLabels) {
+      if (periodLabels) {
+        const seriesField = document.createElement('div');
+        seriesField.className = 'trend-comparison-series-field';
+        const seriesLabel = document.createElement('label');
+        seriesLabel.setAttribute('for', 'trend-comparison-series-' + config.metric);
+        seriesLabel.textContent = 'Explore series';
+        const seriesSelect = document.createElement('select');
+        seriesSelect.id = 'trend-comparison-series-' + config.metric;
+        seriesSelect.className = 'trend-comparison-series-select';
+        seriesSelect.dataset.chartExplorerMetric = config.metric;
+        [
+          ['first', 'First period — ' + comparisonPeriodLabel(periodLabels, 'firstPeriodLabel')],
+          ['second', 'Second period — ' + comparisonPeriodLabel(periodLabels, 'secondPeriodLabel')],
+        ].forEach(function (optionData) {
+          const option = document.createElement('option');
+          option.value = optionData[0];
+          option.textContent = optionData[1];
+          seriesSelect.appendChild(option);
+        });
+        seriesField.appendChild(seriesLabel);
+        seriesField.appendChild(seriesSelect);
+        card.appendChild(seriesField);
+      }
+
+      const explorer = document.createElement('button');
+      explorer.type = 'button';
+      explorer.className = 'trend-chart-explorer btn-neutral';
+      explorer.dataset.chartExplorerMetric = config.metric;
+      explorer.setAttribute('aria-controls', 'trend-point-details-' + config.metric);
+      explorer.setAttribute(
+        'aria-label',
+        'Explore ' + config.title + (periodLabels ? ' comparison ' : ' ') +
+        'observations. Use Left and Right arrow keys to move between recorded points.'
+      );
+      explorer.textContent = populatedCount > 0 ? 'Explore' : 'No points';
+      explorer.disabled = populatedCount === 0;
+      card.appendChild(explorer);
+
+      const details = document.createElement('section');
+      details.className = 'trend-point-tooltip';
+      details.id = 'trend-point-details-' + config.metric;
+      details.hidden = true;
+      details.setAttribute('aria-live', 'polite');
+      details.dataset.metric = config.metric;
+      details.dataset.pointType = pointType;
+      card.appendChild(details);
     }
 
     function renderTrendChart(container, config, series) {
@@ -331,11 +677,15 @@
             class: 'trend-point',
             cx: xFor(index), cy: yFor(point.value), r: 3,
             'data-date': point.date, 'data-value': point.value,
+            'data-point-index': index, 'data-point-type': 'daily',
+            'data-metric': config.metric,
+            'data-interactive-point': 'true',
           }));
         });
       }
 
       card.appendChild(svg);
+      appendTrendPointExplorer(card, config, populatedPoints.length, 'daily');
       container.appendChild(card);
     }
 
@@ -367,10 +717,23 @@
       card.appendChild(legend);
     }
 
-    function appendComparisonSeries(svg, points, xFor, yFor, seriesName) {
+    function appendComparisonSeries(svg, points, xFor, yFor, seriesName, periodLabels, resolution) {
       let segment = [];
       const valueKey = seriesName === 'first' ? 'firstValue' : 'secondValue';
       const dateKey = seriesName === 'first' ? 'firstDate' : 'secondDate';
+      const startDateKey = seriesName === 'first' ? 'firstStartDate' : 'secondStartDate';
+      const endDateKey = seriesName === 'first' ? 'firstEndDate' : 'secondEndDate';
+      const recordedCountKey = seriesName === 'first'
+        ? 'firstRecordedDayCount' : 'secondRecordedDayCount';
+      const calendarCountKey = seriesName === 'first'
+        ? 'firstCalendarDayCount' : 'secondCalendarDayCount';
+      const pointType = resolution === 'weekly' || resolution === 'monthly'
+        ? 'aggregated' : 'daily';
+      const hasSourceDate = function (point) {
+        const date = point[dateKey];
+        const startDate = point[startDateKey];
+        return date !== null && date !== undefined || startDate !== null && startDate !== undefined;
+      };
       const appendSegment = function () {
         if (segment.length > 1) {
           const path = createSvgElement('path', {
@@ -387,7 +750,7 @@
       };
 
       points.forEach(function (point, index) {
-        if (point[dateKey] === null || point[valueKey] === null) {
+        if (!hasSourceDate(point) || point[valueKey] === null) {
           appendSegment();
           return;
         }
@@ -396,14 +759,29 @@
       appendSegment();
 
       points.forEach(function (point, index) {
-        if (point[dateKey] === null || point[valueKey] === null) return;
+        if (!hasSourceDate(point) || point[valueKey] === null) return;
+        const sourceDate = point[dateKey] === undefined ? point[startDateKey] : point[dateKey];
         svg.appendChild(createSvgElement('circle', {
           class: 'trend-comparison-point trend-comparison-point-' + seriesName,
           cx: xFor(index), cy: yFor(point[valueKey]), r: 3,
           'data-comparison-series': seriesName,
           'data-alignment-key': point.key,
-          'data-date': point[dateKey],
+          'data-date': sourceDate || '',
+          'data-start-date': point[startDateKey] || sourceDate || '',
+          'data-end-date': point[endDateKey] || sourceDate || '',
           'data-value': point[valueKey],
+          'data-recorded-day-count': point[recordedCountKey] === undefined
+            ? '' : point[recordedCountKey],
+          'data-calendar-day-count': point[calendarCountKey] === undefined
+            ? '' : point[calendarCountKey],
+          'data-point-index': index,
+          'data-point-type': pointType,
+          'data-interactive-point': 'true',
+          'data-metric': svg.dataset.metric,
+          'data-period-label': point.label || point.key,
+          'data-series-label': comparisonPeriodLabel(
+            periodLabels, seriesName === 'first' ? 'firstPeriodLabel' : 'secondPeriodLabel'
+          ),
         }));
       });
     }
@@ -473,10 +851,12 @@
       card.appendChild(heading);
 
       const firstCount = series.points.filter(function (point) {
-        return point.firstDate !== null && point.firstValue !== null;
+        const sourceDate = point.firstDate === undefined ? point.firstStartDate : point.firstDate;
+        return sourceDate !== null && sourceDate !== undefined && point.firstValue !== null;
       }).length;
       const secondCount = series.points.filter(function (point) {
-        return point.secondDate !== null && point.secondValue !== null;
+        const sourceDate = point.secondDate === undefined ? point.secondStartDate : point.secondDate;
+        return sourceDate !== null && sourceDate !== undefined && point.secondValue !== null;
       }).length;
       appendComparisonLegend(card, config, periodLabels, firstCount, secondCount);
 
@@ -553,11 +933,13 @@
         emptyLabel.textContent = 'No recorded values in either period';
         svg.appendChild(emptyLabel);
       } else {
-        appendComparisonSeries(svg, series.points, xFor, yFor, 'first');
-        appendComparisonSeries(svg, series.points, xFor, yFor, 'second');
+        appendComparisonSeries(svg, series.points, xFor, yFor, 'first', periodLabels, resolution);
+        appendComparisonSeries(svg, series.points, xFor, yFor, 'second', periodLabels, resolution);
       }
 
       card.appendChild(svg);
+      appendTrendPointExplorer(card, config, firstCount + secondCount,
+        resolution === 'weekly' || resolution === 'monthly' ? 'aggregated' : 'daily', periodLabels);
       container.appendChild(card);
     }
 
@@ -654,6 +1036,224 @@
       if (value === null) return 'Missing';
       const formatted = Number(value.toFixed(1)).toString();
       return formatted + (unit ? ' ' + unit : '');
+    }
+
+    function aggregatedYearAxisTicks(series, resolution) {
+      const ticks = [
+        ['01-01', '01', 'Jan'],
+        ['04-01', '04', 'Apr'],
+        ['07-01', '07', 'Jul'],
+        ['10-01', '10', 'Oct'],
+        ['12-01', '12', 'Dec'],
+      ];
+      return ticks.map(function (tick) {
+        const index = resolution === 'monthly'
+          ? series.points.findIndex(function (point) { return point.key === tick[1]; })
+          : series.points.findIndex(function (point) {
+            const targetDate = String(series.year).padStart(4, '0') + '-' + tick[0];
+            return point.startDate <= targetDate && point.endDate >= targetDate;
+          });
+        return { index, label: tick[2] };
+      }).filter(function (tick) { return tick.index >= 0; });
+    }
+
+    function renderAggregatedYearTrendChart(container, config, series, year, resolution) {
+      const card = document.createElement('section');
+      card.className = 'trend-chart-card';
+      card.dataset.metric = config.metric;
+
+      const heading = document.createElement('h3');
+      const resolutionLabel = resolution === 'weekly' ? 'Weekly averages' : 'Monthly averages';
+      heading.textContent = config.title +
+        (config.unit ? ' (' + config.unit + ')' : ' (1–5)') + ' — ' + resolutionLabel;
+      card.appendChild(heading);
+
+      const svg = createSvgElement('svg', {
+        class: 'trend-chart',
+        viewBox: '0 0 320 180',
+        role: 'img',
+        'aria-labelledby': 'trend-year-' + config.metric + '-title trend-year-' + config.metric + '-description',
+        'data-metric': config.metric,
+        'data-resolution': resolution,
+        'data-year': String(year).padStart(4, '0'),
+      });
+      const title = createSvgElement('title', { id: 'trend-year-' + config.metric + '-title' });
+      title.textContent = config.title + ' ' + resolutionLabel.toLowerCase() + ' for ' +
+        String(year).padStart(4, '0');
+      svg.appendChild(title);
+      const description = createSvgElement('desc', {
+        id: 'trend-year-' + config.metric + '-description',
+      });
+      const populatedPoints = series.points.filter(function (point) {
+        return point.value !== null;
+      });
+      description.textContent = populatedPoints.length === 0
+        ? 'No recorded ' + config.title.toLowerCase() + ' values in ' +
+          String(year).padStart(4, '0') + '.'
+        : resolutionLabel + ' for ' + config.title.toLowerCase() + ' in ' +
+          String(year).padStart(4, '0') + '. Missing periods are shown as gaps.';
+      svg.appendChild(description);
+
+      const left = 38;
+      const top = 18;
+      const width = 266;
+      const height = 118;
+      const bottom = top + height;
+      const xFor = function (index) {
+        return series.points.length <= 1
+          ? left + width / 2
+          : left + (index / (series.points.length - 1)) * width;
+      };
+      const yFor = function (value) {
+        return top + ((config.max - value) / (config.max - config.min)) * height;
+      };
+
+      [config.max, config.min].forEach(function (value) {
+        const y = yFor(value);
+        svg.appendChild(createSvgElement('line', {
+          class: 'trend-grid-line', x1: left, y1: y, x2: left + width, y2: y,
+        }));
+        const label = createSvgElement('text', {
+          class: 'trend-axis-label', x: left - 5, y: y + 3, 'text-anchor': 'end',
+        });
+        label.textContent = String(value) + (config.unit ? ' ' + config.unit : '');
+        svg.appendChild(label);
+      });
+      svg.appendChild(createSvgElement('line', {
+        class: 'trend-axis', x1: left, y1: top, x2: left, y2: bottom,
+      }));
+      svg.appendChild(createSvgElement('line', {
+        class: 'trend-axis', x1: left, y1: bottom, x2: left + width, y2: bottom,
+      }));
+
+      const axisTicks = aggregatedYearAxisTicks(series, resolution);
+      axisTicks.forEach(function (tick, position) {
+        const label = createSvgElement('text', {
+          class: 'trend-axis-label',
+          x: xFor(tick.index),
+          y: bottom + 17,
+          'text-anchor': position === 0 ? 'start' :
+            (position === axisTicks.length - 1 ? 'end' : 'middle'),
+        });
+        label.textContent = tick.label;
+        svg.appendChild(label);
+      });
+
+      if (populatedPoints.length === 0) {
+        const emptyLabel = createSvgElement('text', {
+          class: 'trend-empty-label', x: left + width / 2, y: top + height / 2,
+        });
+        emptyLabel.textContent = 'No recorded values in this year';
+        svg.appendChild(emptyLabel);
+      } else {
+        let segment = [];
+        const appendSegment = function () {
+          if (segment.length > 1) {
+            svg.appendChild(createSvgElement('path', {
+              class: 'trend-line trend-aggregated-year-line',
+              d: segment.map(function (point, index) {
+                return (index === 0 ? 'M ' : 'L ') +
+                  xFor(point.index) + ' ' + yFor(point.value);
+              }).join(' '),
+              'data-trend-segment': String(segment.length),
+            }));
+          }
+          segment = [];
+        };
+
+        series.points.forEach(function (point, index) {
+          if (point.value === null) {
+            appendSegment();
+            return;
+          }
+          segment.push({ index, value: point.value });
+        });
+        appendSegment();
+
+        series.points.forEach(function (point, index) {
+          if (point.value === null) return;
+          svg.appendChild(createSvgElement('circle', {
+            class: 'trend-point trend-aggregated-year-point',
+            cx: xFor(index),
+            cy: yFor(point.value),
+            r: 3,
+            'data-period-key': point.key,
+            'data-period-label': point.label || point.key,
+            'data-start-date': point.startDate,
+            'data-end-date': point.endDate,
+            'data-value': point.value,
+            'data-recorded-day-count': point.recordedDayCount,
+            'data-calendar-day-count': point.calendarDayCount,
+            'data-point-index': index,
+            'data-point-type': 'aggregated',
+            'data-metric': config.metric,
+            'data-interactive-point': 'true',
+          }));
+        });
+      }
+
+      card.appendChild(svg);
+      appendTrendPointExplorer(card, config, populatedPoints.length, 'aggregated');
+      container.appendChild(card);
+    }
+
+    function renderAggregatedYearDataTable(seriesByMetric, year, resolution) {
+      const container = document.getElementById('trend-data-table-container');
+      prepareTrendDataTableContainer(container);
+      const table = document.createElement('table');
+      table.className = 'trend-data-table trend-aggregated-data-table';
+      table.setAttribute(
+        'aria-label',
+        'Exact ' + resolution + ' aggregated chart data for ' + String(year).padStart(4, '0')
+      );
+      const caption = document.createElement('caption');
+      caption.textContent = (resolution === 'weekly' ? 'Weekly' : 'Monthly') +
+        ' averages for ' + String(year).padStart(4, '0') +
+        '. Missing means no entries were recorded in that period.';
+      table.appendChild(caption);
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      [
+        'Period', 'Date range', 'Recorded days', 'Calendar days',
+        'Mood average', 'Sleep average (h)', 'Water average (L)',
+      ].forEach(function (label) {
+        const heading = document.createElement('th');
+        heading.setAttribute('scope', 'col');
+        heading.textContent = label;
+        headerRow.appendChild(heading);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      seriesByMetric.mood.points.forEach(function (moodPoint, index) {
+        const sleepPoint = seriesByMetric.sleep.points[index];
+        const waterPoint = seriesByMetric.water.points[index];
+        const row = document.createElement('tr');
+        const period = document.createElement('th');
+        period.setAttribute('scope', 'row');
+        period.textContent = moodPoint.label || moodPoint.key;
+        row.appendChild(period);
+        [
+          moodPoint.startDate + ' to ' + moodPoint.endDate,
+          moodPoint.recordedDayCount,
+          moodPoint.calendarDayCount,
+          formatAggregatedTrendValue(moodPoint.value, ''),
+          formatAggregatedTrendValue(sleepPoint.value, 'h'),
+          formatAggregatedTrendValue(waterPoint.value, 'L'),
+        ].forEach(function (value) {
+          const cell = document.createElement('td');
+          cell.textContent = String(value);
+          row.appendChild(cell);
+        });
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      appendTrendDataTableFrame(
+        container,
+        table,
+        'Scroll horizontally or vertically to view all columns and rows. The headings and Period column stay visible.',
+        'trend-aggregated-year-table-hint'
+      );
     }
 
     function renderAggregatedComparisonDataTable(seriesByMetric, periodLabels, resolution) {
@@ -754,6 +1354,23 @@
         );
       });
       renderAggregatedComparisonDataTable(seriesByMetric, periodLabels, resolution);
+    }
+
+    /**
+     * Renders weekly or monthly aggregates for one complete calendar year.
+     * The caller supplies prepared series; this function performs no data
+     * aggregation and has no access to controller state or storage.
+     */
+    function renderAggregatedYearCharts(seriesByMetric, year, resolution) {
+      if (resolution !== 'weekly' && resolution !== 'monthly') return;
+      const chartList = document.getElementById('trend-chart-list');
+      chartList.replaceChildren();
+      TREND_CONFIGS.forEach(function (config) {
+        renderAggregatedYearTrendChart(
+          chartList, config, seriesByMetric[config.metric], year, resolution
+        );
+      });
+      renderAggregatedYearDataTable(seriesByMetric, year, resolution);
     }
 
     function renderTrendDataTable(seriesByMetric) {
@@ -864,6 +1481,8 @@
       const end = document.getElementById('trend-custom-end');
       const month = document.getElementById('trend-custom-month');
       const year = document.getElementById('trend-custom-year');
+      const resolution = document.getElementById('trend-custom-resolution');
+      const resolutionControls = document.getElementById('trend-custom-resolution-controls');
       const previousMonth = document.getElementById('trend-custom-month-prev');
       const nextMonth = document.getElementById('trend-custom-month-next');
       const previousYear = document.getElementById('trend-custom-year-prev');
@@ -876,6 +1495,7 @@
       if (end && viewState.customTrendDraftEnd !== undefined) end.value = viewState.customTrendDraftEnd;
       if (month && viewState.customTrendDraftMonth !== undefined) month.value = viewState.customTrendDraftMonth;
       if (year && viewState.customTrendDraftYear !== undefined) year.value = viewState.customTrendDraftYear;
+      if (resolution) resolution.value = viewState.customTrendDraftResolution || 'daily';
       if (previousMonth) previousMonth.disabled = Boolean(
         viewState.customMonthNavigation && viewState.customMonthNavigation.previousDisabled
       );
@@ -892,6 +1512,7 @@
         [dateRangeControls, type !== 'date-range'],
         [monthControls, type !== 'month'],
         [yearControls, type !== 'year'],
+        [resolutionControls, type !== 'year'],
       ].forEach(function (controlAndHidden) {
         const control = controlAndHidden[0];
         const hidden = controlAndHidden[1];
@@ -1001,6 +1622,528 @@
       } else {
         rangeStatus.textContent = 'Showing the previously applied comparison. Missing dates appear as gaps.';
       }
+    }
+
+    function formatStatisticValue(value, unit) {
+      if (value === null) return '—';
+      return value.toFixed(1) + (unit ? ' ' + unit : '');
+    }
+
+    function formatStatisticDifference(value, unit) {
+      if (value === null) return '—';
+      const rounded = Number(value.toFixed(1));
+      if (rounded === 0) return '0' + (unit ? ' ' + unit : '');
+      return (rounded > 0 ? '+' : '−') + Math.abs(rounded).toFixed(1) +
+        (unit ? ' ' + unit : '');
+    }
+
+    function formatStatisticCountDifference(value) {
+      if (value === 0) return '0';
+      return (value > 0 ? '+' : '−') + String(Math.abs(value));
+    }
+
+    function appendStatisticsCell(row, text, header) {
+      const cell = document.createElement(header ? 'th' : 'td');
+      if (header) cell.setAttribute('scope', 'row');
+      cell.textContent = text;
+      row.appendChild(cell);
+    }
+
+    function appendStatisticsTable(container, className, captionText, headers, rows, headingText) {
+      const heading = document.createElement('p');
+      heading.className = 'trend-statistics-table-heading';
+      heading.textContent = headingText || captionText;
+      container.appendChild(heading);
+
+      const frame = document.createElement('div');
+      frame.className = 'trend-statistics-table-wrap';
+      const table = document.createElement('table');
+      table.className = 'trend-statistics-table ' + className;
+      const caption = document.createElement('caption');
+      caption.className = 'sr-only';
+      caption.textContent = captionText;
+      table.appendChild(caption);
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      headers.forEach(function (label) {
+        const cell = document.createElement('th');
+        cell.setAttribute('scope', 'col');
+        cell.textContent = label;
+        headerRow.appendChild(cell);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      rows.forEach(function (rowValues) {
+        const row = document.createElement('tr');
+        rowValues.forEach(function (value, index) {
+          appendStatisticsCell(row, value, index === 0);
+        });
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      frame.appendChild(table);
+      container.appendChild(frame);
+    }
+
+    function formatDashboardDate(dateKey) {
+      return formatTrendDate(dateKey) + ', ' + dateKey.slice(0, 4);
+    }
+
+    function appendDashboardSummaryCard(container, label, value) {
+      const card = document.createElement('div');
+      card.className = 'dashboard-summary-card';
+      const term = document.createElement('dt');
+      term.textContent = label;
+      const description = document.createElement('dd');
+      description.textContent = value;
+      card.appendChild(term);
+      card.appendChild(description);
+      container.appendChild(card);
+    }
+
+    function renderDashboardTrendTable(card, config, series) {
+      const details = document.createElement('details');
+      details.className = 'dashboard-trend-data';
+      const summary = document.createElement('summary');
+      summary.textContent = 'View exact ' + config.title.toLowerCase() + ' values';
+      details.appendChild(summary);
+
+      const scroll = document.createElement('div');
+      scroll.className = 'dashboard-table-scroll';
+      const table = document.createElement('table');
+      table.className = 'dashboard-trend-data-table';
+      const caption = document.createElement('caption');
+      caption.className = 'sr-only';
+      caption.textContent = config.title + ' values for the dashboard reporting period.';
+      table.appendChild(caption);
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      ['Date', config.title + (config.unit ? ' (' + config.unit + ')' : ' (score)')]
+        .forEach(function (label) {
+          const heading = document.createElement('th');
+          heading.setAttribute('scope', 'col');
+          heading.textContent = label;
+          headerRow.appendChild(heading);
+        });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      series.points.forEach(function (point) {
+        const row = document.createElement('tr');
+        const date = document.createElement('th');
+        date.setAttribute('scope', 'row');
+        date.textContent = point.date;
+        const value = document.createElement('td');
+        value.textContent = formatTrendValue(point.value, config.unit);
+        row.appendChild(date);
+        row.appendChild(value);
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      scroll.appendChild(table);
+      details.appendChild(scroll);
+      card.appendChild(details);
+    }
+
+    function renderDashboardTrendChart(container, config, series) {
+      const card = document.createElement('section');
+      card.className = 'dashboard-trend-card';
+      card.dataset.metric = config.metric;
+      const heading = document.createElement('h4');
+      heading.textContent = config.title + (config.unit ? ' (' + config.unit + ')' : ' (1–5)');
+      card.appendChild(heading);
+
+      const titleId = 'dashboard-' + config.metric + '-trend-title';
+      const descriptionId = 'dashboard-' + config.metric + '-trend-description';
+      const svg = createSvgElement('svg', {
+        class: 'dashboard-trend-chart',
+        viewBox: '0 0 320 128',
+        role: 'img',
+        'aria-labelledby': titleId + ' ' + descriptionId,
+        'data-dashboard-metric': config.metric,
+      });
+      const title = createSvgElement('title', { id: titleId });
+      title.textContent = config.title + ' dashboard trend';
+      svg.appendChild(title);
+      const populatedPoints = series.points.filter(function (point) { return point.value !== null; });
+      const description = createSvgElement('desc', { id: descriptionId });
+      description.textContent = populatedPoints.length === 0
+        ? 'No recorded ' + config.title.toLowerCase() + ' values from ' + series.startDate +
+          ' to ' + series.endDate + '.'
+        : config.title + ' daily values from ' + series.startDate + ' to ' + series.endDate +
+          '. Missing dates are shown as gaps.';
+      svg.appendChild(description);
+
+      const left = 34;
+      const top = 12;
+      const width = 274;
+      const height = 76;
+      const bottom = top + height;
+      const xFor = function (index) {
+        return series.points.length <= 1
+          ? left + width / 2
+          : left + (index / (series.points.length - 1)) * width;
+      };
+      const yFor = function (value) {
+        return top + ((config.max - value) / (config.max - config.min)) * height;
+      };
+
+      [config.max, config.min].forEach(function (value) {
+        const y = yFor(value);
+        svg.appendChild(createSvgElement('line', {
+          class: 'trend-grid-line', x1: left, y1: y, x2: left + width, y2: y,
+        }));
+        const label = createSvgElement('text', {
+          class: 'trend-axis-label', x: left - 5, y: y + 3, 'text-anchor': 'end',
+        });
+        label.textContent = String(value) + (config.unit ? ' ' + config.unit : '');
+        svg.appendChild(label);
+      });
+      svg.appendChild(createSvgElement('line', {
+        class: 'trend-axis', x1: left, y1: top, x2: left, y2: bottom,
+      }));
+      svg.appendChild(createSvgElement('line', {
+        class: 'trend-axis', x1: left, y1: bottom, x2: left + width, y2: bottom,
+      }));
+
+      const labelIndexes = [0, Math.floor((series.points.length - 1) / 2), series.points.length - 1];
+      labelIndexes.filter(function (index, position, all) {
+        return index >= 0 && all.indexOf(index) === position;
+      }).forEach(function (index) {
+        const label = createSvgElement('text', {
+          class: 'trend-axis-label', x: xFor(index), y: bottom + 17,
+          'text-anchor': index === labelIndexes[0]
+            ? 'start'
+            : (index === labelIndexes[labelIndexes.length - 1] ? 'end' : 'middle'),
+        });
+        label.textContent = formatTrendDate(series.points[index].date);
+        svg.appendChild(label);
+      });
+
+      if (populatedPoints.length === 0) {
+        const emptyLabel = createSvgElement('text', {
+          class: 'trend-empty-label', x: left + width / 2, y: top + height / 2,
+        });
+        emptyLabel.textContent = 'No recorded values';
+        svg.appendChild(emptyLabel);
+      } else {
+        let segment = [];
+        const appendSegment = function () {
+          if (segment.length > 1) {
+            svg.appendChild(createSvgElement('path', {
+              class: 'dashboard-trend-line',
+              d: segment.map(function (point, index) {
+                return (index === 0 ? 'M ' : 'L ') + xFor(point.index) + ' ' + yFor(point.value);
+              }).join(' '),
+              'data-dashboard-segment': String(segment.length),
+            }));
+          }
+          segment = [];
+        };
+        series.points.forEach(function (point, index) {
+          if (point.value === null) {
+            appendSegment();
+          } else {
+            segment.push({ index, value: point.value });
+          }
+        });
+        appendSegment();
+        series.points.forEach(function (point, index) {
+          if (point.value === null) return;
+          svg.appendChild(createSvgElement('circle', {
+            class: 'dashboard-trend-point',
+            cx: xFor(index), cy: yFor(point.value), r: 3,
+            'data-date': point.date, 'data-value': point.value,
+          }));
+        });
+      }
+      card.appendChild(svg);
+      renderDashboardTrendTable(card, config, series);
+      container.appendChild(card);
+    }
+
+    function renderDashboardRecentEntries(container, recentEntries) {
+      const section = document.createElement('section');
+      section.className = 'dashboard-recent';
+      const heading = document.createElement('h3');
+      heading.textContent = 'Recent entries';
+      section.appendChild(heading);
+      if (recentEntries.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'dashboard-empty-state';
+        empty.textContent = 'No entries were saved in this reporting period.';
+        section.appendChild(empty);
+        container.appendChild(section);
+        return;
+      }
+
+      const scroll = document.createElement('div');
+      scroll.className = 'dashboard-table-scroll dashboard-recent-table-scroll';
+      const table = document.createElement('table');
+      table.className = 'dashboard-recent-table';
+      const caption = document.createElement('caption');
+      caption.className = 'sr-only';
+      caption.textContent = 'Entries saved during the dashboard reporting period, newest first.';
+      table.appendChild(caption);
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      ['Date', 'Mood', 'Sleep (h)', 'Water (L)', 'Action'].forEach(function (label) {
+        const headingCell = document.createElement('th');
+        headingCell.setAttribute('scope', 'col');
+        headingCell.textContent = label;
+        headerRow.appendChild(headingCell);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      recentEntries.forEach(function (entry) {
+        const row = document.createElement('tr');
+        row.dataset.entryDate = entry.date;
+        [entry.date, String(entry.mood), String(entry.sleep), String(entry.water)]
+          .forEach(function (value, index) {
+            const cell = document.createElement(index === 0 ? 'th' : 'td');
+            if (index === 0) cell.setAttribute('scope', 'row');
+            cell.textContent = value;
+            row.appendChild(cell);
+          });
+        const actionCell = document.createElement('td');
+        const historyButton = document.createElement('button');
+        historyButton.type = 'button';
+        historyButton.className = 'btn-neutral dashboard-history-action';
+        historyButton.dataset.historyDate = entry.date;
+        historyButton.textContent = 'Show in History';
+        historyButton.setAttribute('aria-label', 'Show entry for ' + entry.date + ' in History');
+        actionCell.appendChild(historyButton);
+        row.appendChild(actionCell);
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      scroll.appendChild(table);
+      section.appendChild(scroll);
+      container.appendChild(section);
+    }
+
+    /**
+     * renderDashboard(container, model)
+     *
+     * Presents an explicitly prepared dashboard model in the supplied
+     * container. It does not read controller state, storage, or raw entries,
+     * and it performs no statistics or trend calculations.
+     */
+    function renderDashboard(container, model) {
+      if (!container) return;
+      container.replaceChildren();
+      if (!model) return;
+
+      const dashboard = document.createElement('section');
+      dashboard.className = 'dashboard';
+      const header = document.createElement('header');
+      header.className = 'dashboard-header';
+      const heading = document.createElement('h2');
+      heading.textContent = 'Personal dashboard';
+      header.appendChild(heading);
+      const range = document.createElement('p');
+      range.className = 'dashboard-reporting-range';
+      range.textContent = (model.reportingRange.calendarDayCount === 7
+        ? 'Most recent seven calendar days ending today: '
+        : 'Most recent ' + model.reportingRange.calendarDayCount +
+          ' available calendar days ending today: ') +
+        formatDashboardDate(model.reportingRange.startDate) + ' to ' +
+        formatDashboardDate(model.reportingRange.endDate) + '.';
+      header.appendChild(range);
+      const todayStatus = document.createElement('p');
+      todayStatus.className = 'dashboard-today-status';
+      todayStatus.textContent = model.today.hasEntry
+        ? 'Entry saved for today.'
+        : 'No entry saved for today.';
+      header.appendChild(todayStatus);
+      const shortcuts = document.createElement('nav');
+      shortcuts.className = 'dashboard-shortcuts';
+      shortcuts.setAttribute('aria-label', 'Dashboard navigation');
+      [
+        ['charts', 'View detailed charts'],
+        ['history', 'View Entry History'],
+      ].forEach(function (actionAndLabel) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn-neutral dashboard-shortcut';
+        button.dataset.dashboardAction = actionAndLabel[0];
+        button.textContent = actionAndLabel[1];
+        shortcuts.appendChild(button);
+      });
+      header.appendChild(shortcuts);
+      dashboard.appendChild(header);
+
+      const summarySection = document.createElement('section');
+      summarySection.className = 'dashboard-summary';
+      const summaryHeading = document.createElement('h3');
+      summaryHeading.textContent = 'Seven-day summary';
+      summarySection.appendChild(summaryHeading);
+      const summary = document.createElement('dl');
+      summary.className = 'dashboard-summary-grid';
+      appendDashboardSummaryCard(
+        summary,
+        'Recorded days',
+        model.activity.recordedDayCount + ' / ' + model.reportingRange.calendarDayCount
+      );
+      appendDashboardSummaryCard(
+        summary, 'Average Mood', formatStatisticValue(model.statistics.metrics.mood.average, '')
+      );
+      appendDashboardSummaryCard(
+        summary, 'Average Sleep', formatStatisticValue(model.statistics.metrics.sleep.average, 'h')
+      );
+      appendDashboardSummaryCard(
+        summary, 'Average Water', formatStatisticValue(model.statistics.metrics.water.average, 'L')
+      );
+      summarySection.appendChild(summary);
+      const averagesNote = document.createElement('p');
+      averagesNote.className = 'dashboard-averages-note';
+      averagesNote.textContent = 'Averages use recorded days only.';
+      summarySection.appendChild(averagesNote);
+      dashboard.appendChild(summarySection);
+
+      const trends = document.createElement('section');
+      trends.className = 'dashboard-trends';
+      const trendsHeading = document.createElement('h3');
+      trendsHeading.textContent = 'Recent trends';
+      trends.appendChild(trendsHeading);
+      const trendGrid = document.createElement('div');
+      trendGrid.className = 'dashboard-trend-grid';
+      TREND_CONFIGS.forEach(function (config) {
+        renderDashboardTrendChart(trendGrid, config, model.trends[config.metric]);
+      });
+      trends.appendChild(trendGrid);
+      dashboard.appendChild(trends);
+
+      renderDashboardRecentEntries(dashboard, model.recentEntries);
+      container.appendChild(dashboard);
+    }
+
+    function renderPeriodStatistics(statisticsDisplay) {
+      const container = document.getElementById('trend-statistics');
+      if (!container) return;
+      const wasOpen = Array.from(container.children || []).some(function (child) {
+        return child.tagName === 'DETAILS' && child.className === 'trend-statistics-disclosure' && child.open;
+      });
+      container.replaceChildren();
+      if (!statisticsDisplay) return;
+
+      const statistics = statisticsDisplay.statistics;
+      const details = document.createElement('details');
+      details.className = 'trend-statistics-disclosure';
+      details.open = wasOpen;
+      const summary = document.createElement('summary');
+      summary.textContent = 'Period statistics';
+      details.appendChild(summary);
+      container.appendChild(details);
+      const description = document.createElement('p');
+      description.textContent = statisticsDisplay.label + ': ' + statistics.startDate + ' to ' +
+        statistics.endDate + '. Averages use recorded days only.';
+      details.appendChild(description);
+      const coverage = document.createElement('p');
+      coverage.className = 'trend-statistics-coverage';
+      coverage.textContent = statistics.recordedDayCount + ' recorded ' +
+        (statistics.recordedDayCount === 1 ? 'day' : 'days') + ' out of ' +
+        statistics.calendarDayCount + ' calendar ' +
+        (statistics.calendarDayCount === 1 ? 'day.' : 'days.');
+      details.appendChild(coverage);
+      appendStatisticsTable(
+        details,
+        'trend-period-statistics-table',
+        'Statistics for the applied chart period.',
+        ['Metric', 'Average', 'Minimum', 'Maximum'],
+        [
+          ['Mood (score)', formatStatisticValue(statistics.metrics.mood.average, ''),
+            formatStatisticValue(statistics.metrics.mood.minimum, ''),
+            formatStatisticValue(statistics.metrics.mood.maximum, '')],
+          ['Sleep', formatStatisticValue(statistics.metrics.sleep.average, 'h'),
+            formatStatisticValue(statistics.metrics.sleep.minimum, 'h'),
+            formatStatisticValue(statistics.metrics.sleep.maximum, 'h')],
+          ['Water', formatStatisticValue(statistics.metrics.water.average, 'L'),
+            formatStatisticValue(statistics.metrics.water.minimum, 'L'),
+            formatStatisticValue(statistics.metrics.water.maximum, 'L')],
+        ]
+      );
+    }
+
+    function renderComparisonStatistics(statisticsDisplay) {
+      const container = document.getElementById('trend-statistics');
+      if (!container) return;
+      const wasOpen = Array.from(container.children || []).some(function (child) {
+        return child.tagName === 'DETAILS' && child.className === 'trend-statistics-disclosure' && child.open;
+      });
+      container.replaceChildren();
+      if (!statisticsDisplay) return;
+
+      const statistics = statisticsDisplay.statistics;
+      const first = statistics.firstPeriod;
+      const second = statistics.secondPeriod;
+      const firstLabel = statisticsDisplay.firstPeriodLabel;
+      const secondLabel = statisticsDisplay.secondPeriodLabel;
+      const details = document.createElement('details');
+      details.className = 'trend-statistics-disclosure';
+      details.open = wasOpen;
+      const disclosureSummary = document.createElement('summary');
+      disclosureSummary.textContent = 'Comparison statistics';
+      details.appendChild(disclosureSummary);
+      container.appendChild(details);
+      const description = document.createElement('p');
+      description.textContent = 'Comparing ' + firstLabel + ' with ' + secondLabel +
+        '. Differences are second period minus first period. Averages use recorded days only.';
+      details.appendChild(description);
+      appendStatisticsTable(
+        details,
+        'trend-comparison-statistics-coverage-table',
+        'Recorded-day coverage for the comparison periods.',
+        ['Period', 'Recorded days', 'Calendar days', 'Recorded-day difference (second − first)'],
+        [
+          [firstLabel, String(first.recordedDayCount), String(first.calendarDayCount), '—'],
+          [secondLabel, String(second.recordedDayCount), String(second.calendarDayCount),
+            formatStatisticCountDifference(statistics.differences.recordedDayCount)],
+        ]
+      );
+      appendStatisticsTable(
+        details,
+        'trend-comparison-statistics-table',
+        'Average values and differences for the comparison periods.',
+        ['Metric', firstLabel + ' average', secondLabel + ' average', 'Difference (second − first)'],
+        [
+          ['Mood (score)', formatStatisticValue(first.metrics.mood.average, ''),
+            formatStatisticValue(second.metrics.mood.average, ''),
+            formatStatisticDifference(statistics.differences.metrics.mood.average, '')],
+          ['Sleep', formatStatisticValue(first.metrics.sleep.average, 'h'),
+            formatStatisticValue(second.metrics.sleep.average, 'h'),
+            formatStatisticDifference(statistics.differences.metrics.sleep.average, 'h')],
+          ['Water', formatStatisticValue(first.metrics.water.average, 'L'),
+            formatStatisticValue(second.metrics.water.average, 'L'),
+            formatStatisticDifference(statistics.differences.metrics.water.average, 'L')],
+        ]
+      );
+      const extremes = document.createElement('details');
+      extremes.className = 'trend-statistics-extremes';
+      const summary = document.createElement('summary');
+      summary.textContent = 'Show minimum and maximum values';
+      extremes.appendChild(summary);
+      appendStatisticsTable(
+        extremes,
+        'trend-comparison-statistics-extremes-table',
+        'Minimum and maximum values for the comparison periods.',
+        ['Metric', firstLabel + ' minimum', firstLabel + ' maximum', secondLabel + ' minimum', secondLabel + ' maximum'],
+        [
+          ['Mood (score)', formatStatisticValue(first.metrics.mood.minimum, ''),
+            formatStatisticValue(first.metrics.mood.maximum, ''), formatStatisticValue(second.metrics.mood.minimum, ''),
+            formatStatisticValue(second.metrics.mood.maximum, '')],
+          ['Sleep', formatStatisticValue(first.metrics.sleep.minimum, 'h'),
+            formatStatisticValue(first.metrics.sleep.maximum, 'h'), formatStatisticValue(second.metrics.sleep.minimum, 'h'),
+            formatStatisticValue(second.metrics.sleep.maximum, 'h')],
+          ['Water', formatStatisticValue(first.metrics.water.minimum, 'L'),
+            formatStatisticValue(first.metrics.water.maximum, 'L'), formatStatisticValue(second.metrics.water.minimum, 'L'),
+            formatStatisticValue(second.metrics.water.maximum, 'L')],
+        ],
+        'Minimum and maximum values'
+      );
+      details.appendChild(extremes);
     }
 
     /* ── Calendar ────────────────────────────────────────────────── */
@@ -1125,17 +2268,23 @@
     }
 
     function renderHistoryTrends(entries, viewState) {
-      const { activeView, trendDayCount, trendEndDate, trendMode, appliedCustomTrendRange, chartDisplay, calendar } = viewState;
+      const { activeView, trendDayCount, trendEndDate, trendMode, appliedCustomTrendRange, chartDisplay, statisticsDisplay, calendar, dashboardModel } = viewState;
       const chartsPanel = document.getElementById('history-charts-panel');
       const calendarPanel = document.getElementById('history-calendar-panel');
+      const dashboardPanel = document.getElementById('history-dashboard-panel');
       const chartsButton = document.getElementById('history-view-charts');
       const calendarButton = document.getElementById('history-view-calendar');
+      const dashboardButton = document.getElementById('history-view-dashboard');
+      const chartsVisible = activeView === 'charts';
       const calendarVisible = activeView === 'calendar';
+      const dashboardVisible = activeView === 'dashboard';
 
-      chartsPanel.hidden = calendarVisible;
+      chartsPanel.hidden = !chartsVisible;
       calendarPanel.hidden = !calendarVisible;
-      chartsButton.setAttribute('aria-pressed', String(!calendarVisible));
+      dashboardPanel.hidden = !dashboardVisible;
+      chartsButton.setAttribute('aria-pressed', String(chartsVisible));
       calendarButton.setAttribute('aria-pressed', String(calendarVisible));
+      dashboardButton.setAttribute('aria-pressed', String(dashboardVisible));
       const display = chartDisplay || {
         type: 'single',
         dayCount: trendDayCount,
@@ -1151,10 +2300,27 @@
           renderComparisonCharts(display.seriesByMetric, display.periodLabels);
         }
         renderComparisonStatus(display.periodLabels, trendMode, trendDayCount, display.resolution);
+      } else if (display.type === 'aggregated-year') {
+        renderAggregatedYearCharts(display.seriesByMetric, display.year, display.resolution);
+        renderTrendPeriodSelection(trendMode, trendDayCount);
+        const rangeStatus = document.getElementById('trend-range-status');
+        if (rangeStatus) {
+          const resolutionLabel = display.resolution === 'weekly'
+            ? 'Weekly averages' : 'Monthly averages';
+          rangeStatus.textContent = 'Showing calendar year ' + String(display.year).padStart(4, '0') +
+            ' as ' + resolutionLabel + ' from ' + display.customRange.startDate + ' to ' +
+            display.customRange.endDate + '. Missing periods appear as gaps.';
+        }
       } else {
         renderCharts(entries, display.dayCount, display.endDate, display.customRange, trendMode);
+      }
+      if (statisticsDisplay && statisticsDisplay.type === 'comparison') {
+        renderComparisonStatistics(statisticsDisplay);
+      } else {
+        renderPeriodStatistics(statisticsDisplay);
       }
       renderCustomTrendControls(viewState);
       renderComparisonTrendControls(viewState);
       renderCalendar(entries, calendar);
+      renderDashboard(document.getElementById('dashboard-container'), dashboardModel);
     }

@@ -168,6 +168,12 @@ async function selectBackupFile(window, fixturePath) {
   await (await fileChooser).setFiles(fixturePath);
 }
 
+async function selectMergeBackupFile(window, fixturePath) {
+  const fileChooser = window.waitForEvent('filechooser', { timeout: 15_000 });
+  await window.locator('#preview-merge-backup-btn').click();
+  await (await fileChooser).setFiles(fixturePath);
+}
+
 function handleConfirmation(window, verify, accept) {
   return new Promise((resolve, reject) => {
     window.once('dialog', dialog => {
@@ -258,6 +264,7 @@ test('Electron E2E: saves a real form entry and reloads it after restart', { tim
     applications.push(firstApplication);
     const firstWindow = await getReadyWindow(firstApplication);
     await assertIsolatedUserData(firstApplication, isolatedUserDataDirectory);
+    assert.equal(await firstWindow.locator('#entries-container tbody tr').count(), 0);
 
     await firstWindow.locator('#entry-date').fill(entry.date);
     await firstWindow.locator('input[name="mood"][value="4"]').check();
@@ -277,6 +284,10 @@ test('Electron E2E: saves a real form entry and reloads it after restart', { tim
     applications.push(secondApplication);
     const secondWindow = await getReadyWindow(secondApplication);
     await assertIsolatedUserData(secondApplication, isolatedUserDataDirectory);
+
+    assert.equal(await secondWindow.locator('#history-from-date').inputValue(), entry.date);
+    assert.equal(await secondWindow.locator('#history-to-date').inputValue(), entry.date);
+    assert.equal(await secondWindow.locator('#entries-container tbody tr').count(), 0);
 
     await showHistoryRange(secondWindow, entry.date, entry.date);
     await assertHistoryRow(secondWindow, entry);
@@ -369,6 +380,59 @@ test('Electron E2E: edits and deletes an entry with persistence across restarts'
     await thirdWindow.locator('#entries-container .empty-state').waitFor({ state: 'visible', timeout: 15_000 });
     assert.equal(await thirdWindow.locator('#entries-container .empty-state').textContent(), 'No entries match this date range.');
     assert.equal(await thirdWindow.locator('#entries-container tbody tr').count(), 0);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: undoes a History deletion and persists the restoration', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const entry = { date: '2025-03-14', mood: 4, sleep: 7.5, water: 1.6 };
+
+  try {
+    const firstApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(firstApplication);
+    const firstWindow = await getReadyWindow(firstApplication);
+    await assertIsolatedUserData(firstApplication, isolatedUserDataDirectory);
+    await createEntryThroughForm(firstWindow, entry);
+    await showHistoryRange(firstWindow, entry.date, entry.date);
+
+    const confirmationHandled = handleConfirmation(
+      firstWindow,
+      dialog => {
+        assert.equal(dialog.type(), 'confirm');
+        assert.equal(dialog.message(), `Delete entry for ${entry.date}?`);
+      },
+      true
+    );
+    await Promise.all([
+      confirmationHandled,
+      firstWindow.locator(`.btn-delete[data-date="${entry.date}"]`).click(),
+    ]);
+    await firstWindow.locator('#undo-delete-status.is-visible').waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await firstWindow.locator('#undo-delete-message').textContent(), /deleted/);
+    await firstWindow.locator('#undo-delete-btn').click();
+    await firstWindow.locator('#undo-delete-message').filter({ hasText: 'restored' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    await showHistoryRange(firstWindow, entry.date, entry.date);
+    await assertHistoryRow(firstWindow, entry);
+    assert.equal(await firstWindow.locator('#undo-delete-btn').isHidden(), true);
+
+    await firstApplication.close();
+    applications.pop();
+
+    const secondApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(secondApplication);
+    const secondWindow = await getReadyWindow(secondApplication);
+    await assertIsolatedUserData(secondApplication, isolatedUserDataDirectory);
+    await showHistoryRange(secondWindow, entry.date, entry.date);
+    await assertHistoryRow(secondWindow, entry);
   } catch (error) {
     testFailure = error;
     throw error;
@@ -497,6 +561,472 @@ test('Electron E2E: charts show local-date values, gaps, zeroes, and successful 
     await assertHistoryRow(window, updatedEntry);
     assert.equal(await window.locator(`svg[data-metric="mood"] circle[data-date="${todayEntry.date}"]`).getAttribute('data-value'), '5');
     await assertTrendDataRow(window, todayEntry.date, ['5', '7.5 h', '1.8 L']);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: opens the live Dashboard, refreshes it, and navigates a recent entry', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+
+    assert.equal(await window.locator('#history-view-calendar').getAttribute('aria-pressed'), 'true');
+    assert.equal(await window.locator('#history-dashboard-panel').isHidden(), true);
+
+    const todayEntry = { date: localDateKey(0), mood: 4, sleep: 0, water: 0 };
+    const earlierEntry = { date: localDateKey(-2), mood: 2, sleep: 8, water: 2 };
+    const addedEntry = { date: localDateKey(-1), mood: 5, sleep: 6, water: 1 };
+    await createEntryThroughForm(window, earlierEntry);
+    await createEntryThroughForm(window, todayEntry);
+
+    await window.locator('#history-view-charts').click();
+    await window.locator('[data-trend-days="7"]').click();
+    assert.equal(await window.locator('[data-trend-days="7"]').getAttribute('aria-pressed'), 'true');
+
+    await window.locator('#history-view-dashboard').click();
+    await window.locator('#history-dashboard-panel').waitFor({ state: 'visible', timeout: 15_000 });
+    const summaryValue = label => window.locator('.dashboard-summary-card')
+      .filter({ hasText: label }).locator('dd');
+    await summaryValue('Recorded days').filter({ hasText: '2 / 7' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await summaryValue('Average Mood').textContent(), '3.0');
+    assert.equal(await summaryValue('Average Sleep').textContent(), '4.0 h');
+    assert.equal(await summaryValue('Average Water').textContent(), '1.0 L');
+    assert.match(await window.locator('.dashboard-reporting-range').textContent(), /ending today/);
+
+    await createEntryThroughForm(window, addedEntry);
+    await summaryValue('Recorded days').filter({ hasText: '3 / 7' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#history-view-dashboard').getAttribute('aria-pressed'), 'true');
+
+    const recentRow = window.locator(`.dashboard-recent-table tbody tr[data-entry-date="${earlierEntry.date}"]`);
+    await recentRow.getByRole('button', { name: `Show entry for ${earlierEntry.date} in History` }).click();
+    await assertHistoryRow(window, earlierEntry);
+    assert.equal(await window.locator('#history-from-date').inputValue(), earlierEntry.date);
+    assert.equal(await window.locator('#history-to-date').inputValue(), earlierEntry.date);
+    assert.equal(await window.locator(`#entries-container .btn-edit[data-date="${earlierEntry.date}"]`)
+      .evaluate(element => document.activeElement === element), true);
+
+    await window.getByRole('button', { name: 'View detailed charts' }).click();
+    await window.locator('#history-charts-panel').waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('[data-trend-days="7"]').getAttribute('aria-pressed'), 'true');
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: Dashboard stays within narrow viewports with collapsed and expanded data', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    for (const entry of [
+      { date: localDateKey(-2), mood: 2, sleep: 0, water: 0 },
+      { date: localDateKey(-1), mood: 4, sleep: 8, water: 2 },
+      { date: localDateKey(0), mood: 5, sleep: 6, water: 1 },
+    ]) await createEntryThroughForm(window, entry);
+    await window.locator('#history-view-dashboard').click();
+    await window.locator('#history-dashboard-panel').waitFor({ state: 'visible', timeout: 15_000 });
+
+    const measure = () => window.evaluate(() => {
+      const root = document.documentElement;
+      const viewportWidth = root.clientWidth;
+      const overflowing = Array.from(document.body.querySelectorAll('*')).map(element => {
+        const rect = element.getBoundingClientRect();
+        return {
+          tag: element.tagName,
+          id: element.id,
+          className: typeof element.className === 'string' ? element.className : '',
+          left: Math.round(rect.left * 10) / 10,
+          right: Math.round(rect.right * 10) / 10,
+          width: Math.round(rect.width * 10) / 10,
+          scrollWidth: element.scrollWidth,
+          clientWidth: element.clientWidth,
+        };
+      }).filter(item => item.right > viewportWidth + 1 || item.left < -1);
+      return {
+        clientWidth: viewportWidth,
+        scrollWidth: root.scrollWidth,
+        overflowing: overflowing.slice(0, 12),
+      };
+    });
+
+    for (const width of [320, 375, 420, 1024]) {
+      await window.setViewportSize({ width, height: 900 });
+      const collapsed = await measure();
+      assert.ok(collapsed.scrollWidth <= collapsed.clientWidth,
+        `Collapsed Dashboard overflowed at ${width}px: ${JSON.stringify(collapsed)}`);
+
+      await window.locator('.dashboard-trend-data').evaluateAll(details => {
+        details.forEach(detail => { detail.open = true; });
+      });
+      const expanded = await measure();
+      assert.ok(expanded.scrollWidth <= expanded.clientWidth,
+        `Expanded Dashboard overflowed at ${width}px: ${JSON.stringify(expanded)}`);
+      await window.locator('.dashboard-trend-data').evaluateAll(details => {
+        details.forEach(detail => { detail.open = false; });
+      });
+    }
+
+    await window.setViewportSize({ width: 320, height: 900 });
+    const recentScroll = window.locator('.dashboard-recent-table-scroll');
+    const dateHeader = recentScroll.locator('thead th').first();
+    const moodHeader = recentScroll.locator('thead th').nth(1);
+    const before = {
+      date: (await dateHeader.boundingBox()).x,
+      mood: (await moodHeader.boundingBox()).x,
+    };
+    await recentScroll.evaluate(element => { element.scrollLeft = element.scrollWidth; });
+    const after = {
+      date: (await dateHeader.boundingBox()).x,
+      mood: (await moodHeader.boundingBox()).x,
+    };
+    assert.ok(Math.abs(after.date - before.date) < 1, 'Sticky Dashboard Date column moved horizontally.');
+    assert.ok(after.mood < before.mood, 'Dashboard table columns did not scroll horizontally.');
+
+    const recentActions = window.locator('.dashboard-history-action');
+    for (let index = 0; index < await recentActions.count(); index++) {
+      const action = recentActions.nth(index);
+      const targetDate = await action.getAttribute('data-history-date');
+      await recentScroll.evaluate(element => { element.scrollLeft = 0; });
+      await action.focus();
+      const geometry = await window.evaluate(() => {
+        const wrapper = document.querySelector('.dashboard-recent-table-scroll').getBoundingClientRect();
+        const focused = document.activeElement.getBoundingClientRect();
+        return {
+          scrollLeft: document.querySelector('.dashboard-recent-table-scroll').scrollLeft,
+          left: focused.left,
+          right: focused.right,
+          wrapperLeft: wrapper.left,
+          wrapperRight: wrapper.right,
+        };
+      });
+      assert.ok(geometry.scrollLeft > 0, `Focusing the ${targetDate} action did not scroll its table.`);
+      assert.ok(geometry.left >= geometry.wrapperLeft - 1 && geometry.right <= geometry.wrapperRight + 1,
+        `The ${targetDate} action was not fully visible after keyboard focus.`);
+      await window.keyboard.press('Enter');
+      assert.equal(await window.locator('#history-from-date').inputValue(), targetDate);
+      assert.equal(await window.locator(`#entries-container .btn-edit[data-date="${targetDate}"]`)
+        .evaluate(element => document.activeElement === element), true);
+    }
+
+    await window.setViewportSize({ width: 1024, height: 900 });
+    await window.locator('.dashboard-trend-data').first().evaluate(detail => { detail.open = true; });
+    const cardHeights = await window.locator('.dashboard-trend-card')
+      .evaluateAll(cards => cards.map(card => card.getBoundingClientRect().height));
+    assert.ok(cardHeights[0] > cardHeights[1] && cardHeights[1] === cardHeights[2],
+      `Dashboard trend cards did not retain natural heights: ${cardHeights.join(', ')}`);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: Dashboard keyboard flow and accessibility tree remain complete', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    const entry = { date: localDateKey(0), mood: 4, sleep: 0, water: 0 };
+    await createEntryThroughForm(window, entry);
+    await window.setViewportSize({ width: 320, height: 900 });
+
+    await window.locator('#history-view-calendar').focus();
+    await window.keyboard.press('Tab');
+    assert.equal(await window.evaluate(() => document.activeElement.id), 'history-view-dashboard');
+    const dashboardFocus = await window.locator('#history-view-dashboard').evaluate(element => {
+      const style = getComputedStyle(element);
+      return { style: style.outlineStyle, width: Number.parseFloat(style.outlineWidth) };
+    });
+    assert.notEqual(dashboardFocus.style, 'none');
+    assert.ok(dashboardFocus.width >= 2);
+    await window.keyboard.press('Enter');
+    await window.locator('#history-dashboard-panel').waitFor({ state: 'visible', timeout: 15_000 });
+
+    await window.locator('#history-view-charts').focus();
+    await window.keyboard.press('Space');
+    assert.equal(await window.locator('#history-view-charts').getAttribute('aria-pressed'), 'true');
+    await window.locator('#history-view-dashboard').focus();
+    await window.keyboard.press('Enter');
+    assert.equal(await window.locator('#history-view-dashboard').getAttribute('aria-pressed'), 'true');
+
+    const hiddenViewFocusable = await window.locator('#history-charts-panel').evaluate(panel =>
+      Array.from(panel.querySelectorAll('button, input, select, summary, [tabindex]'))
+        .filter(element => element.getClientRects().length > 0).length
+    );
+    assert.equal(hiddenViewFocusable, 0);
+
+    const chartsShortcut = window.getByRole('button', { name: 'View detailed charts' });
+    await chartsShortcut.focus();
+    await window.keyboard.press('Enter');
+    assert.equal(await window.locator('#history-view-charts').getAttribute('aria-pressed'), 'true');
+    await window.locator('#history-view-dashboard').focus();
+    await window.keyboard.press('Space');
+
+    const historyShortcut = window.getByRole('button', { name: 'View Entry History' });
+    await historyShortcut.focus();
+    await window.keyboard.press('Enter');
+    assert.equal(await window.evaluate(() => document.activeElement.id), 'entries-heading');
+
+    const disclosure = window.locator('.dashboard-trend-data').first();
+    const disclosureSummary = disclosure.locator('summary');
+    await disclosureSummary.focus();
+    await window.keyboard.press('Enter');
+    assert.equal(await disclosure.getAttribute('open'), '');
+    await window.keyboard.press('Space');
+    assert.equal(await disclosure.getAttribute('open'), null);
+
+    const recentScroll = window.locator('.dashboard-recent-table-scroll');
+    await recentScroll.evaluate(element => { element.scrollLeft = 0; });
+    const recentAction = window.getByRole('button', { name: `Show entry for ${entry.date} in History` });
+    await recentAction.focus();
+    const focusedActionGeometry = await window.evaluate(() => {
+      const wrapper = document.querySelector('.dashboard-recent-table-scroll').getBoundingClientRect();
+      const action = document.activeElement.getBoundingClientRect();
+      return {
+        scrollLeft: document.querySelector('.dashboard-recent-table-scroll').scrollLeft,
+        actionLeft: action.left,
+        actionRight: action.right,
+        wrapperLeft: wrapper.left,
+        wrapperRight: wrapper.right,
+        viewportWidth: document.documentElement.clientWidth,
+        documentWidth: document.documentElement.scrollWidth,
+      };
+    });
+    assert.ok(focusedActionGeometry.scrollLeft > 0);
+    assert.ok(focusedActionGeometry.actionLeft >= focusedActionGeometry.wrapperLeft - 1);
+    assert.ok(focusedActionGeometry.actionRight <= focusedActionGeometry.wrapperRight + 1);
+    assert.ok(focusedActionGeometry.documentWidth <= focusedActionGeometry.viewportWidth);
+    await window.keyboard.press('Enter');
+    assert.equal(await window.locator(`#entries-container .btn-edit[data-date="${entry.date}"]`)
+      .evaluate(element => document.activeElement === element), true);
+
+    await disclosure.evaluate(detail => { detail.open = true; });
+
+    const cdp = await window.context().newCDPSession(window);
+    await cdp.send('Accessibility.enable');
+    const tree = await cdp.send('Accessibility.getFullAXTree');
+    const accessibleNodes = tree.nodes.filter(node => !node.ignored).map(node => ({
+      role: node.role && node.role.value,
+      name: node.name && node.name.value,
+      description: node.description && node.description.value,
+    }));
+    const hasAccessibleNode = (role, text) => accessibleNodes.some(node =>
+      node.role === role && ((node.name || '') + ' ' + (node.description || '')).includes(text)
+    );
+    assert.equal(hasAccessibleNode('group', 'History and Trends view'), true);
+    assert.equal(hasAccessibleNode('button', 'Dashboard'), true);
+    assert.equal(hasAccessibleNode('heading', 'Personal dashboard'), true);
+    assert.equal(hasAccessibleNode('image', 'Mood dashboard trend'), true);
+    assert.equal(hasAccessibleNode('image', 'Sleep dashboard trend'), true);
+    assert.equal(hasAccessibleNode('image', 'Water dashboard trend'), true);
+    assert.equal(hasAccessibleNode('table', 'Mood values for the dashboard reporting period'), true);
+    assert.equal(hasAccessibleNode('table', 'Entries saved during the dashboard reporting period'), true);
+    assert.equal(hasAccessibleNode('button', `Show entry for ${entry.date} in History`), true);
+    assert.ok(accessibleNodes.some(node => (node.name || '').includes('Most recent seven calendar days ending today')));
+    assert.ok(accessibleNodes.some(node => (node.name || '').includes('Entry saved for today')));
+    await cdp.detach();
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: explores single-period daily and aggregated chart points', { timeout: 75_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const dailyEntry = { date: localDateKey(-2), mood: 2, sleep: 0, water: 0 };
+  const secondDailyEntry = { date: localDateKey(0), mood: 5, sleep: 8, water: 2.4 };
+  const weeklyEntries = [
+    { date: '2024-01-01', mood: 4, sleep: 0, water: 1 },
+    { date: '2024-01-03', mood: 2, sleep: 8, water: 2 },
+  ];
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+
+    await createEntryThroughForm(window, dailyEntry);
+    await createEntryThroughForm(window, secondDailyEntry);
+    await createEntryThroughForm(window, weeklyEntries[0]);
+    await createEntryThroughForm(window, weeklyEntries[1]);
+
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="7"]').click();
+    await window.setViewportSize({ width: 320, height: 600 });
+    const moodPoint = window.locator(
+      `svg[data-metric="mood"] circle[data-date="${dailyEntry.date}"]`
+    );
+    const dailyDetails = window.locator('#trend-point-details-mood');
+    await moodPoint.hover();
+    await dailyDetails.waitFor({ state: 'visible', timeout: 15_000 });
+    const tooltipBox = await dailyDetails.boundingBox();
+    assert.ok(tooltipBox && tooltipBox.x >= 0 && tooltipBox.x + tooltipBox.width <= 320);
+    assert.match(await dailyDetails.textContent(), new RegExp(dailyEntry.date));
+    assert.equal(await dailyDetails.locator('.trend-point-history-action').count(), 0);
+    await window.locator('#history-view-charts').hover();
+    await dailyDetails.waitFor({ state: 'hidden', timeout: 15_000 });
+    await moodPoint.click();
+    await dailyDetails.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await dailyDetails.textContent(), new RegExp(dailyEntry.date));
+    assert.match(await dailyDetails.textContent(), /2/);
+    assert.equal(await dailyDetails.locator('.trend-point-history-action').count(), 1);
+    assert.equal(await dailyDetails.locator('.trend-point-history-action').isVisible(), true);
+
+    const explorer = window.locator('.trend-chart-explorer[data-chart-explorer-metric="mood"]');
+    await explorer.focus();
+    await explorer.press('ArrowRight');
+    await dailyDetails.filter({ hasText: secondDailyEntry.date }).waitFor({ state: 'visible', timeout: 15_000 });
+
+    await dailyDetails.locator('.trend-point-history-action').click();
+    await assertHistoryRow(window, secondDailyEntry);
+
+    await window.locator('.trend-period-btn[data-trend-days="custom"]').click();
+    await window.locator('#trend-custom-type').selectOption('year');
+    await window.locator('#trend-custom-year').fill('2024');
+    await window.locator('#trend-custom-resolution').selectOption('weekly');
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-range-status').filter({
+      hasText: 'Showing calendar year 2024 as Weekly averages',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+
+    const weeklyPoint = window.locator(
+      'svg[data-metric="sleep"][data-resolution="weekly"] circle[data-period-key="01"]'
+    );
+    await weeklyPoint.click();
+    const weeklyDetails = window.locator('#trend-point-details-sleep');
+    await weeklyDetails.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await weeklyDetails.textContent(), /Week 1/);
+    assert.match(await weeklyDetails.textContent(), /2024-01-01 to 2024-01-07/);
+    assert.match(await weeklyDetails.textContent(), /4 h/);
+    assert.match(await weeklyDetails.textContent(), /Recorded days\s*2/);
+    assert.equal(await weeklyDetails.locator('.trend-point-history-action').count(), 0);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: explores both series in daily and aggregated comparisons', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const entries = [
+    { date: '2024-02-01', mood: 4, sleep: 0, water: 1 },
+    { date: '2025-02-01', mood: 2, sleep: 8, water: 2 },
+    { date: '2024-01-01', mood: 5, sleep: 0, water: 1 },
+    { date: '2025-01-02', mood: 3, sleep: 6, water: 0 },
+  ];
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    for (const entry of entries) await createEntryThroughForm(window, entry);
+
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="compare"]').click();
+    assert.equal(await window.locator('#trend-comparison-type').inputValue(), 'month');
+    await window.locator('#trend-comparison-first-month').fill('2024-02');
+    await window.locator('#trend-comparison-second-month').fill('2025-02');
+    await window.locator('#apply-trend-comparison-btn').click();
+    await window.locator('#trend-range-status').filter({
+      hasText: 'Comparing February 2024 with February 2025',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+
+    const firstMoodPoint = window.locator(
+      'svg[data-metric="mood"] circle[data-comparison-series="first"][data-date="2024-02-01"]'
+    );
+    const moodDetails = window.locator('#trend-point-details-mood');
+    await firstMoodPoint.waitFor({ state: 'visible', timeout: 15_000 });
+    await firstMoodPoint.hover();
+    await moodDetails.waitFor({ state: 'visible', timeout: 15_000 });
+    await moodDetails.hover();
+    await moodDetails.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await moodDetails.textContent(), /First period: February 2024/);
+    await firstMoodPoint.click();
+    await moodDetails.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await moodDetails.textContent(), /First period: February 2024/);
+    assert.match(await moodDetails.textContent(), /2024-02-01/);
+    assert.equal(await moodDetails.locator('.trend-point-history-action').count(), 1);
+
+    await moodDetails.locator('.trend-point-history-action').click();
+    await assertHistoryRow(window, entries[0]);
+
+    const moodSeriesSelect = window.locator('#trend-comparison-series-mood');
+    await moodSeriesSelect.selectOption('second');
+    const moodExplorer = window.locator('.trend-chart-explorer[data-chart-explorer-metric="mood"]');
+    await moodExplorer.focus();
+    await moodExplorer.press('ArrowRight');
+    await moodDetails.filter({ hasText: 'Second period: February 2025' }).waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await moodDetails.textContent(), /2025-02-01/);
+
+    const appliedPointDate = await window.locator(
+      'svg[data-metric="mood"] circle[data-comparison-series="first"][data-date="2024-02-01"]'
+    ).getAttribute('data-date');
+    await window.locator('#trend-comparison-first-month').fill('2023-02');
+    assert.equal(await window.locator(
+      'svg[data-metric="mood"] circle[data-comparison-series="first"][data-date="2024-02-01"]'
+    ).getAttribute('data-date'), appliedPointDate);
+
+    await window.locator('#trend-comparison-type').selectOption('year');
+    await window.locator('#trend-comparison-first-year').fill('2024');
+    await window.locator('#trend-comparison-second-year').fill('2025');
+    await window.locator('#trend-comparison-resolution').selectOption('weekly');
+    await window.locator('#apply-trend-comparison-btn').click();
+    await window.locator('#trend-range-status').filter({
+      hasText: 'Weekly averages: Comparing 2024 with 2025',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+
+    const secondWeeklySleepPoint = window.locator(
+      'svg[data-metric="sleep"] circle[data-comparison-series="second"][data-alignment-key="01"]'
+    );
+    await secondWeeklySleepPoint.click();
+    const sleepDetails = window.locator('#trend-point-details-sleep');
+    await sleepDetails.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await sleepDetails.textContent(), /Second period: 2025/);
+    assert.match(await sleepDetails.textContent(), /2025-01-01 to 2025-01-07/);
+    assert.match(await sleepDetails.textContent(), /6 h/);
+    assert.match(await sleepDetails.textContent(), /Recorded days\s*1/);
+    assert.equal(await sleepDetails.locator('.trend-point-history-action').count(), 0);
   } catch (error) {
     testFailure = error;
     throw error;
@@ -646,6 +1176,223 @@ test('Electron E2E: previews, rejects, and cancels backup imports without data l
   }
 });
 
+test('Electron E2E: previews a backup merge without changing committed entries', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const existingEntries = [
+    { date: '2025-06-10', mood: 4, sleep: 7.5, water: 2.1 },
+    { date: '2025-06-11', mood: 3, sleep: 6, water: 1.8 },
+  ];
+  const importedEntries = [
+    { date: '2025-06-09', mood: 1, sleep: 0, water: 0 },
+    { date: '2025-06-10', mood: 5, sleep: 8, water: 2.1 },
+    { date: '2025-06-11', mood: 3, sleep: 6, water: 1.8 },
+  ];
+
+  try {
+    const firstApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(firstApplication);
+    const firstWindow = await getReadyWindow(firstApplication);
+    await assertIsolatedUserData(firstApplication, isolatedUserDataDirectory);
+    for (const entry of existingEntries) await createEntryThroughForm(firstWindow, entry);
+
+    const fixturePath = await writeBackupFixture(
+      temporaryDirectory,
+      'merge-preview.json',
+      backupDocument(importedEntries)
+    );
+    await selectMergeBackupFile(firstWindow, fixturePath);
+    await firstWindow.locator('#merge-preview').waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await firstWindow.locator('#merge-preview-summary').textContent(),
+      /Backup contains 3 entries: 1 new, 1 identical, and 1 conflicting/);
+    assert.match(await firstWindow.locator('#merge-preview-date-range').textContent(),
+      /2025-06-09 to 2025-06-11/);
+    const conflictRow = firstWindow.locator('#merge-preview-conflicts-table tbody tr').filter({
+      hasText: '2025-06-10',
+    }).filter({ hasText: 'Mood' });
+    await conflictRow.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.deepEqual(await conflictRow.locator('td').allTextContents(), [
+      '2025-06-10', 'Mood', '4', '5',
+    ]);
+    assert.equal(await firstWindow.locator('#merge-preview-new-table tbody tr').count(), 1);
+    assert.match(await firstWindow.locator('#merge-preview-readonly').textContent(), /No changes have been saved/);
+
+    await firstWindow.locator('#cancel-merge-preview-btn').click();
+    await firstWindow.locator('#merge-preview').waitFor({ state: 'hidden', timeout: 15_000 });
+    await showHistoryRange(firstWindow, '2025-06-09', '2025-06-11');
+    assert.equal(await firstWindow.locator('#entries-container tbody tr').count(), 2);
+    await assertHistoryRow(firstWindow, existingEntries[0]);
+
+    await firstApplication.close();
+    applications.pop();
+    const secondApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(secondApplication);
+    const secondWindow = await getReadyWindow(secondApplication);
+    await assertIsolatedUserData(secondApplication, isolatedUserDataDirectory);
+    await showHistoryRange(secondWindow, '2025-06-09', '2025-06-11');
+    assert.equal(await secondWindow.locator('#entries-container tbody tr').count(), 2);
+    await assertHistoryRow(secondWindow, existingEntries[1]);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: paginates all new entries in the merge preview outside the table scroll region', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const existingEntry = { date: '2025-06-10', mood: 4, sleep: 7.5, water: 2.1 };
+  const newEntries = Array.from({ length: 51 }, (_, index) => {
+    const month = index < 31 ? '01' : '02';
+    const day = String(index < 31 ? index + 1 : index - 30).padStart(2, '0');
+    return {
+      date: `2025-${month}-${day}`,
+      mood: (index % 5) + 1,
+      sleep: (index % 9) * 0.5,
+      water: (index % 10) / 10,
+    };
+  });
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    await createEntryThroughForm(window, existingEntry);
+
+    const fixturePath = await writeBackupFixture(
+      temporaryDirectory,
+      'merge-many-new.json',
+      backupDocument(newEntries)
+    );
+    await selectMergeBackupFile(window, fixturePath);
+    await window.locator('#merge-preview').waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#merge-preview-new-table tbody tr').count(), 25);
+    assert.equal(await window.locator('#merge-preview-new-page-summary').textContent(),
+      'Showing 1–25 of 51 new entries.');
+    assert.equal(await window.locator('#merge-preview-new-prev').isDisabled(), true);
+    assert.equal(await window.locator('#merge-preview-new-next').isDisabled(), false);
+
+    await window.setViewportSize({ width: 320, height: 700 });
+    const newTableScroll = window.locator('#merge-preview-new-scroll');
+    const paginationBefore = await window.locator('#merge-preview-new-pagination').boundingBox();
+    await newTableScroll.evaluate(element => {
+      element.scrollLeft = element.scrollWidth;
+      element.scrollTop = element.scrollHeight;
+    });
+    const paginationAfter = await window.locator('#merge-preview-new-pagination').boundingBox();
+    assert.ok(paginationBefore && paginationAfter);
+    assert.ok(Math.abs(paginationBefore.x - paginationAfter.x) < 1);
+    assert.ok(paginationAfter.x >= 0 && paginationAfter.x + paginationAfter.width <= 320);
+
+    await window.locator('#merge-preview-new-next').click();
+    await window.locator('#merge-preview-new-page-summary').filter({
+      hasText: 'Showing 26–50 of 51 new entries.',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#merge-preview-new-table tbody tr').count(), 25);
+    await window.locator('#merge-preview-new-next').click();
+    await window.locator('#merge-preview-new-page-summary').filter({
+      hasText: 'Showing 51–51 of 51 new entries.',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#merge-preview-new-table tbody tr').count(), 1);
+    assert.equal(await window.locator('#merge-preview-new-next').isDisabled(), true);
+    await window.locator('#merge-preview-new-prev').click();
+    await window.locator('#merge-preview-new-page-summary').filter({
+      hasText: 'Showing 26–50 of 51 new entries.',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#merge-preview-new-prev').isDisabled(), false);
+
+    await window.locator('#cancel-merge-preview-btn').click();
+    await window.locator('#merge-preview').waitFor({ state: 'hidden', timeout: 15_000 });
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: resolves and persists an explicit backup merge', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const existingEntries = [
+    { date: '2025-06-10', mood: 4, sleep: 7.5, water: 2.1 },
+    { date: '2025-06-11', mood: 3, sleep: 6, water: 1.8 },
+  ];
+  const importedEntries = [
+    { date: '2025-06-09', mood: 1, sleep: 0, water: 0 },
+    { date: '2025-06-10', mood: 5, sleep: 8, water: 2.1 },
+    { date: '2025-06-11', mood: 2, sleep: 0, water: 0 },
+  ];
+
+  try {
+    const firstApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(firstApplication);
+    const firstWindow = await getReadyWindow(firstApplication);
+    await assertIsolatedUserData(firstApplication, isolatedUserDataDirectory);
+    for (const entry of existingEntries) await createEntryThroughForm(firstWindow, entry);
+    const fixturePath = await writeBackupFixture(
+      temporaryDirectory,
+      'merge-resolved.json',
+      backupDocument(importedEntries)
+    );
+    await selectMergeBackupFile(firstWindow, fixturePath);
+    await firstWindow.locator('#merge-preview').waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await firstWindow.locator('#merge-backup-btn').isDisabled(), true);
+
+    await firstWindow.locator('#merge-keep-all-existing-btn').click();
+    const allKeepExisting = await firstWindow.locator('input[data-merge-conflict-date][value="keep-existing"]')
+      .evaluateAll(inputs => inputs.every(input => input.checked));
+    assert.equal(allKeepExisting, true);
+    await firstWindow.locator('input[data-merge-conflict-date="2025-06-11"][value="use-backup"]').check();
+    assert.match(await firstWindow.locator('#merge-preview-resolution-status').textContent(), /2 of 2 conflicts resolved/);
+    await firstWindow.locator('#merge-backup-btn').waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await firstWindow.locator('#merge-backup-btn').isDisabled(), false);
+    assert.match(await firstWindow.locator('#merge-preview-final-summary').textContent(), /add 1 new entries/);
+    assert.match(await firstWindow.locator('#merge-preview-final-summary').textContent(), /replace 1 conflicting entries/);
+
+    const confirmationHandled = handleConfirmation(
+      firstWindow,
+      dialog => {
+        assert.equal(dialog.type(), 'confirm');
+        assert.match(dialog.message(), /replace 1 existing entry/);
+      },
+      true
+    );
+    await Promise.all([confirmationHandled, firstWindow.locator('#merge-backup-btn').click()]);
+    await firstWindow.locator('#backup-status').filter({ hasText: 'Backup merged.' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    await showHistoryRange(firstWindow, '2025-06-09', '2025-06-11');
+    await assertHistoryRow(firstWindow, importedEntries[0]);
+    await assertHistoryRow(firstWindow, existingEntries[0]);
+    await assertHistoryRow(firstWindow, importedEntries[2]);
+
+    await firstApplication.close();
+    applications.pop();
+    const secondApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(secondApplication);
+    const secondWindow = await getReadyWindow(secondApplication);
+    await assertIsolatedUserData(secondApplication, isolatedUserDataDirectory);
+    await showHistoryRange(secondWindow, '2025-06-09', '2025-06-11');
+    await assertHistoryRow(secondWindow, importedEntries[0]);
+    await assertHistoryRow(secondWindow, existingEntries[0]);
+    await assertHistoryRow(secondWindow, importedEntries[2]);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
 test('Electron E2E: restores a replacement backup and persists its visual data after restart', { timeout: 90_000 }, async () => {
   const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
   const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
@@ -759,6 +1506,77 @@ test('Electron E2E: history filters are hidden until applied and can be cleared'
   }
 });
 
+test('Electron E2E: paginates filtered history and clamps after deleting the final page', { timeout: 120_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const entries = Array.from({ length: 26 }, (_, index) => ({
+    date: '2025-01-' + String(index + 1).padStart(2, '0'),
+    mood: (index % 5) + 1,
+    sleep: index % 9,
+    water: (index % 10) / 10,
+  }));
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    for (const entry of entries) await createEntryThroughForm(window, entry);
+
+    await showHistoryRange(window, '2025-01-01', '2025-01-31');
+    await window.setViewportSize({ width: 320, height: 700 });
+    assert.equal(await window.locator('#entries-container tbody tr').count(), 25);
+    assert.match(await window.locator('#history-page-status').textContent(), /Showing 1–25 of 26 matching entries/);
+    assert.equal(await window.locator('#history-previous-page-btn').isDisabled(), true);
+    assert.equal(await window.locator('#history-next-page-btn').isDisabled(), false);
+    const tableScroll = window.locator('.history-table-scroll');
+    const paginationBefore = await window.locator('.history-pagination').boundingBox();
+    const dateBefore = await window.locator('.history-table tbody tr').first().locator('td').first().boundingBox();
+    const headerBefore = await window.locator('.history-table thead th').first().boundingBox();
+    await tableScroll.evaluate(element => { element.scrollLeft = element.scrollWidth; });
+    const paginationAfter = await window.locator('.history-pagination').boundingBox();
+    const dateAfter = await window.locator('.history-table tbody tr').first().locator('td').first().boundingBox();
+    assert.ok(paginationBefore && paginationAfter);
+    assert.ok(Math.abs(paginationBefore.x - paginationAfter.x) < 1);
+    assert.ok(paginationAfter.x >= 0 && paginationAfter.x + paginationAfter.width <= 320);
+    assert.ok(dateBefore && dateAfter && Math.abs(dateBefore.x - dateAfter.x) < 1);
+    assert.ok(await window.locator('.history-table tbody tr').first().locator('.btn-edit').isVisible());
+    assert.ok(await window.locator('.history-table tbody tr').first().locator('.btn-delete').isVisible());
+
+    await tableScroll.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    const headerAfter = await window.locator('.history-table thead th').first().boundingBox();
+    assert.ok(headerBefore && headerAfter && Math.abs(headerBefore.y - headerAfter.y) < 1);
+
+    await window.locator('#history-next-page-btn').click();
+    await window.locator('#history-page-status').filter({ hasText: 'Showing 26–26 of 26 matching entries' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#entries-container tbody tr').count(), 1);
+    assert.equal(await window.locator('#entries-container tbody tr').first().locator('td').first().textContent(), '2025-01-01');
+
+    const deletionDialog = handleConfirmation(window, dialog => {
+      assert.equal(dialog.type(), 'confirm');
+      assert.equal(dialog.message(), 'Delete entry for 2025-01-01?');
+    }, true);
+    await Promise.all([
+      deletionDialog,
+      window.locator('#entries-container .btn-delete[data-date="2025-01-01"]').click(),
+    ]);
+    await window.locator('#history-page-status').filter({ hasText: 'Showing 1–25 of 25 matching entries' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#entries-container tbody tr').count(), 25);
+    assert.equal(await window.locator('#entries-container .btn-delete[data-date="2025-01-01"]').count(), 0);
+    assert.equal(await window.locator('#history-previous-page-btn').count(), 0);
+    assert.equal(await window.locator('#history-next-page-btn').count(), 0);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
 test('Electron E2E: calendar deletion keeps the date selected and persists after restart', { timeout: 75_000 }, async () => {
   const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
   const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
@@ -807,6 +1625,50 @@ test('Electron E2E: calendar deletion keeps the date selected and persists after
     await secondWindow.locator('#calendar-details .calendar-detail-action[data-calendar-action="create"]')
       .waitFor({ state: 'visible', timeout: 15_000 });
     assert.match(await secondWindow.locator('#calendar-details').textContent(), /No entry recorded/);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: Calendar deletion shares the Undo action and restores the selected date', { timeout: 75_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const entry = { date: localDateKey(-3), mood: 2, sleep: 0, water: 0 };
+
+  try {
+    const application = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(application);
+    const window = await getReadyWindow(application);
+    await assertIsolatedUserData(application, isolatedUserDataDirectory);
+    await createEntryThroughForm(window, entry);
+
+    const dateButton = await navigateCalendarToDate(window, entry.date);
+    await dateButton.click();
+    const deleteButton = window.locator('#calendar-details .calendar-detail-action[data-calendar-action="delete"]');
+    await deleteButton.waitFor({ state: 'visible', timeout: 15_000 });
+    const confirmationHandled = handleConfirmation(
+      window,
+      dialog => {
+        assert.equal(dialog.type(), 'confirm');
+        assert.equal(dialog.message(), `Delete entry for ${entry.date}?`);
+      },
+      true
+    );
+    await Promise.all([confirmationHandled, deleteButton.click()]);
+    await window.locator('#calendar-details .calendar-detail-action[data-calendar-action="create"]')
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    await window.locator('#undo-delete-btn').click();
+    await window.locator('#undo-delete-message').filter({ hasText: 'restored' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    await window.locator('#calendar-details .calendar-detail-action[data-calendar-action="edit"]')
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await window.locator('#calendar-details').textContent(), /Mood/);
+    assert.equal(await window.locator(`#calendar-grid .calendar-day[data-calendar-date="${entry.date}"]`).getAttribute('aria-pressed'), 'true');
   } catch (error) {
     testFailure = error;
     throw error;
@@ -907,6 +1769,194 @@ test('Electron E2E: custom calendar month and year periods use complete ranges',
     }).waitFor({ state: 'visible', timeout: 15_000 });
     assert.equal(await window.locator('#trend-custom-year-controls').isHidden(), false);
     assert.equal(await window.locator('#trend-data-table-container tbody tr').count(), 366);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: applies Daily, Weekly, and Monthly Custom calendar-year displays through the real UI', { timeout: 120_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const entries = [
+    { date: '2024-01-01', mood: 2, sleep: 0, water: 0 },
+    { date: '2024-01-07', mood: 4, sleep: 8, water: 2 },
+    { date: '2024-02-29', mood: 5, sleep: 3, water: 0 },
+  ];
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    for (const entry of entries) await createEntryThroughForm(window, entry);
+
+    const entriesPath = path.join(isolatedUserDataDirectory, 'entries.json');
+    const beforeChartControls = await fsp.readFile(entriesPath, 'utf8');
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="custom"]').click();
+    assert.equal(await window.locator('#trend-custom-type').inputValue(), 'year');
+    assert.equal(await window.locator('#trend-custom-resolution').inputValue(), 'daily');
+    assert.equal(await window.locator('#trend-custom-year-controls').isHidden(), false);
+    assert.equal(await window.locator('#trend-custom-resolution-controls').isHidden(), false);
+    assert.equal(await window.locator('#trend-comparison-resolution-controls').isHidden(), true);
+    assert.equal(await window.locator('label[for="trend-custom-resolution"]').textContent(), 'Display');
+    assert.equal(await window.locator('#trend-custom-resolution').getAttribute('aria-describedby'), 'trend-custom-error');
+    await window.locator('#trend-custom-type').selectOption('month');
+    assert.equal(await window.locator('#trend-custom-resolution-controls').isHidden(), true);
+    await window.locator('#trend-custom-type').selectOption('date-range');
+    assert.equal(await window.locator('#trend-custom-resolution-controls').isHidden(), true);
+    await window.locator('#trend-custom-type').selectOption('year');
+    assert.equal(await window.locator('#trend-custom-resolution-controls').isHidden(), false);
+
+    await window.locator('#trend-custom-year').fill('2024');
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-range-status').filter({
+      hasText: 'Showing calendar year 2024 from 2024-01-01 to 2024-12-31',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#trend-data-table-container tbody tr').count(), 366);
+    await window.locator('.trend-data-details summary').click();
+    assert.equal(await window.locator('.trend-data-details[open]').count(), 1);
+    assert.equal(await window.locator('.trend-data-summary-expanded').isVisible(), true);
+    await window.locator('.trend-data-details summary').click();
+    assert.equal(await window.locator('.trend-data-details[open]').count(), 0);
+    assert.equal(await window.locator('.trend-data-summary-collapsed').isVisible(), true);
+    await window.locator('.trend-data-details summary').click();
+    await assertTrendDataRow(window, '2024-01-01', ['2', '0 h', '0 L']);
+
+    const dailyStatus = await window.locator('#trend-range-status').textContent();
+    await window.locator('#trend-custom-resolution').selectOption('weekly');
+    assert.equal(await window.locator('#trend-range-status').textContent(), dailyStatus);
+    assert.equal(await window.locator('#trend-data-table-container tbody tr').count(), 366);
+    assert.equal(await fsp.readFile(entriesPath, 'utf8'), beforeChartControls);
+
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-range-status').filter({ hasText: 'Showing calendar year 2024 as Weekly averages' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    const weeklyRows = window.locator('#trend-data-table-container tbody tr');
+    assert.equal(await weeklyRows.count(), 53);
+    const weekOne = weeklyRows.nth(0);
+    assert.equal(await weekOne.locator('th').textContent(), 'Week 1');
+    assert.deepEqual(await weekOne.locator('td').allTextContents(), [
+      '2024-01-01 to 2024-01-07', '2', '7', '3', '4 h', '1 L',
+    ]);
+    const emptyWeek = weeklyRows.nth(1);
+    assert.equal((await emptyWeek.locator('td').allTextContents())[3], 'Missing');
+    const finalWeek = weeklyRows.nth(52);
+    assert.equal(await finalWeek.locator('th').textContent(), 'Week 53');
+    assert.deepEqual((await finalWeek.locator('td').allTextContents()).slice(0, 3), [
+      '2024-12-30 to 2024-12-31', '0', '2',
+    ]);
+    const weeklyMoodChart = window.locator('svg[data-metric="mood"][data-resolution="weekly"]');
+    assert.equal(await weeklyMoodChart.count(), 1);
+    assert.equal(await weeklyMoodChart.locator('title').textContent(), 'Mood weekly averages for 2024');
+    assert.match(await weeklyMoodChart.locator('desc').textContent(), /Missing periods are shown as gaps/);
+    assert.match(await window.locator('#trend-data-table-container table').getAttribute('aria-label'), /weekly aggregated chart data for 2024/);
+
+    await window.locator('#trend-custom-resolution').selectOption('monthly');
+    assert.equal(await window.locator('#trend-data-table-container tbody tr').count(), 53);
+    assert.match(await window.locator('#trend-range-status').textContent(), /Weekly averages/);
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-range-status').filter({ hasText: 'Showing calendar year 2024 as Monthly averages' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    const monthlyRows = window.locator('#trend-data-table-container tbody tr');
+    assert.equal(await monthlyRows.count(), 12);
+    assert.equal(await monthlyRows.nth(0).locator('th').textContent(), 'January');
+    assert.deepEqual(await monthlyRows.nth(0).locator('td').allTextContents(), [
+      '2024-01-01 to 2024-01-31', '2', '31', '3', '4 h', '1 L',
+    ]);
+    assert.deepEqual(await monthlyRows.nth(1).locator('td').allTextContents(), [
+      '2024-02-01 to 2024-02-29', '1', '29', '5', '3 h', '0 L',
+    ]);
+    assert.equal((await monthlyRows.nth(2).locator('td').allTextContents())[3], 'Missing');
+    assert.equal(await window.locator('svg[data-metric="water"][data-resolution="monthly"] circle[data-period-key="02"][data-value="0"]').count(), 1);
+
+    await window.locator('.trend-period-btn[data-trend-days="30"]').click();
+    assert.equal(await window.locator('#trend-custom-form').isHidden(), true);
+    await window.locator('.trend-period-btn[data-trend-days="custom"]').click();
+    assert.equal(await window.locator('#trend-custom-year').inputValue(), '2024');
+    assert.equal(await window.locator('#trend-custom-resolution').inputValue(), 'monthly');
+    assert.match(await window.locator('#trend-range-status').textContent(), /Monthly averages/);
+    await window.locator('#trend-custom-resolution').selectOption('daily');
+    assert.equal(await window.locator('#trend-data-table-container tbody tr').count(), 12);
+    assert.match(await window.locator('#trend-range-status').textContent(), /Monthly averages/);
+
+    await showHistoryRange(window, '2024-01-01', '2024-01-01');
+    await window.locator('.btn-edit[data-date="2024-01-01"]').click();
+    await window.locator('input[name="mood"][value="5"]').check();
+    await window.locator('#save-btn').click();
+    await assertHistoryRow(window, { ...entries[0], mood: 5 });
+    const updatedJanuary = window.locator('#trend-data-table-container tbody tr').nth(0);
+    assert.deepEqual((await updatedJanuary.locator('td').allTextContents()).slice(1), [
+      '2', '31', '4.5', '4 h', '1 L',
+    ]);
+    assert.equal(await window.locator('#trend-custom-resolution').inputValue(), 'daily');
+    assert.match(await window.locator('#trend-range-status').textContent(), /Monthly averages/);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: backup restoration refreshes an applied Custom year resolution without applying its draft', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const existingEntry = { date: '2024-01-02', mood: 2, sleep: 6, water: 1 };
+  const restoredEntries = [
+    { date: '2024-01-01', mood: 1, sleep: 0, water: 0 },
+    { date: '2024-01-07', mood: 5, sleep: 8, water: 2 },
+  ];
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    await createEntryThroughForm(window, existingEntry);
+
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="custom"]').click();
+    await window.locator('#trend-custom-year').fill('2024');
+    await window.locator('#trend-custom-resolution').selectOption('weekly');
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-range-status').filter({ hasText: 'Showing calendar year 2024 as Weekly averages' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    await window.locator('#trend-custom-resolution').selectOption('monthly');
+    assert.match(await window.locator('#trend-range-status').textContent(), /Weekly averages/);
+
+    const fixture = await writeBackupFixture(
+      temporaryDirectory,
+      'custom-year-restore.json',
+      backupDocument(restoredEntries)
+    );
+    await selectBackupFile(window, fixture);
+    await window.locator('#import-preview').waitFor({ state: 'visible', timeout: 15_000 });
+    const confirmationHandled = handleConfirmation(
+      window,
+      dialog => assert.match(dialog.message(), /Replace all 1 currently saved entry with 2 backup entries/),
+      true
+    );
+    await Promise.all([confirmationHandled, window.locator('#replace-import-btn').click()]);
+    await window.locator('#backup-status').filter({ hasText: 'Backup restored. 2 entries are now saved.' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+
+    assert.match(await window.locator('#trend-range-status').textContent(), /Showing calendar year 2024 as Weekly averages/);
+    assert.equal(await window.locator('#trend-data-table-container tbody tr').count(), 53);
+    const weekOne = window.locator('#trend-data-table-container tbody tr').first();
+    assert.equal(await weekOne.locator('th').textContent(), 'Week 1');
+    assert.deepEqual(await weekOne.locator('td').allTextContents(), [
+      '2024-01-01 to 2024-01-07', '2', '7', '3', '4 h', '1 L',
+    ]);
+    assert.equal(await window.locator('#trend-custom-resolution').inputValue(), 'monthly');
+    assert.equal(await window.locator('svg[data-metric="mood"][data-resolution="weekly"] circle[data-period-key="01"][data-value="3"]').count(), 1);
   } catch (error) {
     testFailure = error;
     throw error;
@@ -1273,6 +2323,136 @@ test('Electron E2E: swaps and prepares comparison shortcuts without applying ear
     await window.locator('#trend-comparison-error').filter({ hasText: /valid second calendar year/ })
       .waitFor({ state: 'visible', timeout: 15_000 });
     assert.equal(await fsp.readFile(entriesPath, 'utf8'), beforeShortcuts);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: displays applied period and comparison statistics from committed entries', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    await createEntryThroughForm(window, { date: '2024-01-01', mood: 2, sleep: 0, water: 0 });
+    await createEntryThroughForm(window, { date: '2024-01-02', mood: 4, sleep: 8, water: 2 });
+    await createEntryThroughForm(window, { date: '2025-01-01', mood: 5, sleep: 6, water: 1 });
+
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="custom"]').click();
+    await window.locator('#trend-custom-type').selectOption('year');
+    await window.locator('#trend-custom-year').fill('2024');
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-statistics').filter({ hasText: 'Period statistics' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    const statisticsDisclosure = window.locator('#trend-statistics > details.trend-statistics-disclosure');
+    await statisticsDisclosure.locator('summary').first().click();
+    assert.match(await window.locator('#trend-statistics').textContent(),
+      /2 recorded days out of 366 calendar days/);
+    const periodRows = window.locator('#trend-statistics tbody tr');
+    assert.deepEqual(await periodRows.nth(1).locator('th, td').allTextContents(), ['Sleep', '4.0 h', '0.0 h', '8.0 h']);
+    assert.deepEqual(await periodRows.nth(2).locator('th, td').allTextContents(), ['Water', '1.0 L', '0.0 L', '2.0 L']);
+
+    await window.locator('#trend-custom-year').fill('2025');
+    assert.match(await window.locator('#trend-statistics').textContent(), /2024-01-01 to 2024-12-31/);
+
+    await window.locator('.trend-period-btn[data-trend-days="compare"]').click();
+    await window.locator('#trend-comparison-type').selectOption('year');
+    await window.locator('#trend-comparison-first-year').fill('2024');
+    await window.locator('#trend-comparison-second-year').fill('2025');
+    await window.locator('#apply-trend-comparison-btn').click();
+    await window.locator('#trend-statistics').filter({ hasText: 'Comparison statistics' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    const comparisonDisclosure = window.locator('#trend-statistics > details.trend-statistics-disclosure');
+    if (await comparisonDisclosure.getAttribute('open') === null) {
+      await comparisonDisclosure.locator('summary').first().click();
+    }
+    assert.match(await window.locator('#trend-statistics').textContent(), /Differences are second period minus first period/);
+    const comparisonTables = window.locator('#trend-statistics table');
+    const comparisonRows = comparisonTables.nth(1).locator('tbody tr');
+    assert.deepEqual(await comparisonRows.nth(1).locator('th, td').allTextContents(), ['Sleep', '4.0 h', '6.0 h', '+2.0 h']);
+    assert.deepEqual(await comparisonRows.nth(2).locator('th, td').allTextContents(), ['Water', '1.0 L', '1.0 L', '0 L']);
+
+    await comparisonDisclosure.locator('.trend-statistics-extremes summary').click();
+    const statisticsHeadings = window.locator('#trend-statistics .trend-statistics-table-heading');
+    const statisticsFrames = window.locator('#trend-statistics .trend-statistics-table-wrap');
+    assert.equal(await statisticsHeadings.count(), 3);
+    assert.equal(await statisticsFrames.count(), 3);
+    await window.setViewportSize({ width: 320, height: 700 });
+    for (let index = 0; index < 3; index += 1) {
+      const headingBefore = await statisticsHeadings.nth(index).boundingBox();
+      const frame = statisticsFrames.nth(index);
+      await frame.evaluate(element => { element.scrollLeft = element.scrollWidth; });
+      const headingAfter = await statisticsHeadings.nth(index).boundingBox();
+      assert.ok(headingBefore && headingAfter);
+      assert.ok(Math.abs(headingBefore.x - headingAfter.x) < 1);
+      assert.ok(headingAfter.x >= 0 && headingAfter.x + headingAfter.width <= 320);
+    }
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: navigates entry dates, copies previous values, and edits existing dates explicitly', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+
+    await createEntryThroughForm(window, { date: '2025-06-10', mood: 3, sleep: 6, water: 1.5 });
+    const entriesPath = path.join(isolatedUserDataDirectory, 'entries.json');
+    const beforeCopy = await fsp.readFile(entriesPath, 'utf8');
+
+    await window.locator('#entry-date').fill('2025-06-11');
+    await window.locator('#entry-date-prev').click();
+    assert.equal(await window.locator('#entry-date').inputValue(), '2025-06-10');
+    await window.locator('#entry-date-next').click();
+    assert.equal(await window.locator('#entry-date').inputValue(), '2025-06-11');
+    await window.locator('#copy-previous-values-btn').click();
+    await window.locator('#entry-date-status').filter({ hasText: 'Copied values from 2025-06-10' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('input[name="mood"]:checked').inputValue(), '3');
+    assert.equal(await window.locator('#entry-sleep').inputValue(), '6');
+    assert.equal(await window.locator('#entry-water').inputValue(), '1.5');
+    assert.equal(await fsp.readFile(entriesPath, 'utf8'), beforeCopy);
+
+    await window.locator('#save-btn').click();
+    await showHistoryRange(window, '2025-06-11', '2025-06-11');
+    await assertHistoryRow(window, { date: '2025-06-11', mood: 3, sleep: 6, water: 1.5 });
+
+    await window.locator('#entry-date').fill('2025-06-10');
+    await window.locator('#entry-date-status').filter({ hasText: 'already saved' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#edit-existing-entry-btn').isVisible(), true);
+    assert.equal(await window.locator('#edit-existing-entry-btn').getAttribute('aria-label'), 'Edit existing entry for 2025-06-10');
+    const editConfirmation = handleConfirmation(window, dialog => {
+      assert.match(dialog.message(), /Discard unsaved form changes/);
+    }, true);
+    await window.locator('#edit-existing-entry-btn').click();
+    await editConfirmation;
+    await window.locator('#form-heading').filter({ hasText: 'Edit Wellness Entry' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#entry-date').isEditable(), false);
+    await window.locator('#cancel-edit-btn').click();
+    await window.locator('#form-heading').filter({ hasText: 'Log a Wellness Entry' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
   } catch (error) {
     testFailure = error;
     throw error;

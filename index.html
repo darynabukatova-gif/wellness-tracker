@@ -36,13 +36,23 @@
         <!-- Date -->
         <div class="field-group">
           <label for="entry-date">Date</label>
-          <input
-            type="date"
-            id="entry-date"
-            name="entry-date"
-            required
-            aria-required="true"
-          >
+          <div class="entry-date-navigation">
+            <button type="button" id="entry-date-prev" class="entry-date-nav-btn" aria-label="Previous day"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M9.5 3 4.5 8l5 5"/></svg></button>
+            <input
+              type="date"
+              id="entry-date"
+              name="entry-date"
+              required
+              aria-required="true"
+              aria-describedby="entry-date-status form-error"
+            >
+            <button type="button" id="entry-date-next" class="entry-date-nav-btn" aria-label="Next day"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m6.5 3 5 5-5 5"/></svg></button>
+          </div>
+          <p id="entry-date-status" class="entry-date-status" role="status" aria-live="polite"></p>
+          <div class="entry-date-actions">
+            <button type="button" id="copy-previous-values-btn" class="btn-neutral">Copy previous values</button>
+            <button type="button" id="edit-existing-entry-btn" class="btn-edit" hidden>Edit existing entry</button>
+          </div>
         </div>
 
         <!-- Mood -->
@@ -192,6 +202,14 @@
           aria-pressed="true"
           aria-controls="history-calendar-panel"
         >Calendar</button>
+        <button
+          type="button"
+          id="history-view-dashboard"
+          class="history-view-btn"
+          data-history-view="dashboard"
+          aria-pressed="false"
+          aria-controls="history-dashboard-panel"
+        >Dashboard</button>
       </div>
 
       <div id="history-charts-panel" hidden>
@@ -239,6 +257,14 @@
                 <input id="trend-custom-year" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="YYYY" aria-describedby="trend-custom-error">
                 <button type="button" id="trend-custom-year-next" class="trend-year-nav-btn" data-year-draft="custom" data-year-offset="1" aria-label="Next year for custom period"><svg class="trend-navigation-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m6.5 3 5 5-5 5"/></svg></button>
               </div>
+            </div>
+            <div id="trend-custom-resolution-controls" class="trend-custom-field">
+              <label for="trend-custom-resolution">Display</label>
+              <select id="trend-custom-resolution" aria-describedby="trend-custom-error">
+                <option value="daily" selected>Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
             </div>
           </div>
           <button type="submit" id="apply-trend-custom-btn">Apply custom period</button>
@@ -305,6 +331,7 @@
           <p id="trend-comparison-error" class="table-error" role="alert" aria-live="assertive"></p>
         </form>
         <p id="trend-range-status" class="history-placeholder" role="status">Calendar days ending today. Missing dates appear as gaps.</p>
+        <section id="trend-statistics" class="trend-statistics" aria-live="polite"></section>
         <div id="trend-chart-list" class="trend-chart-list"></div>
         <details class="trend-data-details">
           <summary>
@@ -328,6 +355,10 @@
         <div id="calendar-grid" class="calendar-grid" aria-label="Monthly wellness calendar"></div>
         <div id="calendar-details" class="calendar-details" aria-live="polite"></div>
       </div>
+
+      <div id="history-dashboard-panel" hidden>
+        <div id="dashboard-container"></div>
+      </div>
     </section>
 
     <!-- ── Entry history ───────────────────────────────────────── -->
@@ -342,6 +373,10 @@
 
       <!-- Storage-failure message for Delete / Erase all actions -->
       <p id="table-error" class="table-error" role="alert"></p>
+      <p id="undo-delete-status" class="undo-delete-status" role="status" aria-live="polite">
+        <span id="undo-delete-message"></span>
+        <button type="button" id="undo-delete-btn" class="btn-neutral" hidden>Undo deletion</button>
+      </p>
 
       <form id="history-filter-form" class="history-filter-form" novalidate>
         <div class="history-filter-field">
@@ -371,8 +406,10 @@
       <div class="backup-actions">
         <button type="button" id="export-backup-btn">Export backup</button>
         <button type="button" id="import-backup-btn">Import backup</button>
+        <button type="button" id="preview-merge-backup-btn">Preview merge from backup</button>
       </div>
       <input id="import-backup-input" type="file" accept=".json,application/json" hidden>
+      <input id="merge-backup-input" type="file" accept=".json,application/json" hidden>
       <p id="backup-error" class="table-error" role="alert"></p>
       <p id="backup-status" class="backup-status" role="status"></p>
       <div id="import-preview" class="import-preview" aria-live="polite" hidden>
@@ -382,6 +419,60 @@
         <div class="backup-actions">
           <button type="button" id="replace-import-btn" class="btn-danger">Replace all entries</button>
           <button type="button" id="cancel-import-btn">Cancel import</button>
+        </div>
+      </div>
+      <div id="merge-preview" class="merge-preview" aria-live="polite" hidden>
+        <h3 id="merge-preview-heading">Merge preview</h3>
+        <p id="merge-preview-readonly" class="backup-note">Read-only preview. No changes have been saved.</p>
+        <p id="merge-preview-summary"></p>
+        <p id="merge-preview-date-range" class="backup-note"></p>
+        <p id="merge-preview-exported-at" class="backup-note"></p>
+
+        <section aria-labelledby="merge-preview-new-heading">
+          <h4 id="merge-preview-new-heading">New entries</h4>
+          <p id="merge-preview-new-empty" class="backup-note"></p>
+          <div class="merge-preview-table-scroll" id="merge-preview-new-scroll">
+            <table id="merge-preview-new-table">
+              <caption class="sr-only">Entries present in the backup but not in the current saved data</caption>
+              <thead><tr><th scope="col">Date</th><th scope="col">Mood</th><th scope="col">Sleep</th><th scope="col">Water</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div id="merge-preview-new-pagination" class="merge-preview-pagination" hidden>
+            <span id="merge-preview-new-page-summary" role="status" aria-live="polite"></span>
+            <button type="button" id="merge-preview-new-prev" class="btn-neutral" data-merge-new-page="previous">Previous page</button>
+            <span id="merge-preview-new-page-status"></span>
+            <button type="button" id="merge-preview-new-next" class="btn-neutral" data-merge-new-page="next">Next page</button>
+          </div>
+        </section>
+
+        <details id="merge-preview-identical-details">
+          <summary id="merge-preview-identical-heading">Identical entries</summary>
+          <p id="merge-preview-identical-list" class="backup-note"></p>
+        </details>
+
+        <section aria-labelledby="merge-preview-conflicts-heading">
+          <h4 id="merge-preview-conflicts-heading">Conflicting entries</h4>
+          <p id="merge-preview-conflicts-empty" class="backup-note"></p>
+          <div class="merge-preview-table-scroll" id="merge-preview-conflicts-scroll">
+            <table id="merge-preview-conflicts-table">
+              <caption class="sr-only">Current and backup values for entries with matching dates</caption>
+              <thead><tr><th scope="col">Date</th><th scope="col">Metric</th><th scope="col">Existing</th><th scope="col">Backup</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div id="merge-preview-bulk-controls" class="merge-preview-bulk-controls" hidden>
+            <p id="merge-preview-bulk-help" class="backup-note">Bulk actions only select conflict choices; you can still change each date below.</p>
+            <button type="button" id="merge-keep-all-existing-btn" class="btn-neutral" aria-describedby="merge-preview-bulk-help" data-merge-bulk-resolution="keep-existing">Keep all existing</button>
+            <button type="button" id="merge-use-all-backup-btn" class="btn-neutral" aria-describedby="merge-preview-bulk-help" data-merge-bulk-resolution="use-backup">Use all backup</button>
+          </div>
+          <div id="merge-preview-conflict-controls" class="merge-preview-conflict-controls"></div>
+        </section>
+        <p id="merge-preview-resolution-status" class="backup-note" role="status" aria-live="polite"></p>
+        <p id="merge-preview-final-summary" class="merge-preview-final-summary"></p>
+        <div class="backup-actions">
+          <button type="button" id="merge-backup-btn">Merge backup</button>
+          <button type="button" id="cancel-merge-preview-btn" class="btn-neutral">Cancel preview</button>
         </div>
       </div>
     </section>

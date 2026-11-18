@@ -11,12 +11,23 @@ const {
   getCalendarYearRange,
   validateCalendarDateRange,
   filterEntriesByDateRange,
+  paginateEntries,
+  getEntryByDate,
+  findPreviousSavedEntry,
+  buildUndoDeletionCandidate,
+  analyzeBackupMerge,
+  buildBackupMergeCandidate,
+  calculatePeriodStatistics,
+  comparePeriodStatistics,
   buildTrendSeries,
   buildTrendSeriesForRange,
+  buildDashboardModel,
   buildMonthComparisonSeries,
   buildYearComparisonSeries,
+  buildAggregatedYearSeries,
   buildAggregatedYearComparisonSeries,
   buildCalendarMonth,
+  parseBackupDocument,
 } = require('./helpers.js').loadContext();
 
 function entry(date, mood, sleep, water) {
@@ -161,6 +172,543 @@ test('filterEntriesByDateRange includes boundaries, sorts newest-first, preserve
   );
 });
 
+test('paginateEntries handles empty collections and positive page sizes', () => {
+  const result = paginateEntries([], 4, 25);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    entries: [], page: 1, pageSize: 25, totalEntries: 0, totalPages: 0,
+    hasPreviousPage: false, hasNextPage: false,
+  });
+  assert.deepEqual(paginateEntries([entry('2025-01-01', 3, 0, 0)], 1, 25).entries.map(item => item.date), ['2025-01-01']);
+});
+
+test('paginateEntries preserves supplied newest-first order across full and partial pages', () => {
+  const entries = Array.from({ length: 53 }, (_, index) => entry(
+    '2025-06-' + String(30 - index).padStart(2, '0'), 1, 0, 0
+  ));
+  const original = JSON.stringify(entries);
+  const first = paginateEntries(entries, 1, 25);
+  const middle = paginateEntries(entries, 2, 25);
+  const last = paginateEntries(entries, 3, 25);
+
+  assert.equal(first.totalEntries, 53);
+  assert.equal(first.totalPages, 3);
+  assert.equal(first.entries.length, 25);
+  assert.equal(first.entries[0].date, entries[0].date);
+  assert.equal(middle.entries[0].date, entries[25].date);
+  assert.equal(last.entries.length, 3);
+  assert.equal(last.entries[2].date, entries[52].date);
+  assert.equal(first.hasPreviousPage, false);
+  assert.equal(first.hasNextPage, true);
+  assert.equal(middle.hasPreviousPage, true);
+  assert.equal(middle.hasNextPage, true);
+  assert.equal(last.hasPreviousPage, true);
+  assert.equal(last.hasNextPage, false);
+  assert.equal(JSON.stringify(entries), original);
+  assert.notEqual(first.entries, entries);
+  assert.equal(first.entries[0], entries[0]);
+});
+
+test('paginateEntries clamps pages above the final page, including after deletion', () => {
+  const entries = Array.from({ length: 26 }, (_, index) => entry(
+    '2025-02-' + String(index + 1).padStart(2, '0'), 1, 0, 0
+  ));
+  const clamped = paginateEntries(entries, 99, 25);
+  assert.equal(clamped.page, 2);
+  assert.equal(clamped.entries.length, 1);
+  assert.equal(clamped.entries[0].date, '2025-02-26');
+
+  const afterDeletion = paginateEntries(entries.slice(0, 25), 2, 25);
+  assert.equal(afterDeletion.page, 1);
+  assert.equal(afterDeletion.totalPages, 1);
+  assert.equal(afterDeletion.hasPreviousPage, false);
+  assert.equal(afterDeletion.hasNextPage, false);
+});
+
+test('paginateEntries works after date filtering and beyond the old 100-entry display limit', () => {
+  const entries = Array.from({ length: 125 }, (_, index) => {
+    const day = String((index % 28) + 1).padStart(2, '0');
+    const month = String(Math.floor(index / 28) + 1).padStart(2, '0');
+    return entry('2025-' + month + '-' + day, 1, 0, 0);
+  }).sort((left, right) => right.date.localeCompare(left.date));
+  const filtered = filterEntriesByDateRange(entries, '2025-01-01', '2025-05-31');
+  const result = paginateEntries(filtered, 5, 25);
+  assert.equal(filtered.length, 125);
+  assert.equal(result.totalEntries, 125);
+  assert.equal(result.totalPages, 5);
+  assert.equal(result.entries.length, 25);
+  assert.equal(result.page, 5);
+});
+
+test('paginateEntries rejects invalid page and page-size arguments', () => {
+  const entries = [entry('2025-01-01', 3, 0, 0)];
+  const rangeError = error => error.name === 'RangeError';
+  assert.throws(() => paginateEntries(entries, 0, 25), rangeError);
+  assert.throws(() => paginateEntries(entries, -1, 25), rangeError);
+  assert.throws(() => paginateEntries(entries, 1.5, 25), rangeError);
+  assert.throws(() => paginateEntries(entries, 1, 0), rangeError);
+  assert.throws(() => paginateEntries(entries, 1, -25), rangeError);
+  assert.throws(() => paginateEntries(entries, 1, 2.5), rangeError);
+  assert.throws(() => paginateEntries(null, 1, 25), error => error.name === 'TypeError');
+});
+
+test('entry-date lookups return detached exact and nearest-earlier saved entries without sorting inputs', () => {
+  const entries = [
+    entry('2025-06-13', 5, 8, 2.2),
+    entry('0001-01-01', 1, 0, 0),
+    entry('2025-06-10', 2, 6, 1),
+    entry('2025-06-12', 3, 7.5, 1.5),
+    entry('2025-06-09', 4, 5, 0),
+  ];
+  const original = JSON.stringify(entries);
+
+  const exact = getEntryByDate(entries, '2025-06-10');
+  assert.deepEqual(JSON.parse(JSON.stringify(exact)), entry('2025-06-10', 2, 6, 1));
+  assert.notEqual(exact, entries[2]);
+  exact.mood = 5;
+  assert.equal(entries[2].mood, 2);
+  assert.equal(getEntryByDate(entries, '2025-06-11'), null);
+  assert.equal(getEntryByDate(entries, '0001-01-01').date, '0001-01-01');
+
+  assert.equal(findPreviousSavedEntry(entries, '2025-06-12').date, '2025-06-10');
+  assert.equal(findPreviousSavedEntry(entries, '2025-06-09').date, '0001-01-01');
+  assert.equal(findPreviousSavedEntry(entries, '0001-01-01'), null);
+  assert.equal(findPreviousSavedEntry(entries, '0000-01-01'), null);
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('entry-date lookups reject malformed calendar dates', () => {
+  const entries = [entry('2024-02-29', 3, 0, 0)];
+  ['2024-02-30', '2024-2-29', '', '2024-03-01T00:00:00Z'].forEach(function (date) {
+    assert.throws(() => getEntryByDate(entries, date), error => error.name === 'RangeError');
+    assert.throws(() => findPreviousSavedEntry(entries, date), error => error.name === 'RangeError');
+  });
+});
+
+test('buildUndoDeletionCandidate restores a detached entry into current data in newest-first order', () => {
+  const currentEntries = [
+    entry('2025-06-12', 2, 6, 1),
+    entry('2025-06-10', 5, 0, 0),
+  ];
+  const deletedEntry = entry('2025-06-11', 4, 7.5, 0);
+  const originalCurrent = JSON.stringify(currentEntries);
+  const originalDeleted = JSON.stringify(deletedEntry);
+  const result = buildUndoDeletionCandidate(currentEntries, deletedEntry);
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.entries.map(candidate => candidate.date), [
+    '2025-06-12', '2025-06-11', '2025-06-10',
+  ]);
+  assert.equal(result.entries[1].sleep, 7.5);
+  assert.equal(result.entries[1].water, 0);
+  assert.notEqual(result.entries, currentEntries);
+  assert.notEqual(result.entries[0], currentEntries[0]);
+  assert.notEqual(result.entries[1], deletedEntry);
+  result.entries[0].mood = 1;
+  result.entries[1].mood = 1;
+  assert.equal(currentEntries[0].mood, 2);
+  assert.equal(deletedEntry.mood, 4);
+  assert.equal(JSON.stringify(currentEntries), originalCurrent);
+  assert.equal(JSON.stringify(deletedEntry), originalDeleted);
+});
+
+test('buildUndoDeletionCandidate preserves entries changed since deletion and handles boundaries', () => {
+  const currentEntries = [entry('9999-12-31', 5, 24, 3), entry('0000-01-01', 1, 0, 0)];
+  const deletedEntry = entry('2024-02-29', 3, 0, 0);
+  const result = buildUndoDeletionCandidate(currentEntries, deletedEntry);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.entries.map(candidate => candidate.date), [
+    '9999-12-31', '2024-02-29', '0000-01-01',
+  ]);
+  currentEntries[0].sleep = 1;
+  assert.equal(result.entries[0].sleep, 24);
+});
+
+test('buildUndoDeletionCandidate rejects same-date conflicts without changing current data', () => {
+  const currentEntries = [entry('2025-06-11', 5, 8, 2), entry('2025-06-10', 2, 0, 0)];
+  const deletedEntry = entry('2025-06-11', 1, 1, 0.1);
+  const original = JSON.stringify(currentEntries);
+  const result = buildUndoDeletionCandidate(currentEntries, deletedEntry);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: false, reason: 'date-conflict' });
+  assert.equal(JSON.stringify(currentEntries), original);
+});
+
+test('buildUndoDeletionCandidate rejects invalid deleted entries and current collections', () => {
+  const valid = [entry('2025-06-10', 3, 0, 0)];
+  const rangeError = error => error.name === 'RangeError';
+  assert.throws(() => buildUndoDeletionCandidate(valid, entry('2025-02-30', 3, 0, 0)), rangeError);
+  assert.throws(() => buildUndoDeletionCandidate(valid, entry('2025-06-11', 6, 0, 0)), rangeError);
+  assert.throws(() => buildUndoDeletionCandidate([entry('2025-06-10', 3, 0, 0), entry('2025-06-10', 4, 0, 0)], entry('2025-06-11', 3, 0, 0)), rangeError);
+  assert.throws(() => buildUndoDeletionCandidate([entry('2025-06-10', 3, 0, 0), { date: 'bad' }], entry('2025-06-11', 3, 0, 0)), rangeError);
+  assert.throws(() => buildUndoDeletionCandidate(null, entry('2025-06-11', 3, 0, 0)), error => error.name === 'TypeError');
+});
+
+test('analyzeBackupMerge classifies new, identical, and conflicting entries deterministically', () => {
+  const existingEntries = [
+    entry('2025-06-12', 4, 7.5, 1.2),
+    entry('2024-02-29', 5, 0, 0),
+    entry('0000-01-01', 1, 24, 3),
+  ];
+  const importedEntries = [
+    entry('2025-06-13', 2, 6, 0),
+    entry('2025-06-12', 4, 7.5, 1.2),
+    entry('2024-02-29', 3, 0, 0),
+    entry('9999-12-31', 5, 0, 0),
+  ];
+  const existingOriginal = JSON.stringify(existingEntries);
+  const importedOriginal = JSON.stringify(importedEntries);
+  const result = analyzeBackupMerge(existingEntries, importedEntries);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    newEntries: [
+      entry('9999-12-31', 5, 0, 0),
+      entry('2025-06-13', 2, 6, 0),
+    ],
+    identicalEntries: [entry('2025-06-12', 4, 7.5, 1.2)],
+    conflicts: [{
+      date: '2024-02-29',
+      existingEntry: entry('2024-02-29', 5, 0, 0),
+      importedEntry: entry('2024-02-29', 3, 0, 0),
+    }],
+    counts: { new: 2, identical: 1, conflicting: 1 },
+    totalImportedCount: 4,
+    importedDateRange: { startDate: '2024-02-29', endDate: '9999-12-31' },
+  });
+  assert.equal(result.newEntries[0] === importedEntries[3], false);
+  assert.equal(result.conflicts[0].existingEntry === existingEntries[1], false);
+  result.newEntries[0].mood = 1;
+  result.conflicts[0].importedEntry.water = 3;
+  assert.equal(JSON.stringify(existingEntries), existingOriginal);
+  assert.equal(JSON.stringify(importedEntries), importedOriginal);
+});
+
+test('analyzeBackupMerge handles empty collections and all-identical or all-new imports', () => {
+  const empty = analyzeBackupMerge([], []);
+  assert.deepEqual(JSON.parse(JSON.stringify(empty)), {
+    newEntries: [], identicalEntries: [], conflicts: [],
+    counts: { new: 0, identical: 0, conflicting: 0 },
+    totalImportedCount: 0, importedDateRange: null,
+  });
+
+  const entries = [entry('2025-01-01', 3, 0, 0), entry('2025-01-02', 4, 8, 2)];
+  const identical = analyzeBackupMerge(entries, entries.slice().reverse());
+  assert.deepEqual(JSON.parse(JSON.stringify(identical.counts)), { new: 0, identical: 2, conflicting: 0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(identical.identicalEntries.map(item => item.date))), ['2025-01-02', '2025-01-01']);
+
+  const allNew = analyzeBackupMerge([], entries);
+  assert.deepEqual(JSON.parse(JSON.stringify(allNew.counts)), { new: 2, identical: 0, conflicting: 0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(allNew.newEntries.map(item => item.date))), ['2025-01-02', '2025-01-01']);
+});
+
+test('analyzeBackupMerge rejects malformed and duplicate collections', () => {
+  const valid = [entry('2025-01-01', 3, 0, 0)];
+  const rangeError = error => error.name === 'RangeError';
+  assert.throws(() => analyzeBackupMerge(null, valid), error => error.name === 'TypeError');
+  assert.throws(() => analyzeBackupMerge(valid, null), error => error.name === 'TypeError');
+  assert.throws(() => analyzeBackupMerge([entry('2025-01-01', 3, 0, 0), entry('2025-01-01', 4, 0, 0)], valid), rangeError);
+  assert.throws(() => analyzeBackupMerge(valid, [entry('2025-02-30', 3, 0, 0)]), rangeError);
+  assert.throws(() => analyzeBackupMerge(valid, [entry('2025-01-02', 6, 0, 0)]), rangeError);
+  assert.throws(() => analyzeBackupMerge(valid, [entry('2025-01-01', 3, 0, 0), entry('2025-01-01', 3, 0, 0)]), rangeError);
+});
+
+test('analyzeBackupMerge compares numeric zero values and supports version-1 backup entries', () => {
+  const current = [entry('2024-02-29', 4, 0, 0)];
+  const backup = {
+    application: 'wellness-tracker',
+    backupVersion: 1,
+    exportedAt: '2026-01-15T12:00:00.000Z',
+    entries: [entry('2024-02-29', 4, 0, 0), entry('0001-01-01', 1, 0, 0)],
+  };
+  const parsed = parseBackupDocument(JSON.stringify(backup));
+  assert.equal(parsed.ok, true);
+  const result = analyzeBackupMerge(current, parsed.backup.entries);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.counts)), { new: 1, identical: 1, conflicting: 0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.importedDateRange)), { startDate: '0001-01-01', endDate: '2024-02-29' });
+});
+
+test('buildBackupMergeCandidate adds new entries, preserves unrelated data, and handles an empty backup', () => {
+  const current = [entry('2025-06-10', 4, 7.5, 2.1)];
+  const imported = [entry('2025-06-12', 1, 0, 0)];
+  const originalCurrent = JSON.stringify(current);
+  const originalImported = JSON.stringify(imported);
+  const result = buildBackupMergeCandidate(current, imported);
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.entries)), [
+    entry('2025-06-12', 1, 0, 0), entry('2025-06-10', 4, 7.5, 2.1),
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.counts)), {
+    added: 1, unchanged: 0, replaced: 0, identical: 0, keptExisting: 0,
+  });
+  assert.equal(result.hasChanges, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(buildBackupMergeCandidate([], []).entries)), []);
+  assert.equal(buildBackupMergeCandidate(current, []).hasChanges, false);
+  assert.equal(JSON.stringify(current), originalCurrent);
+  assert.equal(JSON.stringify(imported), originalImported);
+});
+
+test('buildBackupMergeCandidate detects no-op identical imports without duplication', () => {
+  const current = [entry('2025-06-11', 3, 6, 1.8), entry('2025-06-10', 4, 7.5, 2.1)];
+  const imported = [entry('2025-06-10', 4, 7.5, 2.1), entry('2025-06-11', 3, 6, 1.8)];
+  const result = buildBackupMergeCandidate(current, imported, {});
+
+  assert.equal(result.ok, true);
+  assert.equal(result.hasChanges, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.entries)), current);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.counts)), {
+    added: 0, unchanged: 2, replaced: 0, identical: 2, keptExisting: 0,
+  });
+});
+
+test('buildBackupMergeCandidate applies explicit keep-existing and use-backup conflict choices', () => {
+  const current = [
+    entry('2025-06-12', 4, 7.5, 2.1),
+    entry('2025-06-11', 3, 6, 1.8),
+  ];
+  const imported = [
+    entry('2025-06-12', 5, 8, 2.1),
+    entry('2025-06-11', 2, 0, 0),
+  ];
+  const result = buildBackupMergeCandidate(current, imported, {
+    '2025-06-12': 'keep-existing',
+    '2025-06-11': 'use-backup',
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.entries)), [
+    entry('2025-06-12', 4, 7.5, 2.1),
+    entry('2025-06-11', 2, 0, 0),
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.counts)), {
+    added: 0, unchanged: 1, replaced: 1, identical: 0, keptExisting: 1,
+  });
+  assert.equal(result.hasChanges, true);
+});
+
+test('buildBackupMergeCandidate refuses unresolved, invalid, and unknown conflict resolutions', () => {
+  const current = [entry('2025-06-10', 4, 7.5, 2.1)];
+  const imported = [entry('2025-06-10', 5, 8, 2.1)];
+  const unresolved = buildBackupMergeCandidate(current, imported);
+  assert.deepEqual(JSON.parse(JSON.stringify(unresolved)), {
+    ok: false,
+    reason: 'unresolved-conflicts',
+    unresolvedDates: ['2025-06-10'],
+  });
+  assert.throws(() => buildBackupMergeCandidate(current, imported, {
+    '2025-06-10': 'replace',
+  }), error => error.name === 'RangeError');
+  assert.throws(() => buildBackupMergeCandidate(current, imported, {
+    '2025-06-09': 'keep-existing',
+  }), error => error.name === 'RangeError');
+  assert.throws(() => buildBackupMergeCandidate(current, imported, null), error => error.name === 'TypeError');
+});
+
+test('buildBackupMergeCandidate reanalyzes current data and preserves detached boundary and zero values', () => {
+  const current = [entry('0000-01-01', 1, 0, 0)];
+  const imported = [
+    entry('2024-02-29', 5, 0, 0),
+    entry('9999-12-31', 2, 24, 3),
+  ];
+  const result = buildBackupMergeCandidate(current, imported);
+  assert.equal(result.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.entries.map(item => item.date))), [
+    '9999-12-31', '2024-02-29', '0000-01-01',
+  ]);
+  result.entries[0].sleep = 1;
+  assert.equal(imported[1].sleep, 24);
+
+  const changedCurrent = current.concat([entry('2024-02-29', 1, 1, 0.1)]);
+  const reanalyzed = buildBackupMergeCandidate(changedCurrent, imported);
+  assert.deepEqual(JSON.parse(JSON.stringify(reanalyzed)), {
+    ok: false,
+    reason: 'unresolved-conflicts',
+    unresolvedDates: ['2024-02-29'],
+  });
+});
+
+test('buildBackupMergeCandidate validates collections and preserves inputs on failure', () => {
+  const valid = [entry('2025-01-01', 3, 0, 0)];
+  const rangeError = error => error.name === 'RangeError';
+  assert.throws(() => buildBackupMergeCandidate(null, valid, {}), error => error.name === 'TypeError');
+  assert.throws(() => buildBackupMergeCandidate(valid, [entry('2025-02-30', 3, 0, 0)], {}), rangeError);
+  assert.throws(() => buildBackupMergeCandidate(
+    [entry('2025-01-01', 3, 0, 0), entry('2025-01-01', 4, 0, 0)], valid, {}
+  ), rangeError);
+  assert.throws(() => buildBackupMergeCandidate(valid, [entry('2025-01-01', 3, 0, 0), entry('2025-01-01', 3, 0, 0)], {}), rangeError);
+});
+
+test('calculatePeriodStatistics uses inclusive recorded observations for all metrics without rounding', () => {
+  const entries = [
+    entry('2024-03-01', 3, 6, 1),
+    entry('2024-02-29', 5, 0, 0),
+    entry('2024-02-28', 1, 8, 2),
+    entry('2024-02-27', 4, 7, 1.5),
+  ];
+  const original = JSON.stringify(entries);
+  const statistics = calculatePeriodStatistics(entries, '2024-02-28', '2024-03-01');
+
+  assert.deepEqual(JSON.parse(JSON.stringify(statistics)), {
+    startDate: '2024-02-28',
+    endDate: '2024-03-01',
+    recordedDayCount: 3,
+    calendarDayCount: 3,
+    metrics: {
+      mood: { average: 3, minimum: 1, maximum: 5 },
+      sleep: { average: 14 / 3, minimum: 0, maximum: 8 },
+      water: { average: 1, minimum: 0, maximum: 2 },
+    },
+  });
+  assert.equal(statistics.metrics.sleep.average, 14 / 3);
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('calculatePeriodStatistics distinguishes empty, missing, and single-observation periods', () => {
+  const entries = [entry('2025-01-15', 4, 0, 0)];
+  const empty = calculatePeriodStatistics(entries, '2025-01-01', '2025-01-14');
+  assert.deepEqual(JSON.parse(JSON.stringify(empty)), {
+    startDate: '2025-01-01',
+    endDate: '2025-01-14',
+    recordedDayCount: 0,
+    calendarDayCount: 14,
+    metrics: {
+      mood: { average: null, minimum: null, maximum: null },
+      sleep: { average: null, minimum: null, maximum: null },
+      water: { average: null, minimum: null, maximum: null },
+    },
+  });
+
+  const single = calculatePeriodStatistics(entries, '2025-01-15', '2025-01-15');
+  assert.equal(single.recordedDayCount, 1);
+  assert.equal(single.calendarDayCount, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(single.metrics)), {
+    mood: { average: 4, minimum: 4, maximum: 4 },
+    sleep: { average: 0, minimum: 0, maximum: 0 },
+    water: { average: 0, minimum: 0, maximum: 0 },
+  });
+});
+
+test('calculatePeriodStatistics supports leap days and supported calendar-year boundaries', () => {
+  const lowYear = calculatePeriodStatistics(
+    [entry('0000-02-29', 2, 6, 1)], '0000-02-28', '0000-03-01'
+  );
+  assert.equal(lowYear.calendarDayCount, 3);
+  assert.equal(lowYear.recordedDayCount, 1);
+  assert.equal(lowYear.metrics.mood.average, 2);
+
+  const earlyYear = calculatePeriodStatistics(
+    [entry('0099-02-28', 3, 7, 1.5)], '0099-02-28', '0099-03-01'
+  );
+  assert.equal(earlyYear.calendarDayCount, 2);
+  assert.equal(earlyYear.metrics.sleep.maximum, 7);
+
+  const upperYear = calculatePeriodStatistics(
+    [entry('9999-12-31', 5, 8, 2.5)], '9999-12-31', '9999-12-31'
+  );
+  assert.equal(upperYear.calendarDayCount, 1);
+  assert.equal(upperYear.metrics.water.average, 2.5);
+});
+
+test('calculatePeriodStatistics rejects invalid and reversed ranges', () => {
+  const entries = [entry('2025-01-01', 3, 6, 1)];
+  assert.throws(
+    () => calculatePeriodStatistics(entries, '2025-02-30', '2025-03-01'),
+    error => error.name === 'RangeError'
+  );
+  assert.throws(
+    () => calculatePeriodStatistics(entries, '2025-01-02', '2025-01-01'),
+    error => error.name === 'RangeError' && /on or after/.test(error.message)
+  );
+});
+
+test('comparePeriodStatistics reports second-minus-first differences without treating empty periods as zero', () => {
+  const entries = [
+    entry('2024-01-01', 1, 0, 0),
+    entry('2024-01-02', 3, 4, 1),
+    entry('2024-02-01', 4, 8, 2),
+    entry('2024-02-03', 2, 2, 0),
+  ];
+  const original = JSON.stringify(entries);
+  const firstRange = { startDate: '2024-01-01', endDate: '2024-01-02' };
+  const secondRange = { startDate: '2024-02-01', endDate: '2024-02-03' };
+  const comparison = comparePeriodStatistics(entries, firstRange, secondRange);
+
+  assert.equal(comparison.firstPeriod.calendarDayCount, 2);
+  assert.equal(comparison.secondPeriod.calendarDayCount, 3);
+  assert.equal(comparison.firstPeriod.recordedDayCount, 2);
+  assert.equal(comparison.secondPeriod.recordedDayCount, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(comparison.differences)), {
+    recordedDayCount: 0,
+    metrics: {
+      mood: { average: 1 },
+      sleep: { average: 3 },
+      water: { average: 0.5 },
+    },
+  });
+  const reversed = comparePeriodStatistics(entries, secondRange, firstRange);
+  assert.deepEqual(JSON.parse(JSON.stringify(reversed.differences)), {
+    recordedDayCount: 0,
+    metrics: {
+      mood: { average: -1 },
+      sleep: { average: -3 },
+      water: { average: -0.5 },
+    },
+  });
+  const same = comparePeriodStatistics(entries, firstRange, firstRange);
+  assert.deepEqual(JSON.parse(JSON.stringify(same.differences)), {
+    recordedDayCount: 0,
+    metrics: {
+      mood: { average: 0 },
+      sleep: { average: 0 },
+      water: { average: 0 },
+    },
+  });
+  const emptyComparison = comparePeriodStatistics(entries, {
+    startDate: '2024-03-01', endDate: '2024-03-02',
+  }, secondRange);
+  assert.equal(emptyComparison.differences.recordedDayCount, 2);
+  assert.equal(emptyComparison.differences.metrics.mood.average, null);
+  assert.equal(emptyComparison.differences.metrics.sleep.average, null);
+  assert.equal(emptyComparison.differences.metrics.water.average, null);
+  const bothEmpty = comparePeriodStatistics(entries, {
+    startDate: '2024-03-01', endDate: '2024-03-02',
+  }, {
+    startDate: '2024-04-01', endDate: '2024-04-02',
+  });
+  assert.equal(bothEmpty.differences.recordedDayCount, 0);
+  assert.equal(bothEmpty.differences.metrics.mood.average, null);
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('comparePeriodStatistics validates both range objects and matches monthly aggregation averages', () => {
+  const entries = [
+    entry('2024-01-01', 2, 0, 0),
+    entry('2024-01-07', 4, 8, 2),
+    entry('2024-02-29', 5, 3, 1),
+  ];
+  const january = { startDate: '2024-01-01', endDate: '2024-01-31' };
+  const february = { startDate: '2024-02-01', endDate: '2024-02-29' };
+  const comparison = comparePeriodStatistics(entries, january, february);
+  const moodMonths = buildAggregatedYearSeries(entries, 'mood', 2024, 'monthly');
+  const sleepMonths = buildAggregatedYearSeries(entries, 'sleep', 2024, 'monthly');
+  const waterMonths = buildAggregatedYearSeries(entries, 'water', 2024, 'monthly');
+
+  assert.equal(comparison.firstPeriod.metrics.mood.average, moodMonths.points[0].value);
+  assert.equal(comparison.secondPeriod.metrics.mood.average, moodMonths.points[1].value);
+  assert.equal(comparison.firstPeriod.metrics.sleep.average, sleepMonths.points[0].value);
+  assert.equal(comparison.secondPeriod.metrics.sleep.average, sleepMonths.points[1].value);
+  assert.equal(comparison.firstPeriod.metrics.water.average, waterMonths.points[0].value);
+  assert.equal(comparison.secondPeriod.metrics.water.average, waterMonths.points[1].value);
+  assert.throws(
+    () => comparePeriodStatistics(entries, null, february),
+    error => error.name === 'RangeError' && /First period/.test(error.message)
+  );
+  assert.throws(
+    () => comparePeriodStatistics(entries, january, {
+      startDate: '2024-02-30', endDate: '2024-02-31',
+    }),
+    error => error.name === 'RangeError'
+  );
+});
+
 test('buildTrendSeries creates an inclusive chronological seven-day range with gaps', () => {
   const entries = [
     entry('2025-06-14', 4, 7.5, 2.1),
@@ -250,6 +798,161 @@ test('buildTrendSeriesForRange supports historical ranges, gaps, zeroes, and doe
   assert.equal(JSON.stringify(entries), original);
   assert.throws(
     () => buildTrendSeriesForRange(entries, 'mood', '2020-01-05', '2020-01-01'),
+    error => error.name === 'RangeError'
+  );
+});
+
+test('buildDashboardModel reuses period statistics and daily trend semantics for a partial week', () => {
+  const entries = [
+    entry('2025-03-08', 4, 8, 2),
+    entry('2025-03-03', 3, 6, 1.5),
+    entry('2025-02-28', 2, 7, 1),
+    entry('2025-03-07', 5, 0, 0),
+    entry('2025-03-01', 1, 9, 3),
+  ];
+  const original = JSON.stringify(entries);
+  const model = buildDashboardModel(entries, '2025-03-07');
+
+  assert.deepEqual(JSON.parse(JSON.stringify(model.reportingRange)), {
+    startDate: '2025-03-01', endDate: '2025-03-07', calendarDayCount: 7,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(model.activity)), {
+    recordedDayCount: 3, unrecordedDayCount: 4,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(model.today)), {
+    date: '2025-03-07', hasEntry: true,
+  });
+  assert.equal(model.statistics.metrics.mood.average, 3);
+  assert.equal(model.statistics.metrics.sleep.average, 5);
+  assert.equal(model.statistics.metrics.water.average, 1.5);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(model.statistics)),
+    JSON.parse(JSON.stringify(calculatePeriodStatistics(entries, '2025-03-01', '2025-03-07')))
+  );
+  ['mood', 'sleep', 'water'].forEach(metric => {
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(model.trends[metric])),
+      JSON.parse(JSON.stringify(buildTrendSeriesForRange(
+        entries, metric, '2025-03-01', '2025-03-07'
+      )))
+    );
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(model.trends.sleep.points)), [
+    { date: '2025-03-01', value: 9 },
+    { date: '2025-03-02', value: null },
+    { date: '2025-03-03', value: 6 },
+    { date: '2025-03-04', value: null },
+    { date: '2025-03-05', value: null },
+    { date: '2025-03-06', value: null },
+    { date: '2025-03-07', value: 0 },
+  ]);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(model.recentEntries.map(item => item.date))),
+    ['2025-03-07', '2025-03-03', '2025-03-01']
+  );
+
+  model.recentEntries[0].mood = 1;
+  model.trends.mood.points[0].value = 99;
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('buildDashboardModel crosses calendar months, years, and leap day correctly', () => {
+  const yearBoundary = buildDashboardModel([
+    entry('2024-12-28', 2, 7, 1),
+    entry('2025-01-03', 4, 8, 2),
+  ], '2025-01-03');
+  assert.equal(yearBoundary.reportingRange.startDate, '2024-12-28');
+  assert.equal(yearBoundary.reportingRange.endDate, '2025-01-03');
+  assert.equal(yearBoundary.activity.recordedDayCount, 2);
+  assert.equal(yearBoundary.trends.mood.points[0].date, '2024-12-28');
+  assert.equal(yearBoundary.trends.mood.points.at(-1).date, '2025-01-03');
+
+  const leapBoundary = buildDashboardModel([
+    entry('2024-02-29', 5, 0, 0),
+  ], '2024-03-03');
+  assert.equal(leapBoundary.reportingRange.startDate, '2024-02-26');
+  assert.deepEqual(JSON.parse(JSON.stringify(leapBoundary.trends.water.points[3])), {
+    date: '2024-02-29', value: 0,
+  });
+  assert.equal(leapBoundary.statistics.metrics.sleep.average, 0);
+});
+
+test('buildDashboardModel clamps only at the lower supported date boundary', () => {
+  const lower = buildDashboardModel([
+    entry('0000-01-03', 4, 0, 0),
+    entry('0000-01-01', 2, 6, 1),
+  ], '0000-01-03');
+  assert.deepEqual(JSON.parse(JSON.stringify(lower.reportingRange)), {
+    startDate: '0000-01-01', endDate: '0000-01-03', calendarDayCount: 3,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(lower.activity)), {
+    recordedDayCount: 2, unrecordedDayCount: 1,
+  });
+
+  const upper = buildDashboardModel([
+    entry('9999-12-31', 5, 8, 2.5),
+  ], '9999-12-31');
+  assert.equal(upper.reportingRange.startDate, '9999-12-25');
+  assert.equal(upper.reportingRange.endDate, '9999-12-31');
+  assert.equal(upper.today.hasEntry, true);
+});
+
+test('buildDashboardModel distinguishes empty, absent, one-day, and complete coverage', () => {
+  const empty = buildDashboardModel([], '2026-11-18');
+  assert.equal(empty.activity.recordedDayCount, 0);
+  assert.equal(empty.activity.unrecordedDayCount, 7);
+  assert.equal(empty.today.hasEntry, false);
+  assert.equal(empty.statistics.metrics.mood.average, null);
+  assert.ok(empty.trends.water.points.every(point => point.value === null));
+  assert.deepEqual(JSON.parse(JSON.stringify(empty.recentEntries)), []);
+
+  const outsideOnly = buildDashboardModel([
+    entry('2026-11-11', 2, 7, 1),
+    entry('2026-11-19', 5, 9, 2.5),
+  ], '2026-11-18');
+  assert.equal(outsideOnly.activity.recordedDayCount, 0);
+  assert.equal(outsideOnly.today.hasEntry, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(outsideOnly.recentEntries)), []);
+
+  const oneDay = buildDashboardModel([
+    entry('2026-11-18', 3, 0, 0),
+  ], '2026-11-18');
+  assert.equal(oneDay.activity.recordedDayCount, 1);
+  assert.equal(oneDay.activity.unrecordedDayCount, 6);
+  assert.equal(oneDay.today.hasEntry, true);
+  assert.equal(oneDay.statistics.metrics.sleep.average, 0);
+  assert.equal(oneDay.statistics.metrics.water.average, 0);
+
+  const allDates = Array.from({ length: 7 }, (_, index) =>
+    entry(addCalendarDays('2026-11-12', index), (index % 5) + 1, index * 0.5, index * 0.1)
+  ).reverse();
+  const complete = buildDashboardModel(allDates, '2026-11-18');
+  assert.equal(complete.activity.recordedDayCount, 7);
+  assert.equal(complete.activity.unrecordedDayCount, 0);
+  assert.equal(complete.recentEntries.length, 7);
+  assert.equal(complete.recentEntries[0].date, '2026-11-18');
+  assert.equal(complete.recentEntries.at(-1).date, '2026-11-12');
+});
+
+test('buildDashboardModel rejects invalid dates and saved-entry collections', () => {
+  const valid = [entry('2026-11-18', 3, 7, 1.5)];
+  assert.throws(
+    () => buildDashboardModel(null, '2026-11-18'),
+    error => error.name === 'TypeError'
+  );
+  assert.throws(
+    () => buildDashboardModel(valid, '2026-02-30'),
+    error => error.name === 'RangeError'
+  );
+  assert.throws(
+    () => buildDashboardModel([entry('2026-02-30', 3, 7, 1.5)], '2026-11-18'),
+    error => error.name === 'RangeError'
+  );
+  assert.throws(
+    () => buildDashboardModel([
+      entry('2026-11-18', 3, 7, 1.5),
+      entry('2026-11-18', 4, 8, 2),
+    ], '2026-11-18'),
     error => error.name === 'RangeError'
   );
 });
@@ -364,6 +1067,139 @@ test('year comparisons support matching and low-numbered years without mutating 
   assert.equal(zeroYearLeapDay.firstDate, '0000-02-29');
   assert.equal(zeroYearLeapDay.secondDate, null);
   assert.equal(zeroYearLeapDay.firstValue, 0);
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('single-year weekly aggregation starts January 1 and preserves partial Week 53 blocks', () => {
+  const entries = [
+    entry('2024-12-31', 4, 0, 2),
+    entry('2024-01-07', 3, 4, 1),
+    entry('2024-12-30', 2, 6, 0),
+    entry('2024-01-01', 2, 0, 0),
+    entry('2024-01-03', 5, 1, 3),
+  ];
+  const original = JSON.stringify(entries);
+  const leap = buildAggregatedYearSeries(entries, 'sleep', 2024, 'weekly');
+  const common = buildAggregatedYearSeries([], 'sleep', 2025, 'weekly');
+
+  assert.equal(leap.metric, 'sleep');
+  assert.equal(leap.year, 2024);
+  assert.equal(leap.resolution, 'weekly');
+  assert.equal(leap.points.length, 53);
+  assert.deepEqual(JSON.parse(JSON.stringify(leap.points[0])), {
+    key: '01',
+    label: 'Week 1',
+    startDate: '2024-01-01',
+    endDate: '2024-01-07',
+    value: 5 / 3,
+    recordedDayCount: 3,
+    calendarDayCount: 7,
+  });
+  assert.equal(leap.points[1].value, null);
+  assert.equal(leap.points[1].recordedDayCount, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(leap.points[52])), {
+    key: '53',
+    label: 'Week 53',
+    startDate: '2024-12-30',
+    endDate: '2024-12-31',
+    value: 3,
+    recordedDayCount: 2,
+    calendarDayCount: 2,
+  });
+  assert.equal(common.points.length, 53);
+  assert.equal(common.points[52].startDate, '2025-12-31');
+  assert.equal(common.points[52].endDate, '2025-12-31');
+  assert.equal(common.points[52].calendarDayCount, 1);
+  assert.equal(common.points[52].value, null);
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('single-year monthly aggregation returns all months with leap boundaries, gaps, and zeroes', () => {
+  const entries = [
+    entry('2024-04-30', 3, 7, 0),
+    entry('2024-02-29', 4, 8, 2),
+    entry('2024-02-01', 2, 6, 0),
+  ];
+  const original = JSON.stringify(entries);
+  const series = buildAggregatedYearSeries(entries, 'water', 2024, 'monthly');
+
+  assert.equal(series.points.length, 12);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(series.points.map(point => point.label))),
+    [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ]
+  );
+  assert.equal(series.points[0].startDate, '2024-01-01');
+  assert.equal(series.points[0].endDate, '2024-01-31');
+  assert.equal(series.points[1].startDate, '2024-02-01');
+  assert.equal(series.points[1].endDate, '2024-02-29');
+  assert.equal(series.points[1].calendarDayCount, 29);
+  assert.equal(series.points[1].recordedDayCount, 2);
+  assert.equal(series.points[1].value, 1);
+  assert.equal(series.points[2].value, null);
+  assert.equal(series.points[2].recordedDayCount, 0);
+  assert.equal(series.points[3].value, 0);
+  assert.equal(series.points[3].recordedDayCount, 1);
+  assert.equal(series.points[11].endDate, '2024-12-31');
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('single-year aggregation validates inputs and supports years 0000 through 0099', () => {
+  const entries = [
+    entry('0099-12-31', 1, 4, 0),
+    entry('0000-02-29', 5, 8, 2),
+  ];
+  const zeroYear = buildAggregatedYearSeries(entries, 'water', 0, 'monthly');
+  const yearNinetyNine = buildAggregatedYearSeries(entries, 'sleep', 99, 'weekly');
+  const rangeError = error => error.name === 'RangeError';
+
+  assert.equal(zeroYear.year, 0);
+  assert.equal(zeroYear.points[1].endDate, '0000-02-29');
+  assert.equal(zeroYear.points[1].calendarDayCount, 29);
+  assert.equal(zeroYear.points[1].value, 2);
+  assert.equal(yearNinetyNine.points[52].startDate, '0099-12-31');
+  assert.equal(yearNinetyNine.points[52].value, 4);
+  assert.equal(yearNinetyNine.points[52].calendarDayCount, 1);
+  assert.throws(() => buildAggregatedYearSeries([], 'weight', 2024, 'weekly'), rangeError);
+  assert.throws(() => buildAggregatedYearSeries([], 'mood', -1, 'weekly'), rangeError);
+  assert.throws(() => buildAggregatedYearSeries([], 'mood', 10_000, 'monthly'), rangeError);
+  assert.throws(() => buildAggregatedYearSeries([], 'mood', 2024.5, 'monthly'), rangeError);
+  assert.throws(() => buildAggregatedYearSeries([], 'mood', 2024, 'daily'), rangeError);
+});
+
+test('single-year aggregated points remain consistent with comparison aggregation fields', () => {
+  const entries = [
+    entry('2025-07-04', 3, 0, 0),
+    entry('2024-01-02', 1, 5, 1),
+    entry('2024-01-01', 5, 7, 3),
+  ];
+  const original = JSON.stringify(entries);
+
+  ['weekly', 'monthly'].forEach(function (resolution) {
+    const first = buildAggregatedYearSeries(entries, 'mood', 2024, resolution);
+    const second = buildAggregatedYearSeries(entries, 'mood', 2025, resolution);
+    const comparison = buildAggregatedYearComparisonSeries(
+      entries, 'mood', 2024, 2025, resolution
+    );
+
+    comparison.points.forEach(function (point, index) {
+      assert.equal(point.key, first.points[index].key);
+      assert.equal(point.label, first.points[index].label);
+      assert.equal(point.firstStartDate, first.points[index].startDate);
+      assert.equal(point.firstEndDate, first.points[index].endDate);
+      assert.equal(point.firstValue, first.points[index].value);
+      assert.equal(point.firstRecordedDayCount, first.points[index].recordedDayCount);
+      assert.equal(point.firstCalendarDayCount, first.points[index].calendarDayCount);
+      assert.equal(point.secondStartDate, second.points[index].startDate);
+      assert.equal(point.secondEndDate, second.points[index].endDate);
+      assert.equal(point.secondValue, second.points[index].value);
+      assert.equal(point.secondRecordedDayCount, second.points[index].recordedDayCount);
+      assert.equal(point.secondCalendarDayCount, second.points[index].calendarDayCount);
+    });
+  });
+
   assert.equal(JSON.stringify(entries), original);
 });
 

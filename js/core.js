@@ -478,12 +478,408 @@
      *                  not modified or copied.
      * @throws {RangeError} When the requested range is invalid.
      */
+    function filterEntriesInValidatedDateRange(entries, range) {
+      return entries.filter(function (entry) {
+        return entry.date >= range.startDate && entry.date <= range.endDate;
+      });
+    }
+
     function filterEntriesByDateRange(entries, startDate, endDate) {
       const range = validateCalendarDateRange(startDate, endDate);
       if (!range.ok) throw new RangeError(range.error);
-      return sortByDateDesc(entries.filter(function (entry) {
-        return entry.date >= range.startDate && entry.date <= range.endDate;
+      return sortByDateDesc(filterEntriesInValidatedDateRange(entries, range));
+    }
+
+    /**
+     * paginateEntries(entries, page, pageSize)
+     *
+     * Paginates an already filtered and ordered collection. The returned page
+     * contains the original entry objects in their supplied order; neither the
+     * collection nor its entries are modified.
+     *
+     * Page numbers are one-based. An empty collection uses page 1 with zero
+     * total pages. For non-empty collections, requests beyond the final page
+     * are clamped to the final page.
+     *
+     * @throws {TypeError} When entries is not an array.
+     * @throws {RangeError} When page or pageSize is not a positive integer.
+     */
+    function paginateEntries(entries, page, pageSize) {
+      if (!Array.isArray(entries)) {
+        throw new TypeError('Entries must be an array.');
+      }
+      if (!Number.isInteger(page) || page < 1) {
+        throw new RangeError('Page must be a positive integer.');
+      }
+      if (!Number.isInteger(pageSize) || pageSize < 1) {
+        throw new RangeError('Page size must be a positive integer.');
+      }
+
+      const totalEntries = entries.length;
+      const totalPages = totalEntries === 0 ? 0 : Math.ceil(totalEntries / pageSize);
+      const currentPage = totalPages === 0 ? 1 : Math.min(page, totalPages);
+      const start = (currentPage - 1) * pageSize;
+      const pageEntries = totalPages === 0 ? [] : entries.slice(start, start + pageSize);
+
+      return {
+        entries: pageEntries,
+        page: currentPage,
+        pageSize,
+        totalEntries,
+        totalPages,
+        hasPreviousPage: currentPage > 1,
+        hasNextPage: totalPages > 0 && currentPage < totalPages,
+      };
+    }
+
+    /**
+     * getEntryByDate(entries, date)
+     *
+     * Returns a detached saved entry for one exact local-calendar date, or
+     * null when that date has no entry. The supplied date is validated even
+     * when entries is empty, so callers cannot accidentally treat malformed
+     * dates as missing records.
+     *
+     * @throws {RangeError} When date is not a real YYYY-MM-DD date.
+     */
+    function getEntryByDate(entries, date) {
+      localCalendarDate(date);
+      const entry = entries.find(function (candidate) {
+        return candidate.date === date;
+      });
+      return entry ? copyEntry(entry) : null;
+    }
+
+    /**
+     * findPreviousSavedEntry(entries, date)
+     *
+     * Finds the latest saved entry strictly before a validated local-calendar
+     * date. It intentionally does not rely on storage insertion order and
+     * returns a detached copy so lookup callers cannot mutate committed data.
+     *
+     * @throws {RangeError} When date is not a real YYYY-MM-DD date.
+     */
+    function findPreviousSavedEntry(entries, date) {
+      localCalendarDate(date);
+      let previous = null;
+      entries.forEach(function (candidate) {
+        if (candidate.date < date && (!previous || candidate.date > previous.date)) {
+          previous = candidate;
+        }
+      });
+      return previous ? copyEntry(previous) : null;
+    }
+
+    /**
+     * buildUndoDeletionCandidate(currentEntries, deletedEntry)
+     *
+     * Builds a restoration candidate from the current committed collection,
+     * rather than from an old collection snapshot. A same-date entry is an
+     * explicit conflict and is never overwritten.
+     *
+     * @returns {{ok: true, entries: Array}|{ok: false, reason: string}}
+     * @throws {TypeError|RangeError} When either input contains invalid data.
+     */
+    function buildUndoDeletionCandidate(currentEntries, deletedEntry) {
+      if (!Array.isArray(currentEntries)) {
+        throw new TypeError('Current entries must be an array.');
+      }
+      const currentError = validateStoredEntries(currentEntries);
+      if (currentError) {
+        throw new RangeError('Current entries are invalid: ' + currentError);
+      }
+      if (!isValidEntryShape(deletedEntry)) {
+        throw new RangeError('Deleted entry is invalid.');
+      }
+      if (currentEntries.some(function (entry) {
+        return entry.date === deletedEntry.date;
+      })) {
+        return { ok: false, reason: 'date-conflict' };
+      }
+
+      const candidate = currentEntries.map(copyEntry);
+      candidate.push(copyEntry(deletedEntry));
+      return { ok: true, entries: sortByDateDesc(candidate) };
+    }
+
+    /**
+     * analyzeBackupMerge(existingEntries, importedEntries)
+     *
+     * Classifies a validated backup against the current saved collection
+     * without choosing a conflict resolution or constructing a merged list.
+     * Every returned entry is detached and category ordering is deterministic.
+     *
+     * @returns {{newEntries: Array, identicalEntries: Array, conflicts: Array,
+     *            counts: Object, totalImportedCount: number,
+     *            importedDateRange: Object|null}}
+     * @throws {TypeError|RangeError} When either collection is invalid.
+     */
+    function analyzeBackupMerge(existingEntries, importedEntries) {
+      if (!Array.isArray(existingEntries) || !Array.isArray(importedEntries)) {
+        throw new TypeError('Backup merge collections must be arrays.');
+      }
+
+      const existingError = validateStoredEntries(existingEntries);
+      if (existingError) {
+        throw new RangeError('Existing entries are invalid: ' + existingError);
+      }
+      const importedError = validateStoredEntries(importedEntries);
+      if (importedError) {
+        throw new RangeError('Imported entries are invalid: ' + importedError);
+      }
+
+      const existingByDate = Object.create(null);
+      existingEntries.forEach(function (entry) {
+        existingByDate[entry.date] = entry;
+      });
+
+      const newEntries = [];
+      const identicalEntries = [];
+      const conflicts = [];
+      importedEntries.forEach(function (importedEntry) {
+        const existingEntry = existingByDate[importedEntry.date];
+        if (!existingEntry) {
+          newEntries.push(copyEntry(importedEntry));
+          return;
+        }
+        if (existingEntry.mood === importedEntry.mood &&
+            existingEntry.sleep === importedEntry.sleep &&
+            existingEntry.water === importedEntry.water) {
+          identicalEntries.push(copyEntry(importedEntry));
+          return;
+        }
+        conflicts.push({
+          date: importedEntry.date,
+          existingEntry: copyEntry(existingEntry),
+          importedEntry: copyEntry(importedEntry),
+        });
+      });
+
+      const orderedNewEntries = sortByDateDesc(newEntries);
+      const orderedIdenticalEntries = sortByDateDesc(identicalEntries);
+      conflicts.sort(function (first, second) {
+        if (second.date > first.date) return 1;
+        if (second.date < first.date) return -1;
+        return 0;
+      });
+
+      const importedDates = importedEntries.map(function (entry) { return entry.date; }).sort();
+      return {
+        newEntries: orderedNewEntries,
+        identicalEntries: orderedIdenticalEntries,
+        conflicts: conflicts,
+        counts: {
+          new: orderedNewEntries.length,
+          identical: orderedIdenticalEntries.length,
+          conflicting: conflicts.length,
+        },
+        totalImportedCount: importedEntries.length,
+        importedDateRange: importedDates.length === 0 ? null : {
+          startDate: importedDates[0],
+          endDate: importedDates[importedDates.length - 1],
+        },
+      };
+    }
+
+    /**
+     * buildBackupMergeCandidate(currentEntries, importedEntries, conflictResolutions)
+     *
+     * Revalidates and reanalyzes both collections, then builds a detached
+     * newest-first candidate only when every conflicting date has an explicit
+     * resolution. It never mutates either source collection.
+     *
+     * @returns {{ok: true, entries: Array, counts: Object, hasChanges: boolean}|
+     *            {ok: false, reason: string, unresolvedDates: Array}}
+     * @throws {TypeError|RangeError} When collections or resolutions are invalid.
+     */
+    function buildBackupMergeCandidate(currentEntries, importedEntries, conflictResolutions) {
+      if (!Array.isArray(currentEntries) || !Array.isArray(importedEntries)) {
+        throw new TypeError('Backup merge collections must be arrays.');
+      }
+      if (conflictResolutions === undefined) conflictResolutions = {};
+      if (conflictResolutions === null || typeof conflictResolutions !== 'object' ||
+          Array.isArray(conflictResolutions)) {
+        throw new TypeError('Conflict resolutions must be an object.');
+      }
+
+      // analyzeBackupMerge performs the schema and duplicate-date validation
+      // and recomputes classifications against the current collection.
+      const analysis = analyzeBackupMerge(currentEntries, importedEntries);
+      const conflictDates = Object.create(null);
+      analysis.conflicts.forEach(function (conflict) {
+        conflictDates[conflict.date] = true;
+      });
+
+      Object.keys(conflictResolutions).forEach(function (date) {
+        if (!conflictDates[date]) {
+          throw new RangeError('Conflict resolution supplied for a non-conflicting date: ' + date + '.');
+        }
+        const choice = conflictResolutions[date];
+        if (choice !== 'keep-existing' && choice !== 'use-backup') {
+          throw new RangeError('Invalid conflict resolution for ' + date + '.');
+        }
+      });
+
+      const unresolvedDates = analysis.conflicts
+        .filter(function (conflict) {
+          return !Object.prototype.hasOwnProperty.call(conflictResolutions, conflict.date);
+        })
+        .map(function (conflict) { return conflict.date; });
+      if (unresolvedDates.length > 0) {
+        return {
+          ok: false,
+          reason: 'unresolved-conflicts',
+          unresolvedDates: unresolvedDates,
+        };
+      }
+
+      const candidateByDate = Object.create(null);
+      currentEntries.forEach(function (entry) {
+        candidateByDate[entry.date] = copyEntry(entry);
+      });
+      let added = 0;
+      let replaced = 0;
+      let identical = analysis.identicalEntries.length;
+      let keptExisting = 0;
+
+      analysis.newEntries.forEach(function (entry) {
+        candidateByDate[entry.date] = copyEntry(entry);
+        added += 1;
+      });
+      analysis.conflicts.forEach(function (conflict) {
+        if (conflictResolutions[conflict.date] === 'use-backup') {
+          candidateByDate[conflict.date] = copyEntry(conflict.importedEntry);
+          replaced += 1;
+        } else {
+          keptExisting += 1;
+        }
+      });
+
+      const candidate = sortByDateDesc(Object.keys(candidateByDate).map(function (date) {
+        return candidateByDate[date];
       }));
+      const hasChanges = added > 0 || replaced > 0;
+      return {
+        ok: true,
+        entries: candidate,
+        counts: {
+          added: added,
+          unchanged: identical + keptExisting,
+          replaced: replaced,
+          identical: identical,
+          keptExisting: keptExisting,
+        },
+        hasChanges: hasChanges,
+      };
+    }
+
+    function calculateMetricStatistics(entries, metric) {
+      if (entries.length === 0) {
+        return { average: null, minimum: null, maximum: null };
+      }
+
+      let total = 0;
+      let minimum = entries[0][metric];
+      let maximum = entries[0][metric];
+      entries.forEach(function (entry) {
+        const value = entry[metric];
+        total += value;
+        if (value < minimum) minimum = value;
+        if (value > maximum) maximum = value;
+      });
+      return {
+        average: total / entries.length,
+        minimum,
+        maximum,
+      };
+    }
+
+    /**
+     * calculatePeriodStatistics(entries, startDate, endDate)
+     *
+     * Calculates unrounded descriptive statistics from saved observations in
+     * an inclusive local-calendar range. Missing calendar dates are not
+     * observations and therefore never contribute zero values. A genuine
+     * stored zero remains an ordinary numeric value.
+     *
+     * @returns {{startDate: string, endDate: string, recordedDayCount: number,
+     *            calendarDayCount: number, metrics: {
+     *              mood: {average: number|null, minimum: number|null, maximum: number|null},
+     *              sleep: {average: number|null, minimum: number|null, maximum: number|null},
+     *              water: {average: number|null, minimum: number|null, maximum: number|null}
+     *            }}}
+     * @throws {RangeError} When the requested date range is invalid.
+     */
+    function calculatePeriodStatistics(entries, startDate, endDate) {
+      const range = validateCalendarDateRange(startDate, endDate);
+      if (!range.ok) throw new RangeError(range.error);
+      const recordedEntries = filterEntriesInValidatedDateRange(entries, range);
+
+      return {
+        startDate: range.startDate,
+        endDate: range.endDate,
+        recordedDayCount: recordedEntries.length,
+        calendarDayCount: range.dayCount,
+        metrics: {
+          mood: calculateMetricStatistics(recordedEntries, 'mood'),
+          sleep: calculateMetricStatistics(recordedEntries, 'sleep'),
+          water: calculateMetricStatistics(recordedEntries, 'water'),
+        },
+      };
+    }
+
+    function validateStatisticsRange(range, label) {
+      if (!range || typeof range !== 'object') {
+        throw new RangeError(label + ' period must provide startDate and endDate.');
+      }
+      const result = validateCalendarDateRange(range.startDate, range.endDate);
+      if (!result.ok) throw new RangeError(result.error);
+      return result;
+    }
+
+    /**
+     * comparePeriodStatistics(entries, firstRange, secondRange)
+     *
+     * Calculates statistics for two inclusive local-calendar periods. Every
+     * difference is second period minus first period. Average differences are
+     * null whenever either period has no recorded observations, so a missing
+     * average is never misrepresented as zero.
+     *
+     * @param {Array} entries Valid saved entries; never mutated.
+     * @param {{startDate: string, endDate: string}} firstRange
+     * @param {{startDate: string, endDate: string}} secondRange
+     * @returns {{firstPeriod: Object, secondPeriod: Object, differences: {
+     *   recordedDayCount: number,
+     *   metrics: {mood: {average: number|null}, sleep: {average: number|null},
+     *             water: {average: number|null}}
+     * }}}
+     * @throws {RangeError} When either range is invalid.
+     */
+    function comparePeriodStatistics(entries, firstRange, secondRange) {
+      const first = validateStatisticsRange(firstRange, 'First');
+      const second = validateStatisticsRange(secondRange, 'Second');
+      const firstPeriod = calculatePeriodStatistics(entries, first.startDate, first.endDate);
+      const secondPeriod = calculatePeriodStatistics(entries, second.startDate, second.endDate);
+      const averageDifference = function (metric) {
+        const firstAverage = firstPeriod.metrics[metric].average;
+        const secondAverage = secondPeriod.metrics[metric].average;
+        return firstAverage === null || secondAverage === null
+          ? null
+          : secondAverage - firstAverage;
+      };
+
+      return {
+        firstPeriod,
+        secondPeriod,
+        differences: {
+          recordedDayCount: secondPeriod.recordedDayCount - firstPeriod.recordedDayCount,
+          metrics: {
+            mood: { average: averageDifference('mood') },
+            sleep: { average: averageDifference('sleep') },
+            water: { average: averageDifference('water') },
+          },
+        },
+      };
     }
 
     function validateTrendMetric(metric) {
@@ -525,6 +921,68 @@
         startDate: range.startDate,
         endDate: range.endDate,
         points,
+      };
+    }
+
+    /**
+     * buildDashboardModel(entries, today)
+     *
+     * Builds a detached, presentation-ready summary for the seven local
+     * calendar days ending on an explicitly supplied date. At the lower
+     * supported boundary the range is shortened rather than crossing into an
+     * unsupported negative year.
+     *
+     * Statistics and daily trend gaps deliberately reuse the established
+     * period helpers so dashboard values stay consistent with detailed
+     * History & Trends views.
+     *
+     * @returns {{reportingRange: Object, activity: Object, statistics: Object,
+     *            trends: Object, recentEntries: Array, today: Object}}
+     * @throws {TypeError|RangeError} When the collection or today is invalid.
+     */
+    function buildDashboardModel(entries, today) {
+      if (!Array.isArray(entries)) {
+        throw new TypeError('Entries must be an array.');
+      }
+      const entriesError = validateStoredEntries(entries);
+      if (entriesError) {
+        throw new RangeError('Entries are invalid: ' + entriesError);
+      }
+      localCalendarDate(today);
+
+      const earliestSupportedDate = '0000-01-01';
+      const startDate = today < '0000-01-07'
+        ? earliestSupportedDate
+        : addCalendarDays(today, -6);
+      const range = validateCalendarDateRange(startDate, today);
+      if (!range.ok) throw new RangeError(range.error);
+
+      const statistics = calculatePeriodStatistics(entries, range.startDate, range.endDate);
+      const recentEntries = sortByDateDesc(
+        filterEntriesInValidatedDateRange(entries, range)
+      ).map(copyEntry);
+
+      return {
+        reportingRange: {
+          startDate: range.startDate,
+          endDate: range.endDate,
+          calendarDayCount: range.dayCount,
+        },
+        activity: {
+          recordedDayCount: statistics.recordedDayCount,
+          unrecordedDayCount: range.dayCount - statistics.recordedDayCount,
+        },
+        statistics,
+        trends: {
+          mood: buildTrendSeriesForRange(entries, 'mood', range.startDate, range.endDate),
+          sleep: buildTrendSeriesForRange(entries, 'sleep', range.startDate, range.endDate),
+          water: buildTrendSeriesForRange(entries, 'water', range.startDate, range.endDate),
+        },
+        recentEntries,
+        today: {
+          date: today,
+          hasEntry: entries.some(function (entry) { return entry.date === today; }),
+        },
       };
     }
 
@@ -673,6 +1131,82 @@
       };
     }
 
+    function buildAggregatedYearPoints(lookup, metric, year, resolution) {
+      const yearRange = getCalendarYearRange(year);
+      if (resolution !== 'weekly' && resolution !== 'monthly') {
+        throw new RangeError('Year aggregation resolution must be weekly or monthly.');
+      }
+
+      const points = [];
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December',
+      ];
+
+      if (resolution === 'weekly') {
+        const weekCount = Math.ceil(yearRange.dayCount / 7);
+        for (let week = 0; week < weekCount; week++) {
+          const startDate = addCalendarDays(yearRange.startDate, week * 7);
+          const endDate = addCalendarDays(
+            startDate,
+            Math.min(6, yearRange.dayCount - week * 7 - 1)
+          );
+          const aggregate = aggregateYearPeriod(lookup, metric, startDate, endDate);
+          points.push({
+            key: String(week + 1).padStart(2, '0'),
+            label: 'Week ' + (week + 1),
+            startDate,
+            endDate,
+            value: aggregate.average,
+            recordedDayCount: aggregate.recordedDayCount,
+            calendarDayCount: aggregate.calendarDayCount,
+          });
+        }
+      } else {
+        for (let monthIndex = 0; monthIndex < 12; monthIndex++) {
+          const month = getCalendarMonthRange(year, monthIndex);
+          const aggregate = aggregateYearPeriod(
+            lookup, metric, month.startDate, month.endDate
+          );
+          points.push({
+            key: String(monthIndex + 1).padStart(2, '0'),
+            label: monthNames[monthIndex],
+            startDate: month.startDate,
+            endDate: month.endDate,
+            value: aggregate.average,
+            recordedDayCount: aggregate.recordedDayCount,
+            calendarDayCount: aggregate.calendarDayCount,
+          });
+        }
+      }
+
+      return points;
+    }
+
+    /**
+     * buildAggregatedYearSeries(entries, metric, year, resolution)
+     *
+     * Builds weekly or monthly averages for one complete calendar year.
+     * Missing days do not contribute to averages, while recorded zeroes do.
+     *
+     * @returns {{metric: string, year: number, resolution: string, points: Array}}
+     * @throws {RangeError} When metric, year, or resolution is invalid.
+     */
+    function buildAggregatedYearSeries(entries, metric, year, resolution) {
+      validateTrendMetric(metric);
+      getCalendarYearRange(year);
+      if (resolution !== 'weekly' && resolution !== 'monthly') {
+        throw new RangeError('Year aggregation resolution must be weekly or monthly.');
+      }
+
+      return {
+        metric,
+        year,
+        resolution,
+        points: buildAggregatedYearPoints(entriesByDate(entries), metric, year, resolution),
+      };
+    }
+
     /**
      * buildAggregatedYearComparisonSeries(entries, metric, firstYear, secondYear, resolution)
      *
@@ -685,74 +1219,36 @@
      */
     function buildAggregatedYearComparisonSeries(entries, metric, firstYear, secondYear, resolution) {
       validateTrendMetric(metric);
-      const firstRange = getCalendarYearRange(firstYear);
-      const secondRange = getCalendarYearRange(secondYear);
+      getCalendarYearRange(firstYear);
+      getCalendarYearRange(secondYear);
       if (resolution !== 'weekly' && resolution !== 'monthly') {
         throw new RangeError('Year comparison resolution must be weekly or monthly.');
       }
 
       const lookup = entriesByDate(entries);
-      const points = [];
-      const monthNames = [
-        'January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December',
-      ];
-
-      if (resolution === 'weekly') {
-        const weekCount = Math.max(
-          Math.ceil(firstRange.dayCount / 7),
-          Math.ceil(secondRange.dayCount / 7)
-        );
-        for (let week = 0; week < weekCount; week++) {
-          const firstStart = addCalendarDays(firstRange.startDate, week * 7);
-          const secondStart = addCalendarDays(secondRange.startDate, week * 7);
-          const firstEnd = addCalendarDays(
-            firstStart,
-            Math.min(6, firstRange.dayCount - week * 7 - 1)
-          );
-          const secondEnd = addCalendarDays(
-            secondStart,
-            Math.min(6, secondRange.dayCount - week * 7 - 1)
-          );
-          const first = aggregateYearPeriod(lookup, metric, firstStart, firstEnd);
-          const second = aggregateYearPeriod(lookup, metric, secondStart, secondEnd);
-          points.push({
-            key: String(week + 1).padStart(2, '0'),
-            label: 'Week ' + (week + 1),
-            firstStartDate: firstStart,
-            firstEndDate: firstEnd,
-            secondStartDate: secondStart,
-            secondEndDate: secondEnd,
-            firstValue: first.average,
-            secondValue: second.average,
-            firstRecordedDayCount: first.recordedDayCount,
-            secondRecordedDayCount: second.recordedDayCount,
-            firstCalendarDayCount: first.calendarDayCount,
-            secondCalendarDayCount: second.calendarDayCount,
-          });
-        }
-      } else {
-        for (let monthIndex = 0; monthIndex < 12; monthIndex++) {
-          const firstMonth = getCalendarMonthRange(firstYear, monthIndex);
-          const secondMonth = getCalendarMonthRange(secondYear, monthIndex);
-          const first = aggregateYearPeriod(lookup, metric, firstMonth.startDate, firstMonth.endDate);
-          const second = aggregateYearPeriod(lookup, metric, secondMonth.startDate, secondMonth.endDate);
-          points.push({
-            key: String(monthIndex + 1).padStart(2, '0'),
-            label: monthNames[monthIndex],
-            firstStartDate: firstMonth.startDate,
-            firstEndDate: firstMonth.endDate,
-            secondStartDate: secondMonth.startDate,
-            secondEndDate: secondMonth.endDate,
-            firstValue: first.average,
-            secondValue: second.average,
-            firstRecordedDayCount: first.recordedDayCount,
-            secondRecordedDayCount: second.recordedDayCount,
-            firstCalendarDayCount: first.calendarDayCount,
-            secondCalendarDayCount: second.calendarDayCount,
-          });
-        }
-      }
+      const firstPoints = buildAggregatedYearPoints(
+        lookup, metric, firstYear, resolution
+      );
+      const secondPoints = buildAggregatedYearPoints(
+        lookup, metric, secondYear, resolution
+      );
+      const points = firstPoints.map(function (first, index) {
+        const second = secondPoints[index];
+        return {
+          key: first.key,
+          label: first.label,
+          firstStartDate: first.startDate,
+          firstEndDate: first.endDate,
+          secondStartDate: second.startDate,
+          secondEndDate: second.endDate,
+          firstValue: first.value,
+          secondValue: second.value,
+          firstRecordedDayCount: first.recordedDayCount,
+          secondRecordedDayCount: second.recordedDayCount,
+          firstCalendarDayCount: first.calendarDayCount,
+          secondCalendarDayCount: second.calendarDayCount,
+        };
+      });
 
       return { metric, resolution, points };
     }
@@ -940,15 +1436,17 @@
       return validateStoredEntries(entries);
     }
 
+    function copyEntry(entry) {
+      return {
+        date: entry.date,
+        mood: entry.mood,
+        sleep: entry.sleep,
+        water: entry.water,
+      };
+    }
+
     function copyEntries(entries) {
-      return entries.map(function (entry) {
-        return {
-          date: entry.date,
-          mood: entry.mood,
-          sleep: entry.sleep,
-          water: entry.water,
-        };
-      });
+      return entries.map(copyEntry);
     }
 
     /**
