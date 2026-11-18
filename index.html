@@ -361,6 +361,10 @@
 
       <!-- Storage-failure message for Delete / Erase all actions -->
       <p id="table-error" class="table-error" role="alert"></p>
+      <p id="undo-delete-status" class="undo-delete-status" role="status" aria-live="polite">
+        <span id="undo-delete-message"></span>
+        <button type="button" id="undo-delete-btn" class="btn-neutral" hidden>Undo deletion</button>
+      </p>
 
       <form id="history-filter-form" class="history-filter-form" novalidate>
         <div class="history-filter-field">

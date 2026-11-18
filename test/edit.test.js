@@ -24,6 +24,7 @@ class Element {
     this.checked = false;
     this.dataset = {};
     this.attributes = {};
+    this.style = {};
     this.children = [];
     this.classList = { add() {}, remove() {} };
     this.listeners = {};
@@ -39,6 +40,10 @@ class Element {
   setAttribute(name, value) {
     this.attributes[name] = String(value);
     if (name === 'class') this.className = String(value);
+    if (name.startsWith('data-')) {
+      const dataName = name.slice(5).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+      this.dataset[dataName] = String(value);
+    }
     this[name] = String(value);
     if (name === 'hidden') this.hidden = true;
   }
@@ -46,15 +51,43 @@ class Element {
     delete this.attributes[name];
     if (name === 'hidden') this.hidden = false;
   }
-  appendChild(child) { this.children.push(child); return child; }
+  appendChild(child) {
+    child.parentNode = this;
+    this.children.push(child);
+    if (this.tagName === 'SELECT' && !this.value && child.value !== undefined) {
+      this.value = child.value;
+    }
+    return child;
+  }
   replaceChildren(...children) { this.children = children; }
   click() { this.clicked = true; }
   querySelector() { return null; }
-  querySelectorAll() { return []; }
+  querySelectorAll(selector) {
+    const matches = [];
+    const visit = node => {
+      node.children.forEach(child => {
+        const dataMatch = selector.match(/^\[data-([\w-]+)="([^"]+)"\]$/);
+        if (dataMatch) {
+          const dataName = dataMatch[1].replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+          if (child.dataset && child.dataset[dataName] === dataMatch[2]) matches.push(child);
+        }
+        visit(child);
+      });
+    };
+    visit(this);
+    return matches;
+  }
   closest(selector) {
     if (selector.startsWith('#')) return this.id === selector.slice(1) ? this : null;
     if (selector.startsWith('.')) {
-      return this.className && this.className.split(/\s+/).includes(selector.slice(1)) ? this : null;
+      if (this.className && this.className.split(/\s+/).includes(selector.slice(1))) return this;
+      return this.parentNode ? this.parentNode.closest(selector) : null;
+    }
+    const dataMatch = selector.match(/^\[data-([\w-]+)="([^"]+)"\]$/);
+    if (dataMatch) {
+      const dataName = dataMatch[1].replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+      if (this.dataset && this.dataset[dataName] === dataMatch[2]) return this;
+      return this.parentNode ? this.parentNode.closest(selector) : null;
     }
     return null;
   }
@@ -64,7 +97,7 @@ function makeApp() {
   const elements = new Map();
   ['entry-date', 'entry-date-prev', 'entry-date-next', 'entry-date-status',
    'copy-previous-values-btn', 'edit-existing-entry-btn', 'entry-sleep', 'entry-water', 'form-heading', 'save-btn',
-   'cancel-edit-btn', 'form-error', 'table-error', 'erase-all-btn', 'export-backup-btn', 'import-backup-btn',
+   'cancel-edit-btn', 'form-error', 'table-error', 'undo-delete-status', 'undo-delete-message', 'undo-delete-btn', 'erase-all-btn', 'export-backup-btn', 'import-backup-btn',
    'import-backup-input', 'cancel-import-btn', 'replace-import-btn', 'backup-error', 'backup-status', 'import-preview',
    'import-preview-summary', 'import-preview-exported-at', 'import-preview-warning',
    'entries-container', 'entries-heading', 'entry-form', 'app-error', 'sleep-value',
@@ -188,12 +221,26 @@ function makeApp() {
     },
   };
   const document = {
-    getElementById(id) { return elements.get(id); },
+    getElementById(id) {
+      const known = elements.get(id);
+      if (known) return known;
+      for (const root of elements.values()) {
+        const match = findDescendants(root, node => node.id === id)[0];
+        if (match) return match;
+      }
+      return undefined;
+    },
     createElement(tag) { return new Element(tag); },
     createElementNS(_, tag) { return new Element(tag); },
     querySelector(selector) {
       if (selector === 'input[name="mood"]:checked') return radios.find(r => r.checked) || null;
       if (selector === 'input[name="mood"]') return radios[0];
+      const chartMatch = selector.match(/^\.trend-chart-card\[data-metric="([^"]+)"\]$/);
+      if (chartMatch) {
+        return elements.get('trend-chart-list').children.find(card =>
+          card.dataset && card.dataset.metric === chartMatch[1]
+        ) || null;
+      }
       if (selector === '#calendar-details .calendar-detail-action[data-calendar-action="create"]') {
         return elements.get('calendar-details').children.find(button =>
           button.dataset && button.dataset.calendarAction === 'create'
@@ -250,7 +297,7 @@ function makeApp() {
     },
   };
   vm.createContext(sandbox);
-  const source = appSource + '\nthis.__api = { init, render, renderHistoryTrends, renderHistoryTrendsForCurrentState, renderCharts, renderCalendar, renderCalendarForCurrentState, renderCalendarDetails, renderHistoryTable, getHistoryRenderState, getActiveTrendDisplay, getActiveTrendStatistics, applyHistoryDateRange, showEntryInHistory, handleHistoryFilterSubmit, invalidateAppliedHistoryRange, handleClearHistoryFilters, ensureCalendarMonth, normalizeCalendarSelection, setHistoryView, setTrendDayCount, getChartPeriodDefaults, getMonthNavigationState, getYearNavigationState, navigateTrendMonthDraft, navigateTrendYearDraft, swapComparisonTrendDrafts, compareWithPreviousTrendDraft, setComparisonToPreviousAndCurrent, selectCustomTrendRange, selectTrendComparison, resolveCustomTrendPeriod, resolveComparisonPeriod, handleCustomTrendTypeChange, handleCustomTrendDraftInput, handleCustomTrendResolutionChange, handleCustomTrendSubmit, handleComparisonTrendTypeChange, handleComparisonTrendDraftInput, handleComparisonTrendResolutionChange, handleComparisonTrendSubmit, changeCalendarMonth, handleHistoryTrendsClick, handleEntryDateInput, navigateEntryDate, copyPreviousValues, updateEntryDateControls, hasUnsavedFormChanges, enterNewEntryModeForDate, enterEditMode, exitEditMode, handleFormSubmit, handleTableClick, handleEraseAll, handleExportBackup, handleImportBackup, handleImportFileChange, handleCancelImport, handleReplaceImport, adjustValueControl, resetValueControls, setValueControlValues, updateSleepControl, updateWaterControl, setBusyState, lockApp, getStorageAdapter, get entries() { return entries; }, get editingDate() { return editingDate; }, get sleepSelected() { return sleepSelected; }, get waterSelected() { return waterSelected; }, get busy() { return busy; }, get locked() { return locked; }, get pendingImport() { return pendingImport; }, get importReading() { return importReading; }, get historyView() { return historyView; }, get trendDayCount() { return trendDayCount; }, get trendMode() { return trendMode; }, get customTrendType() { return customTrendType; }, get customTrendDraftStart() { return customTrendDraftStart; }, get customTrendDraftEnd() { return customTrendDraftEnd; }, get customTrendDraftMonth() { return customTrendDraftMonth; }, get customTrendDraftYear() { return customTrendDraftYear; }, get customTrendDraftResolution() { return customTrendDraftResolution; }, get appliedCustomTrendRange() { return appliedCustomTrendRange; }, get comparisonTrendType() { return comparisonTrendType; }, get comparisonTrendDraftFirst() { return comparisonTrendDraftFirst; }, get comparisonTrendDraftSecond() { return comparisonTrendDraftSecond; }, get comparisonTrendDraftResolution() { return comparisonTrendDraftResolution; }, get appliedTrendComparison() { return appliedTrendComparison; }, get appliedHistoryRange() { return appliedHistoryRange; }, get calendarYear() { return calendarYear; }, get calendarMonthIndex() { return calendarMonthIndex; }, get selectedCalendarDate() { return selectedCalendarDate; }, set entries(value) { entries = value; }, set editingDate(value) { editingDate = value; }, set storageAdapter(value) { storageAdapter = value; }, set calendarYear(value) { calendarYear = value; }, set calendarMonthIndex(value) { calendarMonthIndex = value; }, set selectedCalendarDate(value) { selectedCalendarDate = value; } };';
+  const source = appSource + '\nthis.__api = { init, render, renderHistoryTrends, renderHistoryTrendsForCurrentState, renderCharts, renderComparisonCharts, renderAggregatedComparisonCharts, renderTrendPointDetails, positionTrendPointTooltip, repositionOpenTrendTooltips, renderCalendar, renderCalendarForCurrentState, renderCalendarDetails, renderHistoryTable, getHistoryRenderState, getActiveTrendDisplay, getActiveTrendStatistics, applyHistoryDateRange, showEntryInHistory, handleHistoryFilterSubmit, invalidateAppliedHistoryRange, handleClearHistoryFilters, changeHistoryPage, initializeHistoryDateDefaults, handleUndoDeletion, ensureCalendarMonth, normalizeCalendarSelection, setHistoryView, setTrendDayCount, getChartPeriodDefaults, getMonthNavigationState, getYearNavigationState, navigateTrendMonthDraft, navigateTrendYearDraft, swapComparisonTrendDrafts, compareWithPreviousTrendDraft, setComparisonToPreviousAndCurrent, selectCustomTrendRange, selectTrendComparison, resolveCustomTrendPeriod, resolveComparisonPeriod, handleCustomTrendTypeChange, handleCustomTrendDraftInput, handleCustomTrendResolutionChange, handleCustomTrendSubmit, handleComparisonTrendTypeChange, handleComparisonTrendDraftInput, handleComparisonTrendResolutionChange, handleComparisonTrendSubmit, changeCalendarMonth, handleHistoryTrendsClick, handleTrendPointKeydown, handleTrendPointSeriesChange, handleHistoryTrendsPointerOver, handleHistoryTrendsPointerOut, closePinnedTrendTooltips, selectTrendPoint, moveTrendPointSelection, selectFirstTrendPoint, handleEntryDateInput, navigateEntryDate, copyPreviousValues, updateEntryDateControls, hasUnsavedFormChanges, enterNewEntryModeForDate, enterEditMode, exitEditMode, handleFormSubmit, handleTableClick, handleEraseAll, handleExportBackup, handleImportBackup, handleImportFileChange, handleCancelImport, handleReplaceImport, adjustValueControl, resetValueControls, setValueControlValues, updateSleepControl, updateWaterControl, setBusyState, lockApp, getStorageAdapter, get entries() { return entries; }, get editingDate() { return editingDate; }, get sleepSelected() { return sleepSelected; }, get waterSelected() { return waterSelected; }, get busy() { return busy; }, get locked() { return locked; }, get pendingImport() { return pendingImport; }, get importReading() { return importReading; }, get historyView() { return historyView; }, get trendDayCount() { return trendDayCount; }, get trendMode() { return trendMode; }, get customTrendType() { return customTrendType; }, get customTrendDraftStart() { return customTrendDraftStart; }, get customTrendDraftEnd() { return customTrendDraftEnd; }, get customTrendDraftMonth() { return customTrendDraftMonth; }, get customTrendDraftYear() { return customTrendDraftYear; }, get customTrendDraftResolution() { return customTrendDraftResolution; }, get appliedCustomTrendRange() { return appliedCustomTrendRange; }, get comparisonTrendType() { return comparisonTrendType; }, get comparisonTrendDraftFirst() { return comparisonTrendDraftFirst; }, get comparisonTrendDraftSecond() { return comparisonTrendDraftSecond; }, get comparisonTrendDraftResolution() { return comparisonTrendDraftResolution; }, get appliedTrendComparison() { return appliedTrendComparison; }, get appliedHistoryRange() { return appliedHistoryRange; }, get historyPage() { return historyPage; }, get pendingUndoEntry() { return pendingUndoEntry; }, get calendarYear() { return calendarYear; }, get calendarMonthIndex() { return calendarMonthIndex; }, get selectedCalendarDate() { return selectedCalendarDate; }, set entries(value) { entries = value; }, set editingDate(value) { editingDate = value; }, set storageAdapter(value) { storageAdapter = value; }, set calendarYear(value) { calendarYear = value; }, set calendarMonthIndex(value) { calendarMonthIndex = value; }, set selectedCalendarDate(value) { selectedCalendarDate = value; } };';
   new vm.Script(coreSource + '\n' + viewsSource + '\n' + source).runInContext(sandbox);
   const realRender = sandbox.render;
   sandbox.render = () => {};
@@ -274,7 +321,7 @@ function makeViews() {
   const app = makeApp();
   const sandbox = { document: app.sandbox.document, Date };
   vm.createContext(sandbox);
-  const source = coreSource + '\n' + viewsSource + '\nthis.__views = { renderSummary, renderTable, renderCharts, renderComparisonCharts, renderAggregatedComparisonCharts, renderAggregatedYearCharts, renderPeriodStatistics, renderComparisonStatistics, renderCalendar, renderHistoryTrends };';
+  const source = coreSource + '\n' + viewsSource + '\nthis.__views = { renderSummary, renderTable, renderCharts, renderComparisonCharts, renderAggregatedComparisonCharts, renderAggregatedYearCharts, renderPeriodStatistics, renderComparisonStatistics, renderTrendPointDetails, renderCalendar, renderHistoryTrends };';
   new vm.Script(source).runInContext(sandbox);
   return { ...app, views: sandbox.__views };
 }
@@ -379,7 +426,7 @@ function applyHistoryRange(app, startDate, endDate) {
 }
 
 function historyTableRows(app) {
-  const table = app.elements.get('entries-container').children.find(node => node.tagName === 'TABLE');
+  const table = findDescendants(app.elements.get('entries-container'), node => node.tagName === 'TABLE')[0];
   if (!table) return [];
   const tbody = table.children.find(node => node.tagName === 'TBODY');
   return tbody ? tbody.children : [];
@@ -602,10 +649,11 @@ test('changing or clearing history filters hides applied results without changin
   assert.equal(JSON.stringify(app.api.entries), original);
 });
 
-test('history renders an empty selected range and limits large result sets to the newest 100', () => {
+test('history renders empty ranges and paginates all matching results in pages of 25', () => {
   const app = makeApp();
   applyHistoryRange(app, '2026-01-01', '2026-01-02');
   assert.match(app.elements.get('entries-container').children[0].textContent, /No entries match/);
+  assert.equal(findDescendants(app.elements.get('entries-container'), node => node.className === 'history-pagination').length, 0);
 
   app.api.entries = Array.from({ length: 102 }, (_, index) => ({
     date: '2025-01-' + String(index + 1).padStart(2, '0'),
@@ -621,9 +669,82 @@ test('history renders an empty selected range and limits large result sets to th
   }));
   applyHistoryRange(app, '2025-01-01', '2028-01-31');
 
-  assert.equal(historyTableRows(app).length, 100);
-  assert.match(app.elements.get('entries-container').children[0].textContent, /newest 100 of 102/);
+  assert.equal(historyTableRows(app).length, 25);
+  assert.match(findDescendants(app.elements.get('entries-container'), node => node.id === 'history-page-status')[0].textContent, /Showing 1–25 of 102 matching entries/);
   assert.match(app.elements.get('history-status').textContent, /Showing 102 matching entries/);
+
+  app.api.handleTableClick({
+    target: findDescendants(app.elements.get('entries-container'), node => node.id === 'history-next-page-btn')[0],
+  });
+  assert.deepEqual(historyRowDates(app).length, 25);
+  assert.match(findDescendants(app.elements.get('entries-container'), node => node.id === 'history-page-status')[0].textContent, /Showing 26–50 of 102 matching entries/);
+  app.api.handleTableClick({
+    target: findDescendants(app.elements.get('entries-container'), node => node.id === 'history-next-page-btn')[0],
+  });
+  app.api.handleTableClick({
+    target: findDescendants(app.elements.get('entries-container'), node => node.id === 'history-next-page-btn')[0],
+  });
+  app.api.handleTableClick({
+    target: findDescendants(app.elements.get('entries-container'), node => node.id === 'history-next-page-btn')[0],
+  });
+  assert.match(findDescendants(app.elements.get('entries-container'), node => node.id === 'history-page-status')[0].textContent, /Showing 101–102 of 102 matching entries/);
+  assert.equal(findDescendants(app.elements.get('entries-container'), node => node.id === 'history-next-page-btn')[0].disabled, true);
+  assert.ok(findDescendants(app.elements.get('entries-container'), node => node.className === 'history-table-scroll')[0]);
+});
+
+test('Entry History uses a bounded two-axis scroll frame with sticky headings and Date column', () => {
+  const app = makeApp();
+  applyHistoryRange(app, '2025-06-10', '2025-06-11');
+  const table = findDescendants(app.elements.get('entries-container'), node => node.tagName === 'TABLE')[0];
+  const headers = table.children.find(node => node.tagName === 'THEAD').children[0].children;
+  const dateCell = findDescendants(table, node => node.tagName === 'TD' && node.className === 'history-date-column')[0];
+  assert.equal(table.className, 'history-table');
+  assert.equal(headers[0].className, 'history-date-column');
+  assert.equal(dateCell.textContent, '2025-06-11');
+  assert.match(stylesSource, /\.history-table-scroll\s*\{[\s\S]*?max-height:\s*70vh[\s\S]*?overflow:\s*auto/);
+  assert.match(stylesSource, /\.history-table thead th\s*\{[\s\S]*?position:\s*sticky[\s\S]*?top:\s*0[\s\S]*?z-index:\s*2[\s\S]*?background-color:/);
+  assert.match(stylesSource, /\.history-table tbody \.history-date-column\s*\{[\s\S]*?position:\s*sticky[\s\S]*?left:\s*0[\s\S]*?z-index:\s*1[\s\S]*?background-color:/);
+  assert.match(stylesSource, /\.history-table thead \.history-date-column\s*\{[\s\S]*?z-index:\s*3/);
+  assert.match(stylesSource, /\.history-table \.history-date-column\s*\{[\s\S]*?white-space:\s*nowrap/);
+});
+
+test('History date defaults use saved bounds without applying or overwriting drafts', () => {
+  const app = makeApp();
+  app.api.entries = [
+    { date: '2026-01-02', mood: 3, sleep: 6, water: 1 },
+    { date: '2024-12-31', mood: 4, sleep: 7, water: 2 },
+    { date: '2025-06-10', mood: 2, sleep: 0, water: 0 },
+  ];
+  app.elements.get('history-from-date').value = '';
+  app.elements.get('history-to-date').value = '';
+  app.api.initializeHistoryDateDefaults();
+  assert.equal(app.elements.get('history-from-date').value, '2024-12-31');
+  assert.equal(app.elements.get('history-to-date').value, '2026-01-02');
+  assert.equal(app.api.appliedHistoryRange, null);
+  assert.equal(historyTableRows(app).length, 0);
+
+  app.elements.get('history-from-date').value = '2025-01-01';
+  app.elements.get('history-to-date').value = '2025-12-31';
+  app.api.initializeHistoryDateDefaults();
+  assert.equal(app.elements.get('history-from-date').value, '2025-01-01');
+  assert.equal(app.elements.get('history-to-date').value, '2025-12-31');
+});
+
+test('History defaults fall back to the current local month for an empty dataset and Clear filters stays empty', () => {
+  const app = makeApp();
+  app.api.entries = [];
+  app.elements.get('history-from-date').value = '';
+  app.elements.get('history-to-date').value = '';
+  app.api.initializeHistoryDateDefaults();
+  const today = new Date();
+  const todayKey = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-');
+  const monthStart = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), '01'].join('-');
+  assert.equal(app.elements.get('history-from-date').value, monthStart);
+  assert.equal(app.elements.get('history-to-date').value, todayKey);
+  app.api.handleClearHistoryFilters();
+  assert.equal(app.elements.get('history-from-date').value, '');
+  assert.equal(app.elements.get('history-to-date').value, '');
+  assert.equal(app.api.appliedHistoryRange, null);
 });
 
 test('history edit and delete actions continue to operate on filtered rows', async () => {
@@ -639,6 +760,8 @@ test('history edit and delete actions continue to operate on filtered rows', asy
   await app.api.handleTableClick({ target: deleteButton });
   assert.equal(app.api.entries.length, 1);
   assert.deepEqual(historyRowDates(app), ['2025-06-10']);
+  assert.equal(findDescendants(app.elements.get('entries-container'), node => node.id === 'history-next-page-btn').length, 0);
+  assert.equal(findDescendants(app.elements.get('entries-container'), node => node.id === 'history-previous-page-btn').length, 0);
 });
 
 test('applied history ranges refresh only after successful writes and backup replacement', async () => {
@@ -1258,10 +1381,13 @@ test('period statistics renderer formats coverage, units, nulls, and recorded ze
   renderer.views.renderPeriodStatistics(statisticsDisplay);
 
   const section = renderer.elements.get('trend-statistics');
-  assert.equal(section.children[0].textContent, 'Period statistics');
-  assert.match(section.children[1].textContent, /Averages use recorded days only/);
-  assert.equal(section.children[2].textContent, '2 recorded days out of 366 calendar days.');
-  const table = findDescendants(section, node => node.tagName === 'TABLE')[0];
+  const disclosure = section.children[0];
+  assert.equal(disclosure.tagName, 'DETAILS');
+  assert.equal(disclosure.open, false);
+  assert.equal(disclosure.children[0].textContent, 'Period statistics');
+  assert.match(disclosure.children[1].textContent, /Averages use recorded days only/);
+  assert.equal(disclosure.children[2].textContent, '2 recorded days out of 366 calendar days.');
+  const table = findDescendants(disclosure, node => node.tagName === 'TABLE')[0];
   assert.deepEqual(table.children.find(node => node.tagName === 'THEAD').children[0].children
     .map(node => node.textContent), ['Metric', 'Average', 'Minimum', 'Maximum']);
   const rows = table.children.find(node => node.tagName === 'TBODY').children;
@@ -1299,9 +1425,12 @@ test('comparison statistics renderer shows second-minus-first differences and em
   });
 
   const section = renderer.elements.get('trend-statistics');
-  assert.equal(section.children[0].textContent, 'Comparison statistics');
-  assert.match(section.children[1].textContent, /second period minus first period/);
-  const tables = findDescendants(section, node => node.tagName === 'TABLE');
+  const disclosure = section.children[0];
+  assert.equal(disclosure.tagName, 'DETAILS');
+  assert.equal(disclosure.open, false);
+  assert.equal(disclosure.children[0].textContent, 'Comparison statistics');
+  assert.match(disclosure.children[1].textContent, /second period minus first period/);
+  const tables = findDescendants(disclosure, node => node.tagName === 'TABLE');
   const coverageRows = tables[0].children.find(node => node.tagName === 'TBODY').children;
   assert.deepEqual(coverageRows[1].children.map(node => node.textContent), ['February 2024', '2', '29', '+1']);
   const averageTable = tables[1];
@@ -1313,8 +1442,52 @@ test('comparison statistics renderer shows second-minus-first differences and em
   assert.deepEqual(averageRows[0].children.map(node => node.textContent), ['Mood (score)', '3.0', '4.0', '+1.0']);
   assert.deepEqual(averageRows[1].children.map(node => node.textContent), ['Sleep', '0.0 h', '6.0 h', '+6.0 h']);
   assert.deepEqual(averageRows[2].children.map(node => node.textContent), ['Water', '—', '1.5 L', '—']);
-  assert.equal(findDescendants(section, node => node.tagName === 'DETAILS')[0].children[0].textContent,
+  assert.equal(findDescendants(disclosure, node => node.className === 'trend-statistics-extremes')[0].children[0].textContent,
     'Show minimum and maximum values');
+  const extremes = findDescendants(disclosure, node => node.className === 'trend-statistics-extremes')[0];
+  assert.equal(extremes.children[1].className, 'trend-statistics-table-heading');
+  assert.equal(extremes.children[1].textContent, 'Minimum and maximum values');
+  assert.equal(extremes.children[2].className, 'trend-statistics-table-wrap');
+});
+
+test('statistics disclosures start collapsed and preserve state across rerenders', () => {
+  const renderer = makeViews();
+  const period = {
+    type: 'period', label: 'Calendar year 2024',
+    statistics: {
+      startDate: '2024-01-01', endDate: '2024-12-31', recordedDayCount: 1, calendarDayCount: 366,
+      metrics: {
+        mood: { average: 4, minimum: 4, maximum: 4 },
+        sleep: { average: 8, minimum: 8, maximum: 8 },
+        water: { average: 2, minimum: 2, maximum: 2 },
+      },
+    },
+  };
+  renderer.views.renderPeriodStatistics(period);
+  const section = renderer.elements.get('trend-statistics');
+  const disclosure = section.children[0];
+  assert.equal(disclosure.tagName, 'DETAILS');
+  assert.equal(disclosure.open, false);
+  disclosure.open = true;
+  renderer.views.renderPeriodStatistics(period);
+  assert.equal(section.children[0].open, true);
+
+  renderer.views.renderComparisonStatistics({
+    type: 'comparison', firstPeriodLabel: '2024', secondPeriodLabel: '2025',
+    statistics: {
+      firstPeriod: { recordedDayCount: 0, calendarDayCount: 366, metrics: {
+        mood: { average: null, minimum: null, maximum: null }, sleep: { average: null, minimum: null, maximum: null }, water: { average: null, minimum: null, maximum: null },
+      } },
+      secondPeriod: { recordedDayCount: 0, calendarDayCount: 365, metrics: {
+        mood: { average: null, minimum: null, maximum: null }, sleep: { average: null, minimum: null, maximum: null }, water: { average: null, minimum: null, maximum: null },
+      } },
+      differences: { recordedDayCount: 0, metrics: { mood: { average: null }, sleep: { average: null }, water: { average: null } } },
+    },
+  });
+  assert.equal(section.children[0].open, true);
+  assert.equal(findDescendants(section, node => node.tagName === 'DETAILS').length, 2);
+  assert.match(stylesSource, /\.trend-statistics-disclosure\s*>\s*summary[\s\S]*?cursor:\s*pointer/);
+  assert.match(stylesSource, /\.trend-statistics-disclosure\[open\]\s*>\s*summary/);
 });
 
 test('comparison rendering does not change the existing single-series chart output', () => {
@@ -1548,6 +1721,59 @@ test('deleting the final entry focuses the Entry History heading after busy stat
 
   assert.equal(app.buttons.length, 0);
   assert.equal(app.elements.get('entries-heading').focused, true);
+});
+
+test('successful History deletion offers shared Undo and restores through current storage state', async () => {
+  const app = makeApp();
+  renderTableIntoMock(app);
+  const deleted = app.buttons.find(button => button.className === 'btn-delete' && button.dataset.date === '2025-06-11');
+  await app.api.handleTableClick({ target: deleted });
+  assert.equal(app.api.pendingUndoEntry.date, '2025-06-11');
+  assert.equal(app.elements.get('undo-delete-btn').hidden, false);
+  assert.match(app.elements.get('undo-delete-message').textContent, /2025-06-11 deleted/);
+
+  app.api.entries.push({ date: '2025-06-12', mood: 5, sleep: 8, water: 2 });
+  const saveCountBeforeUndo = app.api.entries.length;
+  await app.api.handleUndoDeletion();
+  assert.equal(app.api.pendingUndoEntry, null);
+  assert.equal(app.api.entries.length, saveCountBeforeUndo + 1);
+  assert.equal(app.api.entries.some(entry => entry.date === '2025-06-11'), true);
+  assert.match(app.elements.get('undo-delete-message').textContent, /2025-06-11 restored/);
+});
+
+test('Undo preserves pending state after storage failure and rejects a same-date conflict safely', async () => {
+  const app = makeApp();
+  renderTableIntoMock(app);
+  const deleted = app.buttons.find(button => button.className === 'btn-delete' && button.dataset.date === '2025-06-11');
+  await app.api.handleTableClick({ target: deleted });
+  app.api.storageAdapter = { async saveEntries() { return { ok: false }; } };
+  await app.api.handleUndoDeletion();
+  assert.equal(app.api.pendingUndoEntry.date, '2025-06-11');
+  assert.match(app.elements.get('undo-delete-message').textContent, /Could not restore/);
+
+  app.api.storageAdapter = { async saveEntries() { throw new Error('write failed'); } };
+  app.api.entries = app.api.entries.concat([{ date: '2025-06-11', mood: 1, sleep: 1, water: 0.1 }]);
+  await app.api.handleUndoDeletion();
+  assert.equal(app.api.pendingUndoEntry, null);
+  assert.equal(app.api.entries.filter(entry => entry.date === '2025-06-11').length, 1);
+  assert.match(app.elements.get('undo-delete-message').textContent, /already contains an entry/);
+});
+
+test('successful erase-all invalidates pending Undo while a failed erase preserves it', async () => {
+  const app = makeApp();
+  renderTableIntoMock(app);
+  const deleted = app.buttons.find(button => button.className === 'btn-delete' && button.dataset.date === '2025-06-11');
+  await app.api.handleTableClick({ target: deleted });
+  app.api.storageAdapter = { async saveEntries() { return { ok: false }; } };
+  app.confirms.push(true);
+  await app.api.handleEraseAll();
+  assert.notEqual(app.api.pendingUndoEntry, null);
+
+  app.api.storageAdapter = { async saveEntries() { return { ok: true }; } };
+  app.confirms.push(true);
+  await app.api.handleEraseAll();
+  assert.equal(app.api.pendingUndoEntry, null);
+  assert.equal(app.elements.get('undo-delete-btn').hidden, true);
 });
 
 test('erase all exits edit mode only after a successful erase', async () => {
@@ -3177,12 +3403,12 @@ test('statistics follow only the applied chart period and refresh from committed
   app.elements.get('trend-custom-year').value = '2024';
   app.api.handleCustomTrendSubmit({ preventDefault() {} });
   const statistics = app.elements.get('trend-statistics');
-  assert.match(statistics.children[1].textContent, /2024-01-01 to 2024-12-31/);
-  assert.equal(statistics.children[2].textContent, '2 recorded days out of 366 calendar days.');
+  assert.match(statistics.children[0].children[1].textContent, /2024-01-01 to 2024-12-31/);
+  assert.equal(statistics.children[0].children[2].textContent, '2 recorded days out of 366 calendar days.');
 
   app.elements.get('trend-custom-year').value = '2025';
   app.api.handleCustomTrendDraftInput({ target: app.elements.get('trend-custom-year') });
-  assert.match(statistics.children[1].textContent, /2024-01-01 to 2024-12-31/);
+  assert.match(statistics.children[0].children[1].textContent, /2024-01-01 to 2024-12-31/);
 
   app.api.handleHistoryTrendsClick({ target: app.elements.get('trend-period-compare') });
   app.elements.get('trend-comparison-type').value = 'year';
@@ -3190,12 +3416,12 @@ test('statistics follow only the applied chart period and refresh from committed
   app.elements.get('trend-comparison-first-year').value = '2024';
   app.elements.get('trend-comparison-second-year').value = '2025';
   app.api.handleComparisonTrendSubmit({ preventDefault() {} });
-  assert.equal(statistics.children[0].textContent, 'Comparison statistics');
-  assert.match(statistics.children[1].textContent, /second period minus first period/);
+  assert.equal(statistics.children[0].children[0].textContent, 'Comparison statistics');
+  assert.match(statistics.children[0].children[1].textContent, /second period minus first period/);
 
   app.api.entries = [{ date: '2025-01-01', mood: 3, sleep: 0, water: 0 }];
   renderHistoryTrendsForApp(app);
-  assert.match(statistics.children[1].textContent, /Comparing 2024 with 2025/);
+  assert.match(statistics.children[0].children[1].textContent, /Comparing 2024 with 2025/);
   const coverage = findDescendants(statistics, node => node.tagName === 'TABLE')[0];
   assert.equal(coverage.children.find(node => node.tagName === 'TBODY').children[0].children[1].textContent, '0');
   assert.equal(coverage.children.find(node => node.tagName === 'TBODY').children[1].children[1].textContent, '1');
@@ -3534,4 +3760,308 @@ test('calendar action buttons are disabled and guarded while busy or locked', ()
   assert.equal(lockedAction.disabled, true);
   app.api.handleHistoryTrendsClick({ target: lockedAction });
   assert.equal(app.api.editingDate, null);
+});
+
+test('single-period renderers expose explicit daily and aggregated point metadata and details', () => {
+  const renderer = makeViews();
+  const entries = [
+    { date: '2024-01-02', mood: 4, sleep: 0, water: 1.2 },
+    { date: '2024-01-08', mood: 2, sleep: 7, water: 2 },
+  ];
+
+  renderer.views.renderCharts(entries, 7, '2024-01-08');
+  const dailyMood = trendCard(renderer, 'mood');
+  const dailyPoint = findDescendants(
+    dailyMood,
+    node => node.className === 'trend-point'
+  )[0];
+  assert.equal(dailyPoint.attributes['data-date'], '2024-01-02');
+  assert.equal(dailyPoint.attributes['data-point-type'], 'daily');
+  assert.equal(dailyPoint.attributes['data-interactive-point'], 'true');
+  assert.equal(dailyMood.children.find(child => child.className && child.className.includes('trend-chart-explorer')).disabled, false);
+
+  renderer.views.renderTrendPointDetails('mood', {
+    type: 'daily', metric: 'mood', date: '2024-01-08', value: 2,
+  });
+  const dailyPanel = renderer.sandbox.document.getElementById('trend-point-details-mood');
+  assert.equal(dailyPanel.hidden, false);
+  assert.equal(findDescendants(dailyPanel, node => node.tagName === 'DD')[0].textContent, '2024-01-08');
+  assert.equal(findDescendants(dailyPanel, node => node.className && node.className.includes('trend-point-history-action')).length, 1);
+
+  const weeklySeries = {
+    mood: renderer.sandbox.buildAggregatedYearSeries(entries, 'mood', 2024, 'weekly'),
+    sleep: renderer.sandbox.buildAggregatedYearSeries(entries, 'sleep', 2024, 'weekly'),
+    water: renderer.sandbox.buildAggregatedYearSeries(entries, 'water', 2024, 'weekly'),
+  };
+  renderer.views.renderAggregatedYearCharts(weeklySeries, 2024, 'weekly');
+  const weeklyPoint = findDescendants(
+    trendCard(renderer, 'sleep'),
+    node => node.className === 'trend-point trend-aggregated-year-point'
+  )[0];
+  assert.equal(weeklyPoint.attributes['data-point-type'], 'aggregated');
+  assert.equal(weeklyPoint.attributes['data-start-date'], '2024-01-01');
+  assert.equal(weeklyPoint.attributes['data-end-date'], '2024-01-07');
+  renderer.views.renderTrendPointDetails('sleep', {
+    type: 'aggregated', metric: 'sleep', key: '01', label: 'Week 1',
+    startDate: '2024-01-01', endDate: '2024-01-07', value: 0,
+    recordedDayCount: 1, calendarDayCount: 7,
+  });
+  const aggregatePanel = renderer.sandbox.document.getElementById('trend-point-details-sleep');
+  assert.match(findDescendants(aggregatePanel, node => node.tagName === 'DD')[2].textContent, /^0/);
+  assert.equal(findDescendants(aggregatePanel, node => node.className && node.className.includes('trend-point-history-action')).length, 0);
+});
+
+test('daily chart points support pointer selection, keyboard traversal, and History navigation', () => {
+  const app = makeApp();
+  const originalDate = app.elements.get('entry-date').value;
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.api.renderCharts(app.api.entries, 7, '2025-06-12');
+
+  const moodCard = trendCard(app, 'mood');
+  const points = findDescendants(moodCard, node => node.attributes['data-interactive-point'] === 'true');
+  assert.equal(points.length, 2);
+  app.api.handleHistoryTrendsClick({ target: points[0] });
+  const detailPanel = app.sandbox.document.getElementById('trend-point-details-mood');
+  assert.equal(detailPanel.hidden, false);
+  assert.equal(findDescendants(detailPanel, node => node.className && node.className.includes('trend-point-history-action')).length, 1);
+
+  const explorer = moodCard.children.find(child => child.className && child.className.includes('trend-chart-explorer'));
+  let prevented = false;
+  app.api.handleTrendPointKeydown({
+    target: explorer,
+    key: 'ArrowRight',
+    preventDefault() { prevented = true; },
+  });
+  assert.equal(prevented, true);
+  assert.equal(findDescendants(detailPanel, node => node.tagName === 'DD')[0].textContent, '2025-06-11');
+
+  const historyButton = findDescendants(detailPanel, node => node.className && node.className.includes('trend-point-history-action'))[0];
+  app.api.handleHistoryTrendsClick({ target: historyButton });
+  assert.equal(app.api.appliedHistoryRange.startDate, '2025-06-11');
+  assert.equal(app.api.appliedHistoryRange.endDate, '2025-06-11');
+  assert.equal(app.elements.get('entry-date').value, originalDate);
+  assert.equal(saveCalls, 0);
+});
+
+test('keyboard chart exploration skips missing points and resets with new chart data', () => {
+  const app = makeApp();
+  app.api.renderCharts([
+    { date: '2025-06-10', mood: 4, sleep: 7, water: 1 },
+    { date: '2025-06-12', mood: 2, sleep: 5, water: 0 },
+  ], 7, '2025-06-12');
+  const explorer = findDescendants(trendCard(app, 'water'), node => node.className && node.className.includes('trend-chart-explorer'))[0];
+  app.api.handleTrendPointKeydown({ target: explorer, key: 'ArrowRight', preventDefault() {} });
+  assert.equal(
+    findDescendants(app.sandbox.document.getElementById('trend-point-details-water'), node => node.tagName === 'DD')[0].textContent,
+    '2025-06-10'
+  );
+  app.api.handleTrendPointKeydown({ target: explorer, key: 'ArrowRight', preventDefault() {} });
+  assert.equal(
+    findDescendants(app.sandbox.document.getElementById('trend-point-details-water'), node => node.tagName === 'DD')[0].textContent,
+    '2025-06-12'
+  );
+
+  app.api.renderCharts([], 7, '2025-06-12');
+  assert.equal(app.sandbox.document.getElementById('trend-point-details-water').hidden, true);
+  assert.equal(
+    trendCard(app, 'water').children.find(child => child.className && child.className.includes('trend-chart-explorer')).disabled,
+    true
+  );
+});
+
+test('comparison renderers expose selectable first and second series with actual source dates', () => {
+  const renderer = makeViews();
+  const entries = [
+    { date: '2024-02-29', mood: 4, sleep: 0, water: 1 },
+    { date: '2025-02-28', mood: 2, sleep: 8, water: 2 },
+  ];
+  const seriesByMetric = {
+    mood: renderer.sandbox.buildMonthComparisonSeries(entries, 'mood', { year: 2024, monthIndex: 1 }, { year: 2025, monthIndex: 1 }),
+    sleep: renderer.sandbox.buildMonthComparisonSeries(entries, 'sleep', { year: 2024, monthIndex: 1 }, { year: 2025, monthIndex: 1 }),
+    water: renderer.sandbox.buildMonthComparisonSeries(entries, 'water', { year: 2024, monthIndex: 1 }, { year: 2025, monthIndex: 1 }),
+  };
+  const periodLabels = { firstPeriodLabel: 'February 2024', secondPeriodLabel: 'February 2025' };
+
+  renderer.views.renderComparisonCharts(seriesByMetric, periodLabels);
+  const moodCard = trendCard(renderer, 'mood');
+  const firstPoint = findDescendants(moodCard, node =>
+    node.className === 'trend-comparison-point trend-comparison-point-first'
+  )[0];
+  const secondPoint = findDescendants(moodCard, node =>
+    node.className === 'trend-comparison-point trend-comparison-point-second'
+  )[0];
+  assert.equal(firstPoint.attributes['data-date'], '2024-02-29');
+  assert.equal(secondPoint.attributes['data-date'], '2025-02-28');
+  assert.equal(firstPoint.attributes['data-series-label'], 'February 2024');
+  assert.equal(secondPoint.attributes['data-series-label'], 'February 2025');
+  assert.equal(moodCard.children.find(child => child.className === 'trend-comparison-series-field').children[1].children.length, 2);
+  assert.equal(moodCard.children.find(child => child.className && child.className.includes('trend-chart-explorer')).disabled, false);
+
+  renderer.views.renderTrendPointDetails('mood', {
+    type: 'daily', metric: 'mood', series: 'second', seriesLabel: 'February 2025',
+    periodLabel: '28', date: '2025-02-28', value: 2,
+  });
+  const details = renderer.sandbox.document.getElementById('trend-point-details-mood');
+  assert.match(findDescendants(details, node => node.tagName === 'DD')[0].textContent, /Second period: February 2025/);
+  assert.equal(findDescendants(details, node => node.className && node.className.includes('trend-point-history-action')).length, 1);
+});
+
+test('comparison controller exploration switches series, navigates only that series, and preserves History state', () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  const entries = [
+    { date: '2025-06-10', mood: 4, sleep: 7, water: 1 },
+    { date: '2025-06-11', mood: 2, sleep: 0, water: 0 },
+  ];
+  app.api.entries = entries;
+  app.api.renderComparisonCharts({
+    mood: app.sandbox.buildMonthComparisonSeries(entries, 'mood', { year: 2025, monthIndex: 5 }, { year: 2025, monthIndex: 5 }),
+    sleep: app.sandbox.buildMonthComparisonSeries(entries, 'sleep', { year: 2025, monthIndex: 5 }, { year: 2025, monthIndex: 5 }),
+    water: app.sandbox.buildMonthComparisonSeries(entries, 'water', { year: 2025, monthIndex: 5 }, { year: 2025, monthIndex: 5 }),
+  }, { firstPeriodLabel: 'June 2025 (first)', secondPeriodLabel: 'June 2025 (second)' });
+
+  const moodCard = trendCard(app, 'mood');
+  const secondPoint = findDescendants(moodCard, node =>
+    node.attributes['data-interactive-point'] === 'true' &&
+    node.attributes['data-comparison-series'] === 'second'
+  )[0];
+  app.api.handleHistoryTrendsClick({ target: secondPoint });
+  let details = app.sandbox.document.getElementById('trend-point-details-mood');
+  assert.match(findDescendants(details, node => node.tagName === 'DD')[0].textContent, /Second period/);
+  assert.equal(findDescendants(details, node => node.tagName === 'DD')[1].textContent, '2025-06-10');
+
+  const seriesSelect = app.sandbox.document.getElementById('trend-comparison-series-mood');
+  seriesSelect.value = 'first';
+  app.api.handleTrendPointSeriesChange({ target: seriesSelect });
+  const explorer = findDescendants(moodCard, node => node.className && node.className.includes('trend-chart-explorer'))[0];
+  app.api.handleTrendPointKeydown({ target: explorer, key: 'ArrowRight', preventDefault() {} });
+  details = app.sandbox.document.getElementById('trend-point-details-mood');
+  assert.match(findDescendants(details, node => node.tagName === 'DD')[0].textContent, /First period/);
+  assert.equal(findDescendants(details, node => node.tagName === 'DD')[1].textContent, '2025-06-10');
+
+  const historyButton = findDescendants(details, node => node.className && node.className.includes('trend-point-history-action'))[0];
+  app.api.handleHistoryTrendsClick({ target: historyButton });
+  assert.equal(app.api.appliedHistoryRange.startDate, '2025-06-10');
+  assert.equal(app.api.appliedHistoryRange.endDate, '2025-06-10');
+  assert.equal(saveCalls, 0);
+});
+
+test('aggregated comparison points expose series-specific boundaries, counts, zeroes, and no History action', () => {
+  const renderer = makeViews();
+  const entries = [
+    { date: '2024-01-01', mood: 4, sleep: 0, water: 1 },
+    { date: '2024-01-03', mood: 2, sleep: 8, water: 2 },
+    { date: '2025-01-02', mood: 3, sleep: 6, water: 0 },
+  ];
+  const seriesByMetric = {
+    mood: renderer.sandbox.buildAggregatedYearComparisonSeries(entries, 'mood', 2024, 2025, 'weekly'),
+    sleep: renderer.sandbox.buildAggregatedYearComparisonSeries(entries, 'sleep', 2024, 2025, 'weekly'),
+    water: renderer.sandbox.buildAggregatedYearComparisonSeries(entries, 'water', 2024, 2025, 'weekly'),
+  };
+  renderer.views.renderAggregatedComparisonCharts(seriesByMetric, {
+    firstPeriodLabel: '2024', secondPeriodLabel: '2025',
+  }, 'weekly');
+  const sleepCard = trendCard(renderer, 'sleep');
+  const secondPoint = findDescendants(sleepCard, node =>
+    node.className === 'trend-comparison-point trend-comparison-point-second'
+  )[0];
+  assert.equal(secondPoint.attributes['data-start-date'], '2025-01-01');
+  assert.equal(secondPoint.attributes['data-end-date'], '2025-01-07');
+  assert.equal(secondPoint.attributes['data-recorded-day-count'], '1');
+  assert.equal(secondPoint.attributes['data-value'], '6');
+
+  renderer.views.renderTrendPointDetails('sleep', {
+    type: 'aggregated', metric: 'sleep', series: 'first', seriesLabel: '2024',
+    periodLabel: 'Week 1', key: '01', startDate: '2024-01-01', endDate: '2024-01-07',
+    value: 4, recordedDayCount: 2, calendarDayCount: 7,
+  });
+  const details = renderer.sandbox.document.getElementById('trend-point-details-sleep');
+  assert.match(findDescendants(details, node => node.tagName === 'DD')[0].textContent, /First period: 2024/);
+  assert.match(findDescendants(details, node => node.tagName === 'DD')[3].textContent, /^4 h/);
+  assert.equal(findDescendants(details, node => node.className && node.className.includes('trend-point-history-action')).length, 0);
+});
+
+test('narrow chart detail and comparison statistics layouts keep headings readable', () => {
+  assert.match(stylesSource, /\.trend-point-details-list\s*\{[\s\S]*?grid-template-columns:\s*max-content minmax\(0, 1fr\)/);
+  assert.match(stylesSource, /@media \(max-width: 420px\)[\s\S]*?\.trend-point-details-list\s*\{[\s\S]*?grid-template-columns:\s*1fr/);
+  assert.match(stylesSource, /\.trend-point-details-list dd\s*\{[\s\S]*?overflow-wrap:\s*break-word/);
+  assert.match(stylesSource, /\.trend-statistics-table-heading\s*\{[\s\S]*?overflow-wrap:\s*break-word/);
+  assert.match(stylesSource, /\.trend-statistics-table-wrap\s*\{[\s\S]*?overflow-x:\s*auto/);
+});
+
+test('chart point tooltips hover, pin, dismiss, and remain compact', () => {
+  const app = makeApp();
+  const entries = [
+    { date: '2025-06-10', mood: 4, sleep: 7, water: 1 },
+    { date: '2025-06-11', mood: 2, sleep: 0, water: 0 },
+  ];
+  app.api.entries = entries;
+  app.api.renderCharts(entries, 7, '2025-06-12');
+
+  const moodCard = trendCard(app, 'mood');
+  const points = findDescendants(moodCard, node =>
+    node.attributes['data-interactive-point'] === 'true'
+  );
+  const tooltip = app.sandbox.document.getElementById('trend-point-details-mood');
+  assert.equal(tooltip.hidden, true);
+
+  app.api.handleHistoryTrendsPointerOver({ target: points[0] });
+  assert.equal(tooltip.hidden, false);
+  assert.match(findDescendants(tooltip, node => node.tagName === 'DD')[0].textContent, /2025-06-10/);
+  assert.equal(findDescendants(tooltip, node => node.className && node.className.includes('trend-point-history-action')).length, 0);
+
+  app.api.handleHistoryTrendsPointerOut({ target: points[0] });
+  assert.equal(tooltip.hidden, true);
+
+  app.api.handleHistoryTrendsClick({ target: points[0] });
+  app.api.handleHistoryTrendsPointerOut({ target: points[0] });
+  assert.equal(tooltip.hidden, false);
+  assert.equal(findDescendants(tooltip, node => node.className && node.className.includes('trend-point-history-action')).length, 1);
+
+  app.api.handleHistoryTrendsClick({ target: points[1] });
+  assert.match(findDescendants(tooltip, node => node.tagName === 'DD')[0].textContent, /2025-06-11/);
+
+  const explorer = findDescendants(moodCard, node =>
+    node.className && node.className.includes('trend-chart-explorer')
+  )[0];
+  app.api.handleTrendPointKeydown({
+    target: explorer,
+    key: 'Escape',
+    preventDefault() {},
+  });
+  assert.equal(tooltip.hidden, true);
+
+  assert.match(stylesSource, /\.trend-point-tooltip\s*\{[\s\S]*?position:\s*absolute/);
+  assert.match(stylesSource, /\.trend-point-tooltip\s*\{[\s\S]*?max-width:/);
+  assert.match(stylesSource, /\.trend-point-tooltip\.is-below\s*\{[\s\S]*?transform:/);
+  assert.match(stylesSource, /\.trend-point-tooltip\[data-pinned="false"\]\s*\{[\s\S]*?font-size:/);
+});
+
+test('chart tooltips clamp to narrow viewport edges and reposition', () => {
+  const app = makeApp();
+  app.sandbox.window.innerWidth = 320;
+  app.sandbox.window.innerHeight = 240;
+  app.api.renderCharts([{ date: '2025-06-10', mood: 4, sleep: 7, water: 1 }], 7, '2025-06-10');
+  const card = trendCard(app, 'mood');
+  const point = findDescendants(card, node => node.attributes['data-interactive-point'] === 'true')[0];
+  const tooltip = app.sandbox.document.getElementById('trend-point-details-mood');
+  card.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 220, right: 300, bottom: 220 });
+  point.getBoundingClientRect = () => ({ left: 286, top: 100, width: 4, height: 4, right: 290, bottom: 104 });
+  tooltip.getBoundingClientRect = () => {
+    const left = Number.parseFloat(tooltip.style.left) || 0;
+    const top = Number.parseFloat(tooltip.style.top) || 0;
+    return { left, top, width: 180, height: 80, right: left + 180, bottom: top + 80 };
+  };
+  app.api.renderTrendPointDetails('mood', { type: 'daily', metric: 'mood', date: '2025-06-10', value: 4 });
+  app.api.positionTrendPointTooltip(point);
+  assert.ok(Number.parseFloat(tooltip.style.left) >= 8);
+  assert.ok(Number.parseFloat(tooltip.style.left) <= 132);
+  assert.ok(Number.parseFloat(tooltip.style.maxWidth) <= 304);
+
+  point.getBoundingClientRect = () => ({ left: -2, top: 10, width: 4, height: 4, right: 2, bottom: 14 });
+  app.api.positionTrendPointTooltip(point);
+  assert.ok(Number.parseFloat(tooltip.style.left) >= 8);
+  assert.ok(Number.parseFloat(tooltip.style.top) >= 8);
 });

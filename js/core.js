@@ -491,6 +491,48 @@
     }
 
     /**
+     * paginateEntries(entries, page, pageSize)
+     *
+     * Paginates an already filtered and ordered collection. The returned page
+     * contains the original entry objects in their supplied order; neither the
+     * collection nor its entries are modified.
+     *
+     * Page numbers are one-based. An empty collection uses page 1 with zero
+     * total pages. For non-empty collections, requests beyond the final page
+     * are clamped to the final page.
+     *
+     * @throws {TypeError} When entries is not an array.
+     * @throws {RangeError} When page or pageSize is not a positive integer.
+     */
+    function paginateEntries(entries, page, pageSize) {
+      if (!Array.isArray(entries)) {
+        throw new TypeError('Entries must be an array.');
+      }
+      if (!Number.isInteger(page) || page < 1) {
+        throw new RangeError('Page must be a positive integer.');
+      }
+      if (!Number.isInteger(pageSize) || pageSize < 1) {
+        throw new RangeError('Page size must be a positive integer.');
+      }
+
+      const totalEntries = entries.length;
+      const totalPages = totalEntries === 0 ? 0 : Math.ceil(totalEntries / pageSize);
+      const currentPage = totalPages === 0 ? 1 : Math.min(page, totalPages);
+      const start = (currentPage - 1) * pageSize;
+      const pageEntries = totalPages === 0 ? [] : entries.slice(start, start + pageSize);
+
+      return {
+        entries: pageEntries,
+        page: currentPage,
+        pageSize,
+        totalEntries,
+        totalPages,
+        hasPreviousPage: currentPage > 1,
+        hasNextPage: totalPages > 0 && currentPage < totalPages,
+      };
+    }
+
+    /**
      * getEntryByDate(entries, date)
      *
      * Returns a detached saved entry for one exact local-calendar date, or
@@ -526,6 +568,38 @@
         }
       });
       return previous ? copyEntry(previous) : null;
+    }
+
+    /**
+     * buildUndoDeletionCandidate(currentEntries, deletedEntry)
+     *
+     * Builds a restoration candidate from the current committed collection,
+     * rather than from an old collection snapshot. A same-date entry is an
+     * explicit conflict and is never overwritten.
+     *
+     * @returns {{ok: true, entries: Array}|{ok: false, reason: string}}
+     * @throws {TypeError|RangeError} When either input contains invalid data.
+     */
+    function buildUndoDeletionCandidate(currentEntries, deletedEntry) {
+      if (!Array.isArray(currentEntries)) {
+        throw new TypeError('Current entries must be an array.');
+      }
+      const currentError = validateStoredEntries(currentEntries);
+      if (currentError) {
+        throw new RangeError('Current entries are invalid: ' + currentError);
+      }
+      if (!isValidEntryShape(deletedEntry)) {
+        throw new RangeError('Deleted entry is invalid.');
+      }
+      if (currentEntries.some(function (entry) {
+        return entry.date === deletedEntry.date;
+      })) {
+        return { ok: false, reason: 'date-conflict' };
+      }
+
+      const candidate = currentEntries.map(copyEntry);
+      candidate.push(copyEntry(deletedEntry));
+      return { ok: true, entries: sortByDateDesc(candidate) };
     }
 
     function calculateMetricStatistics(entries, metric) {

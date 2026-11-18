@@ -67,7 +67,9 @@
      * delegated listener on #entries-container instead.
      *
      * @param {{totalEntryCount: number, appliedRange: Object|null,
-     *           matchingCount: number, visibleEntries: Array}} historyState
+     *           matchingCount: number, visibleEntries: Array,
+     *           page: number, totalPages: number,
+     *           hasPreviousPage: boolean, hasNextPage: boolean}} historyState
      */
     function renderTable(historyState) {
       const container = document.getElementById('entries-container');
@@ -98,14 +100,6 @@
         ' to ' + appliedRange.endDate + '. ' + totalEntryCount + ' saved ' +
         (totalEntryCount === 1 ? 'entry total.' : 'entries total.');
 
-      if (matchingCount > visibleEntries.length) {
-        const notice = document.createElement('p');
-        notice.className = 'history-status';
-        notice.textContent = 'Showing the newest ' + visibleEntries.length + ' of ' +
-          matchingCount + ' matching entries. Narrow the date range to view older entries.';
-        container.appendChild(notice);
-      }
-
       if (matchingCount === 0) {
         const empty = document.createElement('p');
         empty.className = 'empty-state';
@@ -117,6 +111,7 @@
       // ── Build the table ───────────────────────────────────────────
       // <table>
       const table = document.createElement('table');
+      table.className = 'history-table';
       table.setAttribute('aria-label', 'Wellness entry history');
 
       // ── <thead> ───────────────────────────────────────────────────
@@ -127,6 +122,7 @@
       columns.forEach(function (label) {
         const th = document.createElement('th');
         th.setAttribute('scope', 'col');
+        if (label === 'Date') th.className = 'history-date-column';
         th.textContent = label;
         headerRow.appendChild(th);
       });
@@ -142,6 +138,7 @@
 
         // Date cell
         const tdDate = document.createElement('td');
+        tdDate.className = 'history-date-column';
         tdDate.textContent = entry.date;
         row.appendChild(tdDate);
 
@@ -184,7 +181,48 @@
       });
 
       table.appendChild(tbody);
-      container.appendChild(table);
+      const tableScroll = document.createElement('div');
+      tableScroll.className = 'history-table-scroll';
+      tableScroll.appendChild(table);
+      container.appendChild(tableScroll);
+
+      const firstDisplayed = (historyState.page - 1) * historyState.pageSize + 1;
+      const lastDisplayed = firstDisplayed + visibleEntries.length - 1;
+      const pagination = document.createElement('nav');
+      pagination.className = 'history-pagination' +
+        (historyState.totalPages > 1 ? '' : ' history-pagination-single');
+      pagination.setAttribute('aria-label', 'Entry History pagination');
+      const pageStatus = document.createElement('span');
+      pageStatus.id = 'history-page-status';
+      pageStatus.className = 'history-page-status';
+      pageStatus.tabIndex = -1;
+      pageStatus.setAttribute('aria-live', 'polite');
+      pageStatus.textContent = 'Showing ' + firstDisplayed + '–' + lastDisplayed + ' of ' +
+        matchingCount + ' matching entries. Page ' + historyState.page + ' of ' + historyState.totalPages + '.';
+      if (historyState.totalPages > 1) {
+        const previous = document.createElement('button');
+        previous.type = 'button';
+        previous.id = 'history-previous-page-btn';
+        previous.className = 'btn-neutral history-page-btn';
+        previous.dataset.historyPageOffset = '-1';
+        previous.textContent = 'Previous page';
+        previous.disabled = !historyState.hasPreviousPage;
+        previous.setAttribute('aria-label', 'Show previous Entry History page');
+        pagination.appendChild(previous);
+      }
+      pagination.appendChild(pageStatus);
+      if (historyState.totalPages > 1) {
+        const next = document.createElement('button');
+        next.type = 'button';
+        next.id = 'history-next-page-btn';
+        next.className = 'btn-neutral history-page-btn';
+        next.dataset.historyPageOffset = '1';
+        next.textContent = 'Next page';
+        next.disabled = !historyState.hasNextPage;
+        next.setAttribute('aria-label', 'Show next Entry History page');
+        pagination.appendChild(next);
+      }
+      container.appendChild(pagination);
     }
 
     /* ── History and Trends ──────────────────────────────────────── */
@@ -218,6 +256,135 @@
     function formatTrendValue(value, unit) {
       if (value === null) return '— Missing';
       return String(value) + (unit ? ' ' + unit : '');
+    }
+
+    function appendTrendPointDetailRow(list, label, value) {
+      const term = document.createElement('dt');
+      term.textContent = label;
+      const description = document.createElement('dd');
+      description.textContent = value;
+      list.appendChild(term);
+      list.appendChild(description);
+    }
+
+    /**
+     * renderTrendPointDetails(metric, detail)
+     *
+     * Renders one explicitly supplied chart-point selection.  The controller
+     * owns the selection and supplies either a daily observation or an
+     * aggregated period; this function never reads chart or application state.
+     */
+    function renderTrendPointDetails(metric, detail, pinned) {
+      const panel = document.getElementById('trend-point-details-' + metric);
+      if (!panel) return;
+      panel.replaceChildren();
+      if (!detail) {
+        panel.hidden = true;
+        panel.removeAttribute('data-pinned');
+        return;
+      }
+
+      const config = TREND_CONFIGS.find(function (candidate) {
+        return candidate.metric === metric;
+      });
+      if (!config) return;
+      panel.dataset.pinned = pinned !== false ? 'true' : 'false';
+
+      const heading = document.createElement('h4');
+      heading.textContent = detail.type === 'aggregated'
+        ? config.title + ' period average'
+        : config.title + ' observation';
+      panel.appendChild(heading);
+
+      const list = document.createElement('dl');
+      list.className = 'trend-point-details-list';
+      if (detail.series) {
+        appendTrendPointDetailRow(
+          list,
+          'Comparison period',
+          (detail.series === 'first' ? 'First period: ' : 'Second period: ') +
+            (detail.seriesLabel || detail.periodLabel)
+        );
+      }
+      if (detail.type === 'aggregated') {
+        appendTrendPointDetailRow(list, 'Period', detail.label || detail.key);
+        appendTrendPointDetailRow(list, 'Date range', detail.startDate + ' to ' + detail.endDate);
+        appendTrendPointDetailRow(
+          list, 'Average', formatAggregatedTrendValue(detail.value, config.unit)
+        );
+        appendTrendPointDetailRow(list, 'Recorded days', String(detail.recordedDayCount));
+        if (pinned !== false) {
+          appendTrendPointDetailRow(list, 'Calendar days', String(detail.calendarDayCount));
+        }
+        panel.appendChild(list);
+        if (pinned !== false) {
+          const note = document.createElement('p');
+          note.textContent = 'This value is an average of the recorded days in the period.';
+          panel.appendChild(note);
+        }
+      } else {
+        appendTrendPointDetailRow(list, 'Date', detail.date);
+        appendTrendPointDetailRow(list, 'Value', formatTrendValue(detail.value, config.unit));
+        panel.appendChild(list);
+        if (pinned !== false) {
+          const historyButton = document.createElement('button');
+          historyButton.type = 'button';
+          historyButton.className = 'trend-point-history-action btn-neutral';
+          historyButton.dataset.historyDate = detail.date;
+          historyButton.textContent = 'Show entry in History';
+          historyButton.setAttribute('aria-label', 'Show entry for ' + detail.date + ' in History');
+          panel.appendChild(historyButton);
+        }
+      }
+      panel.hidden = false;
+    }
+
+    function appendTrendPointExplorer(card, config, populatedCount, pointType, periodLabels) {
+      if (periodLabels) {
+        const seriesField = document.createElement('div');
+        seriesField.className = 'trend-comparison-series-field';
+        const seriesLabel = document.createElement('label');
+        seriesLabel.setAttribute('for', 'trend-comparison-series-' + config.metric);
+        seriesLabel.textContent = 'Explore series';
+        const seriesSelect = document.createElement('select');
+        seriesSelect.id = 'trend-comparison-series-' + config.metric;
+        seriesSelect.className = 'trend-comparison-series-select';
+        seriesSelect.dataset.chartExplorerMetric = config.metric;
+        [
+          ['first', 'First period — ' + comparisonPeriodLabel(periodLabels, 'firstPeriodLabel')],
+          ['second', 'Second period — ' + comparisonPeriodLabel(periodLabels, 'secondPeriodLabel')],
+        ].forEach(function (optionData) {
+          const option = document.createElement('option');
+          option.value = optionData[0];
+          option.textContent = optionData[1];
+          seriesSelect.appendChild(option);
+        });
+        seriesField.appendChild(seriesLabel);
+        seriesField.appendChild(seriesSelect);
+        card.appendChild(seriesField);
+      }
+
+      const explorer = document.createElement('button');
+      explorer.type = 'button';
+      explorer.className = 'trend-chart-explorer btn-neutral';
+      explorer.dataset.chartExplorerMetric = config.metric;
+      explorer.setAttribute('aria-controls', 'trend-point-details-' + config.metric);
+      explorer.setAttribute(
+        'aria-label',
+        'Explore ' + config.title + (periodLabels ? ' comparison ' : ' ') +
+        'observations. Use Left and Right arrow keys to move between recorded points.'
+      );
+      explorer.textContent = populatedCount > 0 ? 'Explore' : 'No points';
+      explorer.disabled = populatedCount === 0;
+      card.appendChild(explorer);
+
+      const details = document.createElement('section');
+      details.className = 'trend-point-tooltip';
+      details.id = 'trend-point-details-' + config.metric;
+      details.hidden = true;
+      details.setAttribute('aria-live', 'polite');
+      details.dataset.pointType = pointType;
+      card.appendChild(details);
     }
 
     function renderTrendChart(container, config, series) {
@@ -331,11 +498,15 @@
             class: 'trend-point',
             cx: xFor(index), cy: yFor(point.value), r: 3,
             'data-date': point.date, 'data-value': point.value,
+            'data-point-index': index, 'data-point-type': 'daily',
+            'data-metric': config.metric,
+            'data-interactive-point': 'true',
           }));
         });
       }
 
       card.appendChild(svg);
+      appendTrendPointExplorer(card, config, populatedPoints.length, 'daily');
       container.appendChild(card);
     }
 
@@ -367,10 +538,23 @@
       card.appendChild(legend);
     }
 
-    function appendComparisonSeries(svg, points, xFor, yFor, seriesName) {
+    function appendComparisonSeries(svg, points, xFor, yFor, seriesName, periodLabels, resolution) {
       let segment = [];
       const valueKey = seriesName === 'first' ? 'firstValue' : 'secondValue';
       const dateKey = seriesName === 'first' ? 'firstDate' : 'secondDate';
+      const startDateKey = seriesName === 'first' ? 'firstStartDate' : 'secondStartDate';
+      const endDateKey = seriesName === 'first' ? 'firstEndDate' : 'secondEndDate';
+      const recordedCountKey = seriesName === 'first'
+        ? 'firstRecordedDayCount' : 'secondRecordedDayCount';
+      const calendarCountKey = seriesName === 'first'
+        ? 'firstCalendarDayCount' : 'secondCalendarDayCount';
+      const pointType = resolution === 'weekly' || resolution === 'monthly'
+        ? 'aggregated' : 'daily';
+      const hasSourceDate = function (point) {
+        const date = point[dateKey];
+        const startDate = point[startDateKey];
+        return date !== null && date !== undefined || startDate !== null && startDate !== undefined;
+      };
       const appendSegment = function () {
         if (segment.length > 1) {
           const path = createSvgElement('path', {
@@ -387,7 +571,7 @@
       };
 
       points.forEach(function (point, index) {
-        if (point[dateKey] === null || point[valueKey] === null) {
+        if (!hasSourceDate(point) || point[valueKey] === null) {
           appendSegment();
           return;
         }
@@ -396,14 +580,29 @@
       appendSegment();
 
       points.forEach(function (point, index) {
-        if (point[dateKey] === null || point[valueKey] === null) return;
+        if (!hasSourceDate(point) || point[valueKey] === null) return;
+        const sourceDate = point[dateKey] === undefined ? point[startDateKey] : point[dateKey];
         svg.appendChild(createSvgElement('circle', {
           class: 'trend-comparison-point trend-comparison-point-' + seriesName,
           cx: xFor(index), cy: yFor(point[valueKey]), r: 3,
           'data-comparison-series': seriesName,
           'data-alignment-key': point.key,
-          'data-date': point[dateKey],
+          'data-date': sourceDate || '',
+          'data-start-date': point[startDateKey] || sourceDate || '',
+          'data-end-date': point[endDateKey] || sourceDate || '',
           'data-value': point[valueKey],
+          'data-recorded-day-count': point[recordedCountKey] === undefined
+            ? '' : point[recordedCountKey],
+          'data-calendar-day-count': point[calendarCountKey] === undefined
+            ? '' : point[calendarCountKey],
+          'data-point-index': index,
+          'data-point-type': pointType,
+          'data-interactive-point': 'true',
+          'data-metric': svg.dataset.metric,
+          'data-period-label': point.label || point.key,
+          'data-series-label': comparisonPeriodLabel(
+            periodLabels, seriesName === 'first' ? 'firstPeriodLabel' : 'secondPeriodLabel'
+          ),
         }));
       });
     }
@@ -473,10 +672,12 @@
       card.appendChild(heading);
 
       const firstCount = series.points.filter(function (point) {
-        return point.firstDate !== null && point.firstValue !== null;
+        const sourceDate = point.firstDate === undefined ? point.firstStartDate : point.firstDate;
+        return sourceDate !== null && sourceDate !== undefined && point.firstValue !== null;
       }).length;
       const secondCount = series.points.filter(function (point) {
-        return point.secondDate !== null && point.secondValue !== null;
+        const sourceDate = point.secondDate === undefined ? point.secondStartDate : point.secondDate;
+        return sourceDate !== null && sourceDate !== undefined && point.secondValue !== null;
       }).length;
       appendComparisonLegend(card, config, periodLabels, firstCount, secondCount);
 
@@ -553,11 +754,13 @@
         emptyLabel.textContent = 'No recorded values in either period';
         svg.appendChild(emptyLabel);
       } else {
-        appendComparisonSeries(svg, series.points, xFor, yFor, 'first');
-        appendComparisonSeries(svg, series.points, xFor, yFor, 'second');
+        appendComparisonSeries(svg, series.points, xFor, yFor, 'first', periodLabels, resolution);
+        appendComparisonSeries(svg, series.points, xFor, yFor, 'second', periodLabels, resolution);
       }
 
       card.appendChild(svg);
+      appendTrendPointExplorer(card, config, firstCount + secondCount,
+        resolution === 'weekly' || resolution === 'monthly' ? 'aggregated' : 'daily', periodLabels);
       container.appendChild(card);
     }
 
@@ -796,16 +999,22 @@
             cy: yFor(point.value),
             r: 3,
             'data-period-key': point.key,
+            'data-period-label': point.label || point.key,
             'data-start-date': point.startDate,
             'data-end-date': point.endDate,
             'data-value': point.value,
             'data-recorded-day-count': point.recordedDayCount,
             'data-calendar-day-count': point.calendarDayCount,
+            'data-point-index': index,
+            'data-point-type': 'aggregated',
+            'data-metric': config.metric,
+            'data-interactive-point': 'true',
           }));
         });
       }
 
       card.appendChild(svg);
+      appendTrendPointExplorer(card, config, populatedPoints.length, 'aggregated');
       container.appendChild(card);
     }
 
@@ -1294,26 +1503,33 @@
     function renderPeriodStatistics(statisticsDisplay) {
       const container = document.getElementById('trend-statistics');
       if (!container) return;
+      const wasOpen = Array.from(container.children || []).some(function (child) {
+        return child.tagName === 'DETAILS' && child.className === 'trend-statistics-disclosure' && child.open;
+      });
       container.replaceChildren();
       if (!statisticsDisplay) return;
 
       const statistics = statisticsDisplay.statistics;
-      const heading = document.createElement('h3');
-      heading.textContent = 'Period statistics';
-      container.appendChild(heading);
+      const details = document.createElement('details');
+      details.className = 'trend-statistics-disclosure';
+      details.open = wasOpen;
+      const summary = document.createElement('summary');
+      summary.textContent = 'Period statistics';
+      details.appendChild(summary);
+      container.appendChild(details);
       const description = document.createElement('p');
       description.textContent = statisticsDisplay.label + ': ' + statistics.startDate + ' to ' +
         statistics.endDate + '. Averages use recorded days only.';
-      container.appendChild(description);
+      details.appendChild(description);
       const coverage = document.createElement('p');
       coverage.className = 'trend-statistics-coverage';
       coverage.textContent = statistics.recordedDayCount + ' recorded ' +
         (statistics.recordedDayCount === 1 ? 'day' : 'days') + ' out of ' +
         statistics.calendarDayCount + ' calendar ' +
         (statistics.calendarDayCount === 1 ? 'day.' : 'days.');
-      container.appendChild(coverage);
+      details.appendChild(coverage);
       appendStatisticsTable(
-        container,
+        details,
         'trend-period-statistics-table',
         'Statistics for the applied chart period.',
         ['Metric', 'Average', 'Minimum', 'Maximum'],
@@ -1334,6 +1550,9 @@
     function renderComparisonStatistics(statisticsDisplay) {
       const container = document.getElementById('trend-statistics');
       if (!container) return;
+      const wasOpen = Array.from(container.children || []).some(function (child) {
+        return child.tagName === 'DETAILS' && child.className === 'trend-statistics-disclosure' && child.open;
+      });
       container.replaceChildren();
       if (!statisticsDisplay) return;
 
@@ -1342,15 +1561,19 @@
       const second = statistics.secondPeriod;
       const firstLabel = statisticsDisplay.firstPeriodLabel;
       const secondLabel = statisticsDisplay.secondPeriodLabel;
-      const heading = document.createElement('h3');
-      heading.textContent = 'Comparison statistics';
-      container.appendChild(heading);
+      const details = document.createElement('details');
+      details.className = 'trend-statistics-disclosure';
+      details.open = wasOpen;
+      const disclosureSummary = document.createElement('summary');
+      disclosureSummary.textContent = 'Comparison statistics';
+      details.appendChild(disclosureSummary);
+      container.appendChild(details);
       const description = document.createElement('p');
       description.textContent = 'Comparing ' + firstLabel + ' with ' + secondLabel +
         '. Differences are second period minus first period. Averages use recorded days only.';
-      container.appendChild(description);
+      details.appendChild(description);
       appendStatisticsTable(
-        container,
+        details,
         'trend-comparison-statistics-coverage-table',
         'Recorded-day coverage for the comparison periods.',
         ['Period', 'Recorded days', 'Calendar days', 'Recorded-day difference (second − first)'],
@@ -1361,7 +1584,7 @@
         ]
       );
       appendStatisticsTable(
-        container,
+        details,
         'trend-comparison-statistics-table',
         'Average values and differences for the comparison periods.',
         ['Metric', firstLabel + ' average', secondLabel + ' average', 'Difference (second − first)'],
@@ -1382,6 +1605,10 @@
       const summary = document.createElement('summary');
       summary.textContent = 'Show minimum and maximum values';
       extremes.appendChild(summary);
+      const extremesHeading = document.createElement('h4');
+      extremesHeading.className = 'trend-statistics-table-heading';
+      extremesHeading.textContent = 'Minimum and maximum values';
+      extremes.appendChild(extremesHeading);
       appendStatisticsTable(
         extremes,
         'trend-comparison-statistics-extremes-table',
@@ -1399,7 +1626,7 @@
             formatStatisticValue(second.metrics.water.maximum, 'L')],
         ]
       );
-      container.appendChild(extremes);
+      details.appendChild(extremes);
     }
 
     /* ── Calendar ────────────────────────────────────────────────── */

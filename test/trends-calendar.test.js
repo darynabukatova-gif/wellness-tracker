@@ -11,8 +11,10 @@ const {
   getCalendarYearRange,
   validateCalendarDateRange,
   filterEntriesByDateRange,
+  paginateEntries,
   getEntryByDate,
   findPreviousSavedEntry,
+  buildUndoDeletionCandidate,
   calculatePeriodStatistics,
   comparePeriodStatistics,
   buildTrendSeries,
@@ -166,6 +168,85 @@ test('filterEntriesByDateRange includes boundaries, sorts newest-first, preserve
   );
 });
 
+test('paginateEntries handles empty collections and positive page sizes', () => {
+  const result = paginateEntries([], 4, 25);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    entries: [], page: 1, pageSize: 25, totalEntries: 0, totalPages: 0,
+    hasPreviousPage: false, hasNextPage: false,
+  });
+  assert.deepEqual(paginateEntries([entry('2025-01-01', 3, 0, 0)], 1, 25).entries.map(item => item.date), ['2025-01-01']);
+});
+
+test('paginateEntries preserves supplied newest-first order across full and partial pages', () => {
+  const entries = Array.from({ length: 53 }, (_, index) => entry(
+    '2025-06-' + String(30 - index).padStart(2, '0'), 1, 0, 0
+  ));
+  const original = JSON.stringify(entries);
+  const first = paginateEntries(entries, 1, 25);
+  const middle = paginateEntries(entries, 2, 25);
+  const last = paginateEntries(entries, 3, 25);
+
+  assert.equal(first.totalEntries, 53);
+  assert.equal(first.totalPages, 3);
+  assert.equal(first.entries.length, 25);
+  assert.equal(first.entries[0].date, entries[0].date);
+  assert.equal(middle.entries[0].date, entries[25].date);
+  assert.equal(last.entries.length, 3);
+  assert.equal(last.entries[2].date, entries[52].date);
+  assert.equal(first.hasPreviousPage, false);
+  assert.equal(first.hasNextPage, true);
+  assert.equal(middle.hasPreviousPage, true);
+  assert.equal(middle.hasNextPage, true);
+  assert.equal(last.hasPreviousPage, true);
+  assert.equal(last.hasNextPage, false);
+  assert.equal(JSON.stringify(entries), original);
+  assert.notEqual(first.entries, entries);
+  assert.equal(first.entries[0], entries[0]);
+});
+
+test('paginateEntries clamps pages above the final page, including after deletion', () => {
+  const entries = Array.from({ length: 26 }, (_, index) => entry(
+    '2025-02-' + String(index + 1).padStart(2, '0'), 1, 0, 0
+  ));
+  const clamped = paginateEntries(entries, 99, 25);
+  assert.equal(clamped.page, 2);
+  assert.equal(clamped.entries.length, 1);
+  assert.equal(clamped.entries[0].date, '2025-02-26');
+
+  const afterDeletion = paginateEntries(entries.slice(0, 25), 2, 25);
+  assert.equal(afterDeletion.page, 1);
+  assert.equal(afterDeletion.totalPages, 1);
+  assert.equal(afterDeletion.hasPreviousPage, false);
+  assert.equal(afterDeletion.hasNextPage, false);
+});
+
+test('paginateEntries works after date filtering and beyond the old 100-entry display limit', () => {
+  const entries = Array.from({ length: 125 }, (_, index) => {
+    const day = String((index % 28) + 1).padStart(2, '0');
+    const month = String(Math.floor(index / 28) + 1).padStart(2, '0');
+    return entry('2025-' + month + '-' + day, 1, 0, 0);
+  }).sort((left, right) => right.date.localeCompare(left.date));
+  const filtered = filterEntriesByDateRange(entries, '2025-01-01', '2025-05-31');
+  const result = paginateEntries(filtered, 5, 25);
+  assert.equal(filtered.length, 125);
+  assert.equal(result.totalEntries, 125);
+  assert.equal(result.totalPages, 5);
+  assert.equal(result.entries.length, 25);
+  assert.equal(result.page, 5);
+});
+
+test('paginateEntries rejects invalid page and page-size arguments', () => {
+  const entries = [entry('2025-01-01', 3, 0, 0)];
+  const rangeError = error => error.name === 'RangeError';
+  assert.throws(() => paginateEntries(entries, 0, 25), rangeError);
+  assert.throws(() => paginateEntries(entries, -1, 25), rangeError);
+  assert.throws(() => paginateEntries(entries, 1.5, 25), rangeError);
+  assert.throws(() => paginateEntries(entries, 1, 0), rangeError);
+  assert.throws(() => paginateEntries(entries, 1, -25), rangeError);
+  assert.throws(() => paginateEntries(entries, 1, 2.5), rangeError);
+  assert.throws(() => paginateEntries(null, 1, 25), error => error.name === 'TypeError');
+});
+
 test('entry-date lookups return detached exact and nearest-earlier saved entries without sorting inputs', () => {
   const entries = [
     entry('2025-06-13', 5, 8, 2.2),
@@ -197,6 +278,64 @@ test('entry-date lookups reject malformed calendar dates', () => {
     assert.throws(() => getEntryByDate(entries, date), error => error.name === 'RangeError');
     assert.throws(() => findPreviousSavedEntry(entries, date), error => error.name === 'RangeError');
   });
+});
+
+test('buildUndoDeletionCandidate restores a detached entry into current data in newest-first order', () => {
+  const currentEntries = [
+    entry('2025-06-12', 2, 6, 1),
+    entry('2025-06-10', 5, 0, 0),
+  ];
+  const deletedEntry = entry('2025-06-11', 4, 7.5, 0);
+  const originalCurrent = JSON.stringify(currentEntries);
+  const originalDeleted = JSON.stringify(deletedEntry);
+  const result = buildUndoDeletionCandidate(currentEntries, deletedEntry);
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.entries.map(candidate => candidate.date), [
+    '2025-06-12', '2025-06-11', '2025-06-10',
+  ]);
+  assert.equal(result.entries[1].sleep, 7.5);
+  assert.equal(result.entries[1].water, 0);
+  assert.notEqual(result.entries, currentEntries);
+  assert.notEqual(result.entries[0], currentEntries[0]);
+  assert.notEqual(result.entries[1], deletedEntry);
+  result.entries[0].mood = 1;
+  result.entries[1].mood = 1;
+  assert.equal(currentEntries[0].mood, 2);
+  assert.equal(deletedEntry.mood, 4);
+  assert.equal(JSON.stringify(currentEntries), originalCurrent);
+  assert.equal(JSON.stringify(deletedEntry), originalDeleted);
+});
+
+test('buildUndoDeletionCandidate preserves entries changed since deletion and handles boundaries', () => {
+  const currentEntries = [entry('9999-12-31', 5, 24, 3), entry('0000-01-01', 1, 0, 0)];
+  const deletedEntry = entry('2024-02-29', 3, 0, 0);
+  const result = buildUndoDeletionCandidate(currentEntries, deletedEntry);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.entries.map(candidate => candidate.date), [
+    '9999-12-31', '2024-02-29', '0000-01-01',
+  ]);
+  currentEntries[0].sleep = 1;
+  assert.equal(result.entries[0].sleep, 24);
+});
+
+test('buildUndoDeletionCandidate rejects same-date conflicts without changing current data', () => {
+  const currentEntries = [entry('2025-06-11', 5, 8, 2), entry('2025-06-10', 2, 0, 0)];
+  const deletedEntry = entry('2025-06-11', 1, 1, 0.1);
+  const original = JSON.stringify(currentEntries);
+  const result = buildUndoDeletionCandidate(currentEntries, deletedEntry);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { ok: false, reason: 'date-conflict' });
+  assert.equal(JSON.stringify(currentEntries), original);
+});
+
+test('buildUndoDeletionCandidate rejects invalid deleted entries and current collections', () => {
+  const valid = [entry('2025-06-10', 3, 0, 0)];
+  const rangeError = error => error.name === 'RangeError';
+  assert.throws(() => buildUndoDeletionCandidate(valid, entry('2025-02-30', 3, 0, 0)), rangeError);
+  assert.throws(() => buildUndoDeletionCandidate(valid, entry('2025-06-11', 6, 0, 0)), rangeError);
+  assert.throws(() => buildUndoDeletionCandidate([entry('2025-06-10', 3, 0, 0), entry('2025-06-10', 4, 0, 0)], entry('2025-06-11', 3, 0, 0)), rangeError);
+  assert.throws(() => buildUndoDeletionCandidate([entry('2025-06-10', 3, 0, 0), { date: 'bad' }], entry('2025-06-11', 3, 0, 0)), rangeError);
+  assert.throws(() => buildUndoDeletionCandidate(null, entry('2025-06-11', 3, 0, 0)), error => error.name === 'TypeError');
 });
 
 test('calculatePeriodStatistics uses inclusive recorded observations for all metrics without rounding', () => {

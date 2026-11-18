@@ -40,10 +40,230 @@
     let appliedTrendComparison = null;
     let activeTrendDisplay = { type: 'preset', dayCount: 30 };
     let appliedHistoryRange = null;
+    let historyPage = 1;
+    const HISTORY_PAGE_SIZE = 25;
+    const selectedTrendPoints = { mood: null, sleep: null, water: null };
     let pendingImport = null;
     let importReading = false;
+    let pendingUndoEntry = null;
     const MAX_BACKUP_FILE_BYTES = 5 * 1024 * 1024;
-    const HISTORY_RESULT_LIMIT = 100;
+
+    function clearTrendPointSelections() {
+      selectedTrendPoints.mood = null;
+      selectedTrendPoints.sleep = null;
+      selectedTrendPoints.water = null;
+    }
+
+    function setTrendPointVisual(point, selected) {
+      if (!point) return;
+      if (selected) point.setAttribute('data-selected', 'true');
+      else if (typeof point.removeAttribute === 'function') point.removeAttribute('data-selected');
+    }
+
+    function clearTrendPointVisuals(metric) {
+      const card = document.querySelector(
+        '.trend-chart-card[data-metric="' + metric + '"]'
+      );
+      if (!card || typeof card.querySelectorAll !== 'function') return;
+      card.querySelectorAll('[data-interactive-point="true"]').forEach(function (point) {
+        setTrendPointVisual(point, false);
+      });
+    }
+
+    function getTrendPointDetail(point) {
+      if (!point || !point.dataset || !point.dataset.metric) return null;
+      const detail = {
+        type: point.dataset.pointType === 'aggregated' ? 'aggregated' : 'daily',
+        metric: point.dataset.metric,
+        series: point.dataset.comparisonSeries || null,
+        key: point.dataset.periodKey || null,
+        date: point.dataset.date || null,
+        label: point.dataset.periodLabel || point.dataset.periodKey || null,
+        seriesLabel: point.dataset.seriesLabel || null,
+        startDate: point.dataset.startDate || null,
+        endDate: point.dataset.endDate || null,
+        value: point.dataset.value === undefined ? null : Number(point.dataset.value),
+        recordedDayCount: point.dataset.recordedDayCount === undefined
+          ? null : Number(point.dataset.recordedDayCount),
+        calendarDayCount: point.dataset.calendarDayCount === undefined
+          ? null : Number(point.dataset.calendarDayCount),
+      };
+      return detail.type === 'daily' && !detail.date ? null : detail;
+    }
+
+    function positionTrendPointTooltip(point) {
+      const tooltip = document.getElementById('trend-point-details-' + point.dataset.metric);
+      const card = point.closest('.trend-chart-card');
+      if (!tooltip || !card || typeof point.getBoundingClientRect !== 'function' ||
+          typeof card.getBoundingClientRect !== 'function' ||
+          typeof tooltip.getBoundingClientRect !== 'function') return;
+
+      const pointRect = point.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      const viewportWidth = (window.innerWidth || document.documentElement.clientWidth || cardRect.width);
+      const viewportHeight = (window.innerHeight || document.documentElement.clientHeight || 0);
+      const margin = 8;
+      const pointX = pointRect.left - cardRect.left + pointRect.width / 2;
+      const pointTop = pointRect.top - cardRect.top;
+      const pointBottom = pointRect.bottom - cardRect.top;
+
+      // Keep the tooltip's containing block local to the card, but use its
+      // viewport rectangle to account for page and ancestor scrolling.
+      tooltip.style.maxWidth = Math.max(160, viewportWidth - margin * 2) + 'px';
+      tooltip.style.transform = 'none';
+      tooltip.classList.remove('is-below');
+      tooltip.style.left = pointX + 'px';
+      tooltip.style.top = Math.max(margin, pointTop - margin) + 'px';
+      let tooltipRect = tooltip.getBoundingClientRect();
+      let left = pointX - tooltipRect.width / 2;
+      let top = pointTop - tooltipRect.height - margin;
+      const fitsAbove = cardRect.top + top >= margin;
+      const belowTop = pointBottom + margin;
+      const fitsBelow = viewportHeight === 0 || cardRect.top + belowTop + tooltipRect.height <= viewportHeight - margin;
+
+      if (!fitsAbove && fitsBelow) {
+        top = belowTop;
+        tooltip.classList.add('is-below');
+      }
+      tooltip.style.left = left + 'px';
+      tooltip.style.top = top + 'px';
+      tooltipRect = tooltip.getBoundingClientRect();
+      left += Math.max(margin - tooltipRect.left, 0);
+      left -= Math.max(tooltipRect.right - (viewportWidth - margin), 0);
+      if (viewportHeight > 0) {
+        top += Math.max(margin - tooltipRect.top, 0);
+        top -= Math.max(tooltipRect.bottom - (viewportHeight - margin), 0);
+      }
+      tooltip.style.left = left + 'px';
+      tooltip.style.top = top + 'px';
+    }
+
+    function repositionOpenTrendTooltips() {
+      ['mood', 'sleep', 'water'].forEach(function (metric) {
+        const selection = selectedTrendPoints[metric];
+        if (!selection) return;
+        const points = getInteractiveTrendPoints(metric, selection.series);
+        const point = points.find(function (candidate) {
+          return candidate.dataset.pointIndex === selection.index;
+        });
+        if (point) positionTrendPointTooltip(point);
+      });
+    }
+
+    function selectTrendPoint(point, pinned) {
+      const detail = getTrendPointDetail(point);
+      if (!detail) return { ok: false, reason: 'invalid-point' };
+      clearTrendPointVisuals(detail.metric);
+      selectedTrendPoints[detail.metric] = {
+        series: detail.series,
+        index: point.dataset.pointIndex,
+        pinned: pinned !== false,
+      };
+      if (detail.series) {
+        const seriesSelect = document.getElementById(
+          'trend-comparison-series-' + detail.metric
+        );
+        if (seriesSelect) seriesSelect.value = detail.series;
+      }
+      renderTrendPointDetails(detail.metric, detail, pinned !== false);
+      setTrendPointVisual(point, true);
+      positionTrendPointTooltip(point);
+      return { ok: true, detail };
+    }
+
+    function hideTrendPointTooltip(metric) {
+      const selection = selectedTrendPoints[metric];
+      if (selection && selection.pinned) return;
+      clearTrendPointVisuals(metric);
+      selectedTrendPoints[metric] = null;
+      renderTrendPointDetails(metric, null);
+    }
+
+    function closePinnedTrendTooltips() {
+      ['mood', 'sleep', 'water'].forEach(function (metric) {
+        clearTrendPointVisuals(metric);
+        selectedTrendPoints[metric] = null;
+        renderTrendPointDetails(metric, null);
+      });
+    }
+
+    function getInteractiveTrendPoints(metric, series) {
+      const card = document.querySelector(
+        '.trend-chart-card[data-metric="' + metric + '"]'
+      );
+      if (!card || typeof card.querySelectorAll !== 'function') return [];
+      return Array.from(card.querySelectorAll('[data-interactive-point="true"]'))
+        .filter(function (point) {
+          return !series || point.dataset.comparisonSeries === series;
+        });
+    }
+
+    function getTrendExplorerSeries(metric) {
+      const seriesSelect = document.getElementById('trend-comparison-series-' + metric);
+      return seriesSelect ? seriesSelect.value : null;
+    }
+
+    function moveTrendPointSelection(metric, offset, series) {
+      const points = getInteractiveTrendPoints(metric, series);
+      if (points.length === 0) return { ok: false, reason: 'no-recorded-points' };
+      const current = selectedTrendPoints[metric];
+      let currentIndex = points.findIndex(function (point) {
+        return current && point.dataset.pointIndex === current.index &&
+          (point.dataset.comparisonSeries || null) === current.series;
+      });
+      if (currentIndex < 0) currentIndex = offset > 0 ? -1 : points.length;
+      const nextIndex = currentIndex + offset;
+      if (nextIndex < 0 || nextIndex >= points.length) {
+        return { ok: false, reason: 'boundary' };
+      }
+      return selectTrendPoint(points[nextIndex]);
+    }
+
+    function selectFirstTrendPoint(metric, series) {
+      const points = getInteractiveTrendPoints(metric, series);
+      return points.length > 0
+        ? selectTrendPoint(points[0])
+        : { ok: false, reason: 'no-recorded-points' };
+    }
+
+    function handleTrendPointKeydown(event) {
+      if (event.key === 'Escape') {
+        closePinnedTrendTooltips();
+        return;
+      }
+      const explorer = event.target.closest('.trend-chart-explorer');
+      if (!explorer || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
+      event.preventDefault();
+      const metric = explorer.dataset.chartExplorerMetric;
+      moveTrendPointSelection(
+        metric,
+        event.key === 'ArrowRight' ? 1 : -1,
+        getTrendExplorerSeries(metric)
+      );
+    }
+
+    function handleTrendPointSeriesChange(event) {
+      const selector = event.target.closest('.trend-comparison-series-select');
+      if (!selector) return;
+      const metric = selector.dataset.chartExplorerMetric;
+      clearTrendPointVisuals(metric);
+      selectedTrendPoints[metric] = null;
+      renderTrendPointDetails(metric, null);
+    }
+
+    function handleHistoryTrendsPointerOver(event) {
+      const point = event.target.closest('[data-interactive-point="true"]');
+      if (!point) return;
+      const selection = selectedTrendPoints[point.dataset.metric];
+      if (selection && selection.pinned) return;
+      selectTrendPoint(point, false);
+    }
+
+    function handleHistoryTrendsPointerOut(event) {
+      const point = event.target.closest('[data-interactive-point="true"]');
+      if (!point) return;
+      hideTrendPointTooltip(point.dataset.metric);
+    }
 
     function getStorageAdapter() {
       if (window.wellnessStorage &&
@@ -83,7 +303,7 @@
         '#export-backup-btn', '#import-backup-btn', '#import-backup-input',
         '#entry-sleep', '#entry-water', '#sleep-minus', '#sleep-plus',
         '#water-minus', '#water-plus', '#copy-previous-values-btn',
-        '#edit-existing-entry-btn'
+        '#edit-existing-entry-btn', '#undo-delete-btn'
       ].forEach(function (selector) {
         const control = document.querySelector(selector);
         if (control) control.disabled = disabled;
@@ -417,6 +637,66 @@
       el.classList.remove('is-visible');
     }
 
+    function showUndoStatus(text, undoAvailable) {
+      const status = document.getElementById('undo-delete-status');
+      const message = document.getElementById('undo-delete-message');
+      const button = document.getElementById('undo-delete-btn');
+      if (!status || !message || !button) return;
+      message.textContent = text;
+      status.classList.add('is-visible');
+      button.hidden = !undoAvailable;
+      button.disabled = !undoAvailable || isMutationBlocked();
+    }
+
+    function clearUndoStatus() {
+      const status = document.getElementById('undo-delete-status');
+      const message = document.getElementById('undo-delete-message');
+      const button = document.getElementById('undo-delete-btn');
+      if (!status || !message || !button) return;
+      message.textContent = '';
+      status.classList.remove('is-visible');
+      button.hidden = true;
+    }
+
+    async function handleUndoDeletion() {
+      if (!pendingUndoEntry || isMutationBlocked() || !storageAdapter) return;
+
+      let candidate;
+      try {
+        candidate = buildUndoDeletionCandidate(entries, pendingUndoEntry);
+      } catch (error) {
+        pendingUndoEntry = null;
+        showUndoStatus('Undo is no longer available because the deleted entry is invalid.', false);
+        return;
+      }
+      if (!candidate.ok) {
+        pendingUndoEntry = null;
+        showUndoStatus('Undo is no longer available because that date already contains an entry.', false);
+        return;
+      }
+
+      const restoredDate = pendingUndoEntry.date;
+      setBusyState(true);
+      let restored = false;
+      try {
+        const saved = await storageAdapter.saveEntries(candidate.entries);
+        if (!saved || !saved.ok) {
+          showUndoStatus('Could not restore the entry — storage may be unavailable. Please try Undo again.', true);
+          return;
+        }
+        entries = candidate.entries;
+        pendingUndoEntry = null;
+        render();
+        showUndoStatus('Entry for ' + restoredDate + ' restored.', false);
+        restored = true;
+      } catch (error) {
+        showUndoStatus('Could not restore the entry — storage may be unavailable. Please try Undo again.', true);
+      } finally {
+        setBusyState(false);
+        if (restored) document.getElementById('entries-heading').focus();
+      }
+    }
+
     function showBackupError(message) {
       const el = document.getElementById('backup-error');
       el.classList.add('is-visible');
@@ -620,6 +900,8 @@
         }
 
         entries = candidate;
+        pendingUndoEntry = null;
+        clearUndoStatus();
         pendingImport = null;
         resetImportFileInput();
         exitEditMode();
@@ -693,22 +975,57 @@
           appliedRange: null,
           matchingCount: 0,
           visibleEntries: [],
+          page: 1,
+          pageSize: HISTORY_PAGE_SIZE,
+          totalPages: 0,
+          hasPreviousPage: false,
+          hasNextPage: false,
         };
       }
 
       const matchingEntries = filterEntriesByDateRange(
         entries, appliedHistoryRange.startDate, appliedHistoryRange.endDate
       );
+      const pagination = paginateEntries(matchingEntries, historyPage, HISTORY_PAGE_SIZE);
       return {
         totalEntryCount: entries.length,
         appliedRange: appliedHistoryRange,
         matchingCount: matchingEntries.length,
-        visibleEntries: matchingEntries.slice(0, HISTORY_RESULT_LIMIT),
+        visibleEntries: pagination.entries,
+        page: pagination.page,
+        pageSize: pagination.pageSize,
+        totalPages: pagination.totalPages,
+        hasPreviousPage: pagination.hasPreviousPage,
+        hasNextPage: pagination.hasNextPage,
       };
     }
 
     function renderHistoryTable() {
-      renderTable(getHistoryRenderState());
+      const state = getHistoryRenderState();
+      historyPage = state.page;
+      renderTable(state);
+    }
+
+    function initializeHistoryDateDefaults() {
+      const fromInput = document.getElementById('history-from-date');
+      const toInput = document.getElementById('history-to-date');
+      if (!fromInput || !toInput) return;
+
+      let earliest;
+      let latest;
+      if (entries.length > 0) {
+        entries.forEach(function (entry) {
+          if (!earliest || entry.date < earliest) earliest = entry.date;
+          if (!latest || entry.date > latest) latest = entry.date;
+        });
+      } else {
+        const today = new Date();
+        earliest = localDateString(new Date(today.getFullYear(), today.getMonth(), 1));
+        latest = localDateString(today);
+      }
+
+      if (!fromInput.value) fromInput.value = earliest;
+      if (!toInput.value) toInput.value = latest;
     }
 
     function showHistoryFilterError(message) {
@@ -726,13 +1043,13 @@
     function applyHistoryDateRange(startDate, endDate) {
       const result = validateCalendarDateRange(startDate, endDate);
       if (!result.ok) {
-        appliedHistoryRange = null;
         renderHistoryTable();
         showHistoryFilterError(result.error);
         return result;
       }
 
       appliedHistoryRange = { startDate: result.startDate, endDate: result.endDate };
+      historyPage = 1;
       clearHistoryFilterError();
       renderHistoryTable();
       return result;
@@ -777,6 +1094,7 @@
     function invalidateAppliedHistoryRange() {
       if (!appliedHistoryRange) return;
       appliedHistoryRange = null;
+      historyPage = 1;
       renderHistoryTable();
     }
 
@@ -789,12 +1107,30 @@
       document.getElementById('history-from-date').value = '';
       document.getElementById('history-to-date').value = '';
       appliedHistoryRange = null;
+      historyPage = 1;
       clearHistoryFilterError();
       renderHistoryTable();
       document.getElementById('history-from-date').focus();
     }
 
+    function changeHistoryPage(offset) {
+      if (!appliedHistoryRange || !Number.isInteger(offset) || offset === 0) return;
+      const state = getHistoryRenderState();
+      const nextPage = state.page + offset;
+      if (nextPage < 1 || nextPage > state.totalPages) return;
+      historyPage = nextPage;
+      renderHistoryTable();
+      const targetId = offset < 0 ? 'history-next-page-btn' : 'history-previous-page-btn';
+      const target = document.getElementById(targetId);
+      if (target && !target.disabled) target.focus();
+      else {
+        const current = document.getElementById('history-page-status');
+        if (current && typeof current.focus === 'function') current.focus();
+      }
+    }
+
     function renderHistoryTrendsForCurrentState() {
+      clearTrendPointSelections();
       const chartDisplay = getActiveTrendDisplay();
       renderHistoryTrends(entries, {
         activeView: historyView,
@@ -1521,6 +1857,34 @@
     }
 
     function handleHistoryTrendsClick(event) {
+      const point = event.target.closest('[data-interactive-point="true"]');
+      const explorer = event.target.closest('.trend-chart-explorer');
+      const historyAction = event.target.closest('.trend-point-history-action');
+      const tooltip = event.target.closest('.trend-point-tooltip');
+      const seriesSelect = event.target.closest('.trend-comparison-series-select');
+      if (!point && !explorer && !historyAction && !tooltip && !seriesSelect) {
+        closePinnedTrendTooltips();
+      }
+
+      if (point) {
+        selectTrendPoint(point, true);
+        return;
+      }
+
+      if (explorer) {
+        const metric = explorer.dataset.chartExplorerMetric;
+        selectFirstTrendPoint(metric, getTrendExplorerSeries(metric));
+        return;
+      }
+
+      if (historyAction) {
+        const result = showEntryInHistory(historyAction.dataset.historyDate);
+        if (!result.ok && typeof showAppError === 'function') {
+          showAppError('That entry is no longer available in Entry History.');
+        }
+        return;
+      }
+
       const viewButton = event.target.closest('.history-view-btn');
       if (viewButton) {
         setHistoryView(viewButton.dataset.historyView);
@@ -1759,6 +2123,7 @@
         }
 
         entries = result.entries;
+        initializeHistoryDateDefaults();
         render();
       } catch (error) {
         showAppError('The stored data could not be read. Existing data has been preserved.');
@@ -1808,12 +2173,27 @@
       document.getElementById('clear-history-filters-btn')
         .addEventListener('click', handleClearHistoryFilters);
 
+      document.getElementById('undo-delete-btn')
+        .addEventListener('click', handleUndoDeletion);
+
       ['history-from-date', 'history-to-date'].forEach(function (id) {
         document.getElementById(id).addEventListener('input', handleHistoryFilterInput);
       });
 
       document.getElementById('history-trends-section')
         .addEventListener('click', handleHistoryTrendsClick);
+      document.getElementById('history-trends-section')
+        .addEventListener('pointerover', handleHistoryTrendsPointerOver);
+      document.getElementById('history-trends-section')
+        .addEventListener('pointerout', handleHistoryTrendsPointerOut);
+      document.getElementById('history-trends-section')
+        .addEventListener('keydown', handleTrendPointKeydown);
+      document.getElementById('history-trends-section')
+        .addEventListener('change', handleTrendPointSeriesChange);
+      if (window && typeof window.addEventListener === 'function') {
+        window.addEventListener('resize', repositionOpenTrendTooltips);
+        window.addEventListener('scroll', repositionOpenTrendTooltips, true);
+      }
 
       document.getElementById('trend-custom-form')
         .addEventListener('submit', handleCustomTrendSubmit);
@@ -2065,6 +2445,11 @@
      *   5. Only update state and re-render on success.
      */
     async function handleTableClick(event) {
+      const pageButton = event.target.closest('.history-page-btn');
+      if (pageButton) {
+        changeHistoryPage(Number(pageButton.dataset.historyPageOffset));
+        return;
+      }
       if (isMutationBlocked() || !storageAdapter) return;
 
       const editBtn = event.target.closest('.btn-edit');
@@ -2100,6 +2485,7 @@
       if (!window.confirm(confirmation)) return;
 
       const updated = entries.filter(entry => entry.date !== dateToDelete);
+      const deletedEntry = getEntryByDate(entries, dateToDelete);
       const source = options.source || 'history';
       const deletedIndex = options.deletedIndex ?? -1;
       let restored = false;
@@ -2111,9 +2497,11 @@
           return;
         }
         entries = updated;
+        pendingUndoEntry = deletedEntry;
         clearTableError();
         if (editingDate === dateToDelete) exitEditMode();
         render();
+        showUndoStatus('Entry for ' + dateToDelete + ' deleted.', true);
         restored = true;
       } catch (error) {
         showTableError('Could not delete the entry — storage may be unavailable. Please try again.');
@@ -2160,6 +2548,8 @@
         }
 
         entries = [];
+        pendingUndoEntry = null;
+        clearUndoStatus();
         clearTableError();
         exitEditMode();
         render();

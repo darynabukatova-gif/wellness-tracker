@@ -258,6 +258,7 @@ test('Electron E2E: saves a real form entry and reloads it after restart', { tim
     applications.push(firstApplication);
     const firstWindow = await getReadyWindow(firstApplication);
     await assertIsolatedUserData(firstApplication, isolatedUserDataDirectory);
+    assert.equal(await firstWindow.locator('#entries-container tbody tr').count(), 0);
 
     await firstWindow.locator('#entry-date').fill(entry.date);
     await firstWindow.locator('input[name="mood"][value="4"]').check();
@@ -277,6 +278,10 @@ test('Electron E2E: saves a real form entry and reloads it after restart', { tim
     applications.push(secondApplication);
     const secondWindow = await getReadyWindow(secondApplication);
     await assertIsolatedUserData(secondApplication, isolatedUserDataDirectory);
+
+    assert.equal(await secondWindow.locator('#history-from-date').inputValue(), entry.date);
+    assert.equal(await secondWindow.locator('#history-to-date').inputValue(), entry.date);
+    assert.equal(await secondWindow.locator('#entries-container tbody tr').count(), 0);
 
     await showHistoryRange(secondWindow, entry.date, entry.date);
     await assertHistoryRow(secondWindow, entry);
@@ -369,6 +374,59 @@ test('Electron E2E: edits and deletes an entry with persistence across restarts'
     await thirdWindow.locator('#entries-container .empty-state').waitFor({ state: 'visible', timeout: 15_000 });
     assert.equal(await thirdWindow.locator('#entries-container .empty-state').textContent(), 'No entries match this date range.');
     assert.equal(await thirdWindow.locator('#entries-container tbody tr').count(), 0);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: undoes a History deletion and persists the restoration', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const entry = { date: '2025-03-14', mood: 4, sleep: 7.5, water: 1.6 };
+
+  try {
+    const firstApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(firstApplication);
+    const firstWindow = await getReadyWindow(firstApplication);
+    await assertIsolatedUserData(firstApplication, isolatedUserDataDirectory);
+    await createEntryThroughForm(firstWindow, entry);
+    await showHistoryRange(firstWindow, entry.date, entry.date);
+
+    const confirmationHandled = handleConfirmation(
+      firstWindow,
+      dialog => {
+        assert.equal(dialog.type(), 'confirm');
+        assert.equal(dialog.message(), `Delete entry for ${entry.date}?`);
+      },
+      true
+    );
+    await Promise.all([
+      confirmationHandled,
+      firstWindow.locator(`.btn-delete[data-date="${entry.date}"]`).click(),
+    ]);
+    await firstWindow.locator('#undo-delete-status.is-visible').waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await firstWindow.locator('#undo-delete-message').textContent(), /deleted/);
+    await firstWindow.locator('#undo-delete-btn').click();
+    await firstWindow.locator('#undo-delete-message').filter({ hasText: 'restored' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    await showHistoryRange(firstWindow, entry.date, entry.date);
+    await assertHistoryRow(firstWindow, entry);
+    assert.equal(await firstWindow.locator('#undo-delete-btn').isHidden(), true);
+
+    await firstApplication.close();
+    applications.pop();
+
+    const secondApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(secondApplication);
+    const secondWindow = await getReadyWindow(secondApplication);
+    await assertIsolatedUserData(secondApplication, isolatedUserDataDirectory);
+    await showHistoryRange(secondWindow, entry.date, entry.date);
+    await assertHistoryRow(secondWindow, entry);
   } catch (error) {
     testFailure = error;
     throw error;
@@ -497,6 +555,176 @@ test('Electron E2E: charts show local-date values, gaps, zeroes, and successful 
     await assertHistoryRow(window, updatedEntry);
     assert.equal(await window.locator(`svg[data-metric="mood"] circle[data-date="${todayEntry.date}"]`).getAttribute('data-value'), '5');
     await assertTrendDataRow(window, todayEntry.date, ['5', '7.5 h', '1.8 L']);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: explores single-period daily and aggregated chart points', { timeout: 75_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const dailyEntry = { date: localDateKey(-2), mood: 2, sleep: 0, water: 0 };
+  const secondDailyEntry = { date: localDateKey(0), mood: 5, sleep: 8, water: 2.4 };
+  const weeklyEntries = [
+    { date: '2024-01-01', mood: 4, sleep: 0, water: 1 },
+    { date: '2024-01-03', mood: 2, sleep: 8, water: 2 },
+  ];
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+
+    await createEntryThroughForm(window, dailyEntry);
+    await createEntryThroughForm(window, secondDailyEntry);
+    await createEntryThroughForm(window, weeklyEntries[0]);
+    await createEntryThroughForm(window, weeklyEntries[1]);
+
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="7"]').click();
+    await window.setViewportSize({ width: 320, height: 600 });
+    const moodPoint = window.locator(
+      `svg[data-metric="mood"] circle[data-date="${dailyEntry.date}"]`
+    );
+    const dailyDetails = window.locator('#trend-point-details-mood');
+    await moodPoint.hover();
+    await dailyDetails.waitFor({ state: 'visible', timeout: 15_000 });
+    const tooltipBox = await dailyDetails.boundingBox();
+    assert.ok(tooltipBox && tooltipBox.x >= 0 && tooltipBox.x + tooltipBox.width <= 320);
+    assert.match(await dailyDetails.textContent(), new RegExp(dailyEntry.date));
+    assert.equal(await dailyDetails.locator('.trend-point-history-action').count(), 0);
+    await window.locator('#history-view-charts').hover();
+    await dailyDetails.waitFor({ state: 'hidden', timeout: 15_000 });
+    await moodPoint.click();
+    await dailyDetails.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await dailyDetails.textContent(), new RegExp(dailyEntry.date));
+    assert.match(await dailyDetails.textContent(), /2/);
+    assert.equal(await dailyDetails.locator('.trend-point-history-action').count(), 1);
+    assert.equal(await dailyDetails.locator('.trend-point-history-action').isVisible(), true);
+
+    const explorer = window.locator('.trend-chart-explorer[data-chart-explorer-metric="mood"]');
+    await explorer.focus();
+    await explorer.press('ArrowRight');
+    await dailyDetails.filter({ hasText: secondDailyEntry.date }).waitFor({ state: 'visible', timeout: 15_000 });
+
+    await dailyDetails.locator('.trend-point-history-action').click();
+    await assertHistoryRow(window, secondDailyEntry);
+
+    await window.locator('.trend-period-btn[data-trend-days="custom"]').click();
+    await window.locator('#trend-custom-type').selectOption('year');
+    await window.locator('#trend-custom-year').fill('2024');
+    await window.locator('#trend-custom-resolution').selectOption('weekly');
+    await window.locator('#apply-trend-custom-btn').click();
+    await window.locator('#trend-range-status').filter({
+      hasText: 'Showing calendar year 2024 as Weekly averages',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+
+    const weeklyPoint = window.locator(
+      'svg[data-metric="sleep"][data-resolution="weekly"] circle[data-period-key="01"]'
+    );
+    await weeklyPoint.click();
+    const weeklyDetails = window.locator('#trend-point-details-sleep');
+    await weeklyDetails.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await weeklyDetails.textContent(), /Week 1/);
+    assert.match(await weeklyDetails.textContent(), /2024-01-01 to 2024-01-07/);
+    assert.match(await weeklyDetails.textContent(), /4 h/);
+    assert.match(await weeklyDetails.textContent(), /Recorded days\s*2/);
+    assert.equal(await weeklyDetails.locator('.trend-point-history-action').count(), 0);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: explores both series in daily and aggregated comparisons', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const entries = [
+    { date: '2024-02-01', mood: 4, sleep: 0, water: 1 },
+    { date: '2025-02-01', mood: 2, sleep: 8, water: 2 },
+    { date: '2024-01-01', mood: 5, sleep: 0, water: 1 },
+    { date: '2025-01-02', mood: 3, sleep: 6, water: 0 },
+  ];
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    for (const entry of entries) await createEntryThroughForm(window, entry);
+
+    await window.locator('#history-view-charts').click();
+    await window.locator('.trend-period-btn[data-trend-days="compare"]').click();
+    assert.equal(await window.locator('#trend-comparison-type').inputValue(), 'month');
+    await window.locator('#trend-comparison-first-month').fill('2024-02');
+    await window.locator('#trend-comparison-second-month').fill('2025-02');
+    await window.locator('#apply-trend-comparison-btn').click();
+    await window.locator('#trend-range-status').filter({
+      hasText: 'Comparing February 2024 with February 2025',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+
+    const firstMoodPoint = window.locator(
+      'svg[data-metric="mood"] circle[data-comparison-series="first"][data-date="2024-02-01"]'
+    );
+    const moodDetails = window.locator('#trend-point-details-mood');
+    await firstMoodPoint.hover();
+    await moodDetails.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await moodDetails.textContent(), /First period: February 2024/);
+    await firstMoodPoint.click();
+    await moodDetails.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await moodDetails.textContent(), /First period: February 2024/);
+    assert.match(await moodDetails.textContent(), /2024-02-01/);
+    assert.equal(await moodDetails.locator('.trend-point-history-action').count(), 1);
+
+    await moodDetails.locator('.trend-point-history-action').click();
+    await assertHistoryRow(window, entries[0]);
+
+    const moodSeriesSelect = window.locator('#trend-comparison-series-mood');
+    await moodSeriesSelect.selectOption('second');
+    const moodExplorer = window.locator('.trend-chart-explorer[data-chart-explorer-metric="mood"]');
+    await moodExplorer.focus();
+    await moodExplorer.press('ArrowRight');
+    await moodDetails.filter({ hasText: 'Second period: February 2025' }).waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await moodDetails.textContent(), /2025-02-01/);
+
+    const appliedPointDate = await window.locator(
+      'svg[data-metric="mood"] circle[data-comparison-series="first"][data-date="2024-02-01"]'
+    ).getAttribute('data-date');
+    await window.locator('#trend-comparison-first-month').fill('2023-02');
+    assert.equal(await window.locator(
+      'svg[data-metric="mood"] circle[data-comparison-series="first"][data-date="2024-02-01"]'
+    ).getAttribute('data-date'), appliedPointDate);
+
+    await window.locator('#trend-comparison-type').selectOption('year');
+    await window.locator('#trend-comparison-first-year').fill('2024');
+    await window.locator('#trend-comparison-second-year').fill('2025');
+    await window.locator('#trend-comparison-resolution').selectOption('weekly');
+    await window.locator('#apply-trend-comparison-btn').click();
+    await window.locator('#trend-range-status').filter({
+      hasText: 'Weekly averages: Comparing 2024 with 2025',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+
+    const secondWeeklySleepPoint = window.locator(
+      'svg[data-metric="sleep"] circle[data-comparison-series="second"][data-alignment-key="01"]'
+    );
+    await secondWeeklySleepPoint.click();
+    const sleepDetails = window.locator('#trend-point-details-sleep');
+    await sleepDetails.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await sleepDetails.textContent(), /Second period: 2025/);
+    assert.match(await sleepDetails.textContent(), /2025-01-01 to 2025-01-07/);
+    assert.match(await sleepDetails.textContent(), /6 h/);
+    assert.match(await sleepDetails.textContent(), /Recorded days\s*1/);
+    assert.equal(await sleepDetails.locator('.trend-point-history-action').count(), 0);
   } catch (error) {
     testFailure = error;
     throw error;
@@ -759,6 +987,77 @@ test('Electron E2E: history filters are hidden until applied and can be cleared'
   }
 });
 
+test('Electron E2E: paginates filtered history and clamps after deleting the final page', { timeout: 120_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const entries = Array.from({ length: 26 }, (_, index) => ({
+    date: '2025-01-' + String(index + 1).padStart(2, '0'),
+    mood: (index % 5) + 1,
+    sleep: index % 9,
+    water: (index % 10) / 10,
+  }));
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    for (const entry of entries) await createEntryThroughForm(window, entry);
+
+    await showHistoryRange(window, '2025-01-01', '2025-01-31');
+    await window.setViewportSize({ width: 320, height: 700 });
+    assert.equal(await window.locator('#entries-container tbody tr').count(), 25);
+    assert.match(await window.locator('#history-page-status').textContent(), /Showing 1–25 of 26 matching entries/);
+    assert.equal(await window.locator('#history-previous-page-btn').isDisabled(), true);
+    assert.equal(await window.locator('#history-next-page-btn').isDisabled(), false);
+    const tableScroll = window.locator('.history-table-scroll');
+    const paginationBefore = await window.locator('.history-pagination').boundingBox();
+    const dateBefore = await window.locator('.history-table tbody tr').first().locator('td').first().boundingBox();
+    const headerBefore = await window.locator('.history-table thead th').first().boundingBox();
+    await tableScroll.evaluate(element => { element.scrollLeft = element.scrollWidth; });
+    const paginationAfter = await window.locator('.history-pagination').boundingBox();
+    const dateAfter = await window.locator('.history-table tbody tr').first().locator('td').first().boundingBox();
+    assert.ok(paginationBefore && paginationAfter);
+    assert.ok(Math.abs(paginationBefore.x - paginationAfter.x) < 1);
+    assert.ok(paginationAfter.x >= 0 && paginationAfter.x + paginationAfter.width <= 320);
+    assert.ok(dateBefore && dateAfter && Math.abs(dateBefore.x - dateAfter.x) < 1);
+    assert.ok(await window.locator('.history-table tbody tr').first().locator('.btn-edit').isVisible());
+    assert.ok(await window.locator('.history-table tbody tr').first().locator('.btn-delete').isVisible());
+
+    await tableScroll.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    const headerAfter = await window.locator('.history-table thead th').first().boundingBox();
+    assert.ok(headerBefore && headerAfter && Math.abs(headerBefore.y - headerAfter.y) < 1);
+
+    await window.locator('#history-next-page-btn').click();
+    await window.locator('#history-page-status').filter({ hasText: 'Showing 26–26 of 26 matching entries' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#entries-container tbody tr').count(), 1);
+    assert.equal(await window.locator('#entries-container tbody tr').first().locator('td').first().textContent(), '2025-01-01');
+
+    const deletionDialog = handleConfirmation(window, dialog => {
+      assert.equal(dialog.type(), 'confirm');
+      assert.equal(dialog.message(), 'Delete entry for 2025-01-01?');
+    }, true);
+    await Promise.all([
+      deletionDialog,
+      window.locator('#entries-container .btn-delete[data-date="2025-01-01"]').click(),
+    ]);
+    await window.locator('#history-page-status').filter({ hasText: 'Showing 1–25 of 25 matching entries' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#entries-container tbody tr').count(), 25);
+    assert.equal(await window.locator('#entries-container .btn-delete[data-date="2025-01-01"]').count(), 0);
+    assert.equal(await window.locator('#history-previous-page-btn').count(), 0);
+    assert.equal(await window.locator('#history-next-page-btn').count(), 0);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
 test('Electron E2E: calendar deletion keeps the date selected and persists after restart', { timeout: 75_000 }, async () => {
   const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
   const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
@@ -807,6 +1106,50 @@ test('Electron E2E: calendar deletion keeps the date selected and persists after
     await secondWindow.locator('#calendar-details .calendar-detail-action[data-calendar-action="create"]')
       .waitFor({ state: 'visible', timeout: 15_000 });
     assert.match(await secondWindow.locator('#calendar-details').textContent(), /No entry recorded/);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: Calendar deletion shares the Undo action and restores the selected date', { timeout: 75_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const entry = { date: localDateKey(-3), mood: 2, sleep: 0, water: 0 };
+
+  try {
+    const application = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(application);
+    const window = await getReadyWindow(application);
+    await assertIsolatedUserData(application, isolatedUserDataDirectory);
+    await createEntryThroughForm(window, entry);
+
+    const dateButton = await navigateCalendarToDate(window, entry.date);
+    await dateButton.click();
+    const deleteButton = window.locator('#calendar-details .calendar-detail-action[data-calendar-action="delete"]');
+    await deleteButton.waitFor({ state: 'visible', timeout: 15_000 });
+    const confirmationHandled = handleConfirmation(
+      window,
+      dialog => {
+        assert.equal(dialog.type(), 'confirm');
+        assert.equal(dialog.message(), `Delete entry for ${entry.date}?`);
+      },
+      true
+    );
+    await Promise.all([confirmationHandled, deleteButton.click()]);
+    await window.locator('#calendar-details .calendar-detail-action[data-calendar-action="create"]')
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    await window.locator('#undo-delete-btn').click();
+    await window.locator('#undo-delete-message').filter({ hasText: 'restored' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    await window.locator('#calendar-details .calendar-detail-action[data-calendar-action="edit"]')
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await window.locator('#calendar-details').textContent(), /Mood/);
+    assert.equal(await window.locator(`#calendar-grid .calendar-day[data-calendar-date="${entry.date}"]`).getAttribute('aria-pressed'), 'true');
   } catch (error) {
     testFailure = error;
     throw error;
@@ -1491,6 +1834,8 @@ test('Electron E2E: displays applied period and comparison statistics from commi
     await window.locator('#apply-trend-custom-btn').click();
     await window.locator('#trend-statistics').filter({ hasText: 'Period statistics' })
       .waitFor({ state: 'visible', timeout: 15_000 });
+    const statisticsDisclosure = window.locator('#trend-statistics > details.trend-statistics-disclosure');
+    await statisticsDisclosure.locator('summary').first().click();
     assert.match(await window.locator('#trend-statistics').textContent(),
       /2 recorded days out of 366 calendar days/);
     const periodRows = window.locator('#trend-statistics tbody tr');
@@ -1507,6 +1852,8 @@ test('Electron E2E: displays applied period and comparison statistics from commi
     await window.locator('#apply-trend-comparison-btn').click();
     await window.locator('#trend-statistics').filter({ hasText: 'Comparison statistics' })
       .waitFor({ state: 'visible', timeout: 15_000 });
+    const comparisonDisclosure = window.locator('#trend-statistics > details.trend-statistics-disclosure');
+    await comparisonDisclosure.locator('summary').first().click();
     assert.match(await window.locator('#trend-statistics').textContent(), /Differences are second period minus first period/);
     const comparisonTables = window.locator('#trend-statistics table');
     const comparisonRows = comparisonTables.nth(1).locator('tbody tr');
