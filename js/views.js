@@ -1686,6 +1686,340 @@
       container.appendChild(frame);
     }
 
+    function formatDashboardDate(dateKey) {
+      return formatTrendDate(dateKey) + ', ' + dateKey.slice(0, 4);
+    }
+
+    function appendDashboardSummaryCard(container, label, value) {
+      const card = document.createElement('div');
+      card.className = 'dashboard-summary-card';
+      const term = document.createElement('dt');
+      term.textContent = label;
+      const description = document.createElement('dd');
+      description.textContent = value;
+      card.appendChild(term);
+      card.appendChild(description);
+      container.appendChild(card);
+    }
+
+    function renderDashboardTrendTable(card, config, series) {
+      const details = document.createElement('details');
+      details.className = 'dashboard-trend-data';
+      const summary = document.createElement('summary');
+      summary.textContent = 'View exact ' + config.title.toLowerCase() + ' values';
+      details.appendChild(summary);
+
+      const scroll = document.createElement('div');
+      scroll.className = 'dashboard-table-scroll';
+      const table = document.createElement('table');
+      table.className = 'dashboard-trend-data-table';
+      const caption = document.createElement('caption');
+      caption.className = 'sr-only';
+      caption.textContent = config.title + ' values for the dashboard reporting period.';
+      table.appendChild(caption);
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      ['Date', config.title + (config.unit ? ' (' + config.unit + ')' : ' (score)')]
+        .forEach(function (label) {
+          const heading = document.createElement('th');
+          heading.setAttribute('scope', 'col');
+          heading.textContent = label;
+          headerRow.appendChild(heading);
+        });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      series.points.forEach(function (point) {
+        const row = document.createElement('tr');
+        const date = document.createElement('th');
+        date.setAttribute('scope', 'row');
+        date.textContent = point.date;
+        const value = document.createElement('td');
+        value.textContent = formatTrendValue(point.value, config.unit);
+        row.appendChild(date);
+        row.appendChild(value);
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      scroll.appendChild(table);
+      details.appendChild(scroll);
+      card.appendChild(details);
+    }
+
+    function renderDashboardTrendChart(container, config, series) {
+      const card = document.createElement('section');
+      card.className = 'dashboard-trend-card';
+      card.dataset.metric = config.metric;
+      const heading = document.createElement('h4');
+      heading.textContent = config.title + (config.unit ? ' (' + config.unit + ')' : ' (1–5)');
+      card.appendChild(heading);
+
+      const titleId = 'dashboard-' + config.metric + '-trend-title';
+      const descriptionId = 'dashboard-' + config.metric + '-trend-description';
+      const svg = createSvgElement('svg', {
+        class: 'dashboard-trend-chart',
+        viewBox: '0 0 320 128',
+        role: 'img',
+        'aria-labelledby': titleId + ' ' + descriptionId,
+        'data-dashboard-metric': config.metric,
+      });
+      const title = createSvgElement('title', { id: titleId });
+      title.textContent = config.title + ' dashboard trend';
+      svg.appendChild(title);
+      const populatedPoints = series.points.filter(function (point) { return point.value !== null; });
+      const description = createSvgElement('desc', { id: descriptionId });
+      description.textContent = populatedPoints.length === 0
+        ? 'No recorded ' + config.title.toLowerCase() + ' values from ' + series.startDate +
+          ' to ' + series.endDate + '.'
+        : config.title + ' daily values from ' + series.startDate + ' to ' + series.endDate +
+          '. Missing dates are shown as gaps.';
+      svg.appendChild(description);
+
+      const left = 34;
+      const top = 12;
+      const width = 274;
+      const height = 76;
+      const bottom = top + height;
+      const xFor = function (index) {
+        return series.points.length <= 1
+          ? left + width / 2
+          : left + (index / (series.points.length - 1)) * width;
+      };
+      const yFor = function (value) {
+        return top + ((config.max - value) / (config.max - config.min)) * height;
+      };
+
+      [config.max, config.min].forEach(function (value) {
+        const y = yFor(value);
+        svg.appendChild(createSvgElement('line', {
+          class: 'trend-grid-line', x1: left, y1: y, x2: left + width, y2: y,
+        }));
+        const label = createSvgElement('text', {
+          class: 'trend-axis-label', x: left - 5, y: y + 3, 'text-anchor': 'end',
+        });
+        label.textContent = String(value) + (config.unit ? ' ' + config.unit : '');
+        svg.appendChild(label);
+      });
+      svg.appendChild(createSvgElement('line', {
+        class: 'trend-axis', x1: left, y1: top, x2: left, y2: bottom,
+      }));
+      svg.appendChild(createSvgElement('line', {
+        class: 'trend-axis', x1: left, y1: bottom, x2: left + width, y2: bottom,
+      }));
+
+      const labelIndexes = [0, Math.floor((series.points.length - 1) / 2), series.points.length - 1];
+      labelIndexes.filter(function (index, position, all) {
+        return index >= 0 && all.indexOf(index) === position;
+      }).forEach(function (index) {
+        const label = createSvgElement('text', {
+          class: 'trend-axis-label', x: xFor(index), y: bottom + 17,
+          'text-anchor': index === labelIndexes[0]
+            ? 'start'
+            : (index === labelIndexes[labelIndexes.length - 1] ? 'end' : 'middle'),
+        });
+        label.textContent = formatTrendDate(series.points[index].date);
+        svg.appendChild(label);
+      });
+
+      if (populatedPoints.length === 0) {
+        const emptyLabel = createSvgElement('text', {
+          class: 'trend-empty-label', x: left + width / 2, y: top + height / 2,
+        });
+        emptyLabel.textContent = 'No recorded values';
+        svg.appendChild(emptyLabel);
+      } else {
+        let segment = [];
+        const appendSegment = function () {
+          if (segment.length > 1) {
+            svg.appendChild(createSvgElement('path', {
+              class: 'dashboard-trend-line',
+              d: segment.map(function (point, index) {
+                return (index === 0 ? 'M ' : 'L ') + xFor(point.index) + ' ' + yFor(point.value);
+              }).join(' '),
+              'data-dashboard-segment': String(segment.length),
+            }));
+          }
+          segment = [];
+        };
+        series.points.forEach(function (point, index) {
+          if (point.value === null) {
+            appendSegment();
+          } else {
+            segment.push({ index, value: point.value });
+          }
+        });
+        appendSegment();
+        series.points.forEach(function (point, index) {
+          if (point.value === null) return;
+          svg.appendChild(createSvgElement('circle', {
+            class: 'dashboard-trend-point',
+            cx: xFor(index), cy: yFor(point.value), r: 3,
+            'data-date': point.date, 'data-value': point.value,
+          }));
+        });
+      }
+      card.appendChild(svg);
+      renderDashboardTrendTable(card, config, series);
+      container.appendChild(card);
+    }
+
+    function renderDashboardRecentEntries(container, recentEntries) {
+      const section = document.createElement('section');
+      section.className = 'dashboard-recent';
+      const heading = document.createElement('h3');
+      heading.textContent = 'Recent entries';
+      section.appendChild(heading);
+      if (recentEntries.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'dashboard-empty-state';
+        empty.textContent = 'No entries were saved in this reporting period.';
+        section.appendChild(empty);
+        container.appendChild(section);
+        return;
+      }
+
+      const scroll = document.createElement('div');
+      scroll.className = 'dashboard-table-scroll dashboard-recent-table-scroll';
+      const table = document.createElement('table');
+      table.className = 'dashboard-recent-table';
+      const caption = document.createElement('caption');
+      caption.className = 'sr-only';
+      caption.textContent = 'Entries saved during the dashboard reporting period, newest first.';
+      table.appendChild(caption);
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      ['Date', 'Mood', 'Sleep (h)', 'Water (L)', 'Action'].forEach(function (label) {
+        const headingCell = document.createElement('th');
+        headingCell.setAttribute('scope', 'col');
+        headingCell.textContent = label;
+        headerRow.appendChild(headingCell);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      recentEntries.forEach(function (entry) {
+        const row = document.createElement('tr');
+        row.dataset.entryDate = entry.date;
+        [entry.date, String(entry.mood), String(entry.sleep), String(entry.water)]
+          .forEach(function (value, index) {
+            const cell = document.createElement(index === 0 ? 'th' : 'td');
+            if (index === 0) cell.setAttribute('scope', 'row');
+            cell.textContent = value;
+            row.appendChild(cell);
+          });
+        const actionCell = document.createElement('td');
+        const historyButton = document.createElement('button');
+        historyButton.type = 'button';
+        historyButton.className = 'btn-neutral dashboard-history-action';
+        historyButton.dataset.historyDate = entry.date;
+        historyButton.textContent = 'Show in History';
+        historyButton.setAttribute('aria-label', 'Show entry for ' + entry.date + ' in History');
+        actionCell.appendChild(historyButton);
+        row.appendChild(actionCell);
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      scroll.appendChild(table);
+      section.appendChild(scroll);
+      container.appendChild(section);
+    }
+
+    /**
+     * renderDashboard(container, model)
+     *
+     * Presents an explicitly prepared dashboard model in the supplied
+     * container. It does not read controller state, storage, or raw entries,
+     * and it performs no statistics or trend calculations.
+     */
+    function renderDashboard(container, model) {
+      if (!container) return;
+      container.replaceChildren();
+      if (!model) return;
+
+      const dashboard = document.createElement('section');
+      dashboard.className = 'dashboard';
+      const header = document.createElement('header');
+      header.className = 'dashboard-header';
+      const heading = document.createElement('h2');
+      heading.textContent = 'Personal dashboard';
+      header.appendChild(heading);
+      const range = document.createElement('p');
+      range.className = 'dashboard-reporting-range';
+      range.textContent = (model.reportingRange.calendarDayCount === 7
+        ? 'Most recent seven calendar days ending today: '
+        : 'Most recent ' + model.reportingRange.calendarDayCount +
+          ' available calendar days ending today: ') +
+        formatDashboardDate(model.reportingRange.startDate) + ' to ' +
+        formatDashboardDate(model.reportingRange.endDate) + '.';
+      header.appendChild(range);
+      const todayStatus = document.createElement('p');
+      todayStatus.className = 'dashboard-today-status';
+      todayStatus.textContent = model.today.hasEntry
+        ? 'Entry saved for today.'
+        : 'No entry saved for today.';
+      header.appendChild(todayStatus);
+      const shortcuts = document.createElement('nav');
+      shortcuts.className = 'dashboard-shortcuts';
+      shortcuts.setAttribute('aria-label', 'Dashboard navigation');
+      [
+        ['charts', 'View detailed charts'],
+        ['history', 'View Entry History'],
+      ].forEach(function (actionAndLabel) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn-neutral dashboard-shortcut';
+        button.dataset.dashboardAction = actionAndLabel[0];
+        button.textContent = actionAndLabel[1];
+        shortcuts.appendChild(button);
+      });
+      header.appendChild(shortcuts);
+      dashboard.appendChild(header);
+
+      const summarySection = document.createElement('section');
+      summarySection.className = 'dashboard-summary';
+      const summaryHeading = document.createElement('h3');
+      summaryHeading.textContent = 'Seven-day summary';
+      summarySection.appendChild(summaryHeading);
+      const summary = document.createElement('dl');
+      summary.className = 'dashboard-summary-grid';
+      appendDashboardSummaryCard(
+        summary,
+        'Recorded days',
+        model.activity.recordedDayCount + ' / ' + model.reportingRange.calendarDayCount
+      );
+      appendDashboardSummaryCard(
+        summary, 'Average Mood', formatStatisticValue(model.statistics.metrics.mood.average, '')
+      );
+      appendDashboardSummaryCard(
+        summary, 'Average Sleep', formatStatisticValue(model.statistics.metrics.sleep.average, 'h')
+      );
+      appendDashboardSummaryCard(
+        summary, 'Average Water', formatStatisticValue(model.statistics.metrics.water.average, 'L')
+      );
+      summarySection.appendChild(summary);
+      const averagesNote = document.createElement('p');
+      averagesNote.className = 'dashboard-averages-note';
+      averagesNote.textContent = 'Averages use recorded days only.';
+      summarySection.appendChild(averagesNote);
+      dashboard.appendChild(summarySection);
+
+      const trends = document.createElement('section');
+      trends.className = 'dashboard-trends';
+      const trendsHeading = document.createElement('h3');
+      trendsHeading.textContent = 'Recent trends';
+      trends.appendChild(trendsHeading);
+      const trendGrid = document.createElement('div');
+      trendGrid.className = 'dashboard-trend-grid';
+      TREND_CONFIGS.forEach(function (config) {
+        renderDashboardTrendChart(trendGrid, config, model.trends[config.metric]);
+      });
+      trends.appendChild(trendGrid);
+      dashboard.appendChild(trends);
+
+      renderDashboardRecentEntries(dashboard, model.recentEntries);
+      container.appendChild(dashboard);
+    }
+
     function renderPeriodStatistics(statisticsDisplay) {
       const container = document.getElementById('trend-statistics');
       if (!container) return;
@@ -1934,17 +2268,23 @@
     }
 
     function renderHistoryTrends(entries, viewState) {
-      const { activeView, trendDayCount, trendEndDate, trendMode, appliedCustomTrendRange, chartDisplay, statisticsDisplay, calendar } = viewState;
+      const { activeView, trendDayCount, trendEndDate, trendMode, appliedCustomTrendRange, chartDisplay, statisticsDisplay, calendar, dashboardModel } = viewState;
       const chartsPanel = document.getElementById('history-charts-panel');
       const calendarPanel = document.getElementById('history-calendar-panel');
+      const dashboardPanel = document.getElementById('history-dashboard-panel');
       const chartsButton = document.getElementById('history-view-charts');
       const calendarButton = document.getElementById('history-view-calendar');
+      const dashboardButton = document.getElementById('history-view-dashboard');
+      const chartsVisible = activeView === 'charts';
       const calendarVisible = activeView === 'calendar';
+      const dashboardVisible = activeView === 'dashboard';
 
-      chartsPanel.hidden = calendarVisible;
+      chartsPanel.hidden = !chartsVisible;
       calendarPanel.hidden = !calendarVisible;
-      chartsButton.setAttribute('aria-pressed', String(!calendarVisible));
+      dashboardPanel.hidden = !dashboardVisible;
+      chartsButton.setAttribute('aria-pressed', String(chartsVisible));
       calendarButton.setAttribute('aria-pressed', String(calendarVisible));
+      dashboardButton.setAttribute('aria-pressed', String(dashboardVisible));
       const display = chartDisplay || {
         type: 'single',
         dayCount: trendDayCount,
@@ -1982,4 +2322,5 @@
       renderCustomTrendControls(viewState);
       renderComparisonTrendControls(viewState);
       renderCalendar(entries, calendar);
+      renderDashboard(document.getElementById('dashboard-container'), dashboardModel);
     }

@@ -925,6 +925,68 @@
     }
 
     /**
+     * buildDashboardModel(entries, today)
+     *
+     * Builds a detached, presentation-ready summary for the seven local
+     * calendar days ending on an explicitly supplied date. At the lower
+     * supported boundary the range is shortened rather than crossing into an
+     * unsupported negative year.
+     *
+     * Statistics and daily trend gaps deliberately reuse the established
+     * period helpers so dashboard values stay consistent with detailed
+     * History & Trends views.
+     *
+     * @returns {{reportingRange: Object, activity: Object, statistics: Object,
+     *            trends: Object, recentEntries: Array, today: Object}}
+     * @throws {TypeError|RangeError} When the collection or today is invalid.
+     */
+    function buildDashboardModel(entries, today) {
+      if (!Array.isArray(entries)) {
+        throw new TypeError('Entries must be an array.');
+      }
+      const entriesError = validateStoredEntries(entries);
+      if (entriesError) {
+        throw new RangeError('Entries are invalid: ' + entriesError);
+      }
+      localCalendarDate(today);
+
+      const earliestSupportedDate = '0000-01-01';
+      const startDate = today < '0000-01-07'
+        ? earliestSupportedDate
+        : addCalendarDays(today, -6);
+      const range = validateCalendarDateRange(startDate, today);
+      if (!range.ok) throw new RangeError(range.error);
+
+      const statistics = calculatePeriodStatistics(entries, range.startDate, range.endDate);
+      const recentEntries = sortByDateDesc(
+        filterEntriesInValidatedDateRange(entries, range)
+      ).map(copyEntry);
+
+      return {
+        reportingRange: {
+          startDate: range.startDate,
+          endDate: range.endDate,
+          calendarDayCount: range.dayCount,
+        },
+        activity: {
+          recordedDayCount: statistics.recordedDayCount,
+          unrecordedDayCount: range.dayCount - statistics.recordedDayCount,
+        },
+        statistics,
+        trends: {
+          mood: buildTrendSeriesForRange(entries, 'mood', range.startDate, range.endDate),
+          sleep: buildTrendSeriesForRange(entries, 'sleep', range.startDate, range.endDate),
+          water: buildTrendSeriesForRange(entries, 'water', range.startDate, range.endDate),
+        },
+        recentEntries,
+        today: {
+          date: today,
+          hasEntry: entries.some(function (entry) { return entry.date === today; }),
+        },
+      };
+    }
+
+    /**
      * buildTrendSeries(entries, metric, dayCount, endDate)
      *
      * Builds an inclusive, chronological calendar-day series ending on

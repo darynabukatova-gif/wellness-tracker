@@ -124,7 +124,9 @@ function makeApp() {
    'entry-form-section',
    'stat-count', 'stat-mood', 'stat-sleep', 'stat-water',
    'sleep-unit', 'water-unit', 'history-trends-section', 'history-view-charts',
-   'history-view-calendar', 'history-charts-panel', 'history-calendar-panel',
+   'history-view-calendar', 'history-view-dashboard', 'history-charts-panel',
+   'history-calendar-panel', 'history-dashboard-panel', 'dashboard-container',
+   'entries-section',
    'calendar-prev-btn', 'calendar-next-btn', 'calendar-month-heading',
    'calendar-month-status', 'calendar-grid', 'calendar-details', 'trend-chart-list',
    'trend-data-table-container', 'trend-period-7', 'trend-period-30',
@@ -162,6 +164,17 @@ function makeApp() {
     button.dataset.monthDraft = monthDraft;
     button.dataset.monthOffset = monthOffset;
     button.setAttribute('aria-label', label);
+  });
+  [
+    ['history-view-charts', 'charts', 'false', 'history-charts-panel'],
+    ['history-view-calendar', 'calendar', 'true', 'history-calendar-panel'],
+    ['history-view-dashboard', 'dashboard', 'false', 'history-dashboard-panel'],
+  ].forEach(([id, view, pressed, controls]) => {
+    const button = elements.get(id);
+    button.className = 'history-view-btn';
+    button.dataset.historyView = view;
+    button.setAttribute('aria-pressed', pressed);
+    button.setAttribute('aria-controls', controls);
   });
   [
     ['trend-custom-year-prev', 'custom', '-1', 'Previous year for custom period'],
@@ -334,7 +347,7 @@ function makeViews() {
   const app = makeApp();
   const sandbox = { document: app.sandbox.document, Date };
   vm.createContext(sandbox);
-  const source = coreSource + '\n' + viewsSource + '\nthis.__views = { renderSummary, renderTable, renderCharts, renderComparisonCharts, renderAggregatedComparisonCharts, renderAggregatedYearCharts, renderPeriodStatistics, renderComparisonStatistics, renderTrendPointDetails, renderCalendar, renderHistoryTrends };';
+  const source = coreSource + '\n' + viewsSource + '\nthis.__views = { renderSummary, renderTable, renderCharts, renderComparisonCharts, renderAggregatedComparisonCharts, renderAggregatedYearCharts, renderDashboard, renderPeriodStatistics, renderComparisonStatistics, renderTrendPointDetails, renderCalendar, renderHistoryTrends };';
   new vm.Script(source).runInContext(sandbox);
   return { ...app, views: sandbox.__views };
 }
@@ -923,6 +936,149 @@ test('isolated chart renderer uses explicit inputs for populated and empty state
   renderer.views.renderCharts([], 7, '2025-06-12');
   const emptyMood = trendCard(renderer, 'mood').children.find(child => child.tagName === 'SVG');
   assert.equal(findDescendants(emptyMood, node => node.className === 'trend-empty-label').length, 1);
+});
+
+test('dashboard renderer presents prepared summaries, accessible trends, and recent entries', () => {
+  const renderer = makeViews();
+  const entries = [
+    { date: '2025-06-04', mood: 5, sleep: 6, water: 1 },
+    { date: '2025-06-01', mood: 2, sleep: 0, water: 0 },
+    { date: '2025-06-07', mood: 3, sleep: 4, water: 0 },
+    { date: '2025-06-02', mood: 4, sleep: 8, water: 2 },
+  ];
+  const model = renderer.sandbox.buildDashboardModel(entries, '2025-06-07');
+  const original = JSON.stringify(model);
+  const host = new Element('dashboard-host');
+
+  renderer.views.renderDashboard(host, model);
+
+  assert.equal(host.children.length, 1);
+  const dashboard = host.children[0];
+  assert.equal(dashboard.className, 'dashboard');
+  const reportingRange = findDescendants(
+    dashboard, node => node.className === 'dashboard-reporting-range'
+  )[0];
+  assert.match(reportingRange.textContent, /Most recent seven calendar days ending today/);
+  assert.match(reportingRange.textContent, /Jun 1, 2025 to Jun 7, 2025/);
+  assert.equal(findDescendants(
+    dashboard, node => node.className === 'dashboard-today-status'
+  )[0].textContent, 'Entry saved for today.');
+  const shortcuts = findDescendants(dashboard, node => node.className === 'dashboard-shortcuts')[0];
+  assert.equal(shortcuts.tagName, 'NAV');
+  assert.equal(shortcuts.attributes['aria-label'], 'Dashboard navigation');
+  assert.deepEqual(shortcuts.children.map(button => [button.dataset.dashboardAction, button.textContent]), [
+    ['charts', 'View detailed charts'],
+    ['history', 'View Entry History'],
+  ]);
+
+  const cards = findDescendants(dashboard, node => node.className === 'dashboard-summary-card');
+  assert.deepEqual(cards.map(card => [card.children[0].textContent, card.children[1].textContent]), [
+    ['Recorded days', '4 / 7'],
+    ['Average Mood', '3.5'],
+    ['Average Sleep', '4.5 h'],
+    ['Average Water', '0.8 L'],
+  ]);
+  assert.match(findDescendants(
+    dashboard, node => node.className === 'dashboard-averages-note'
+  )[0].textContent, /recorded days only/);
+
+  const charts = findDescendants(dashboard, node => node.tagName === 'SVG');
+  assert.equal(charts.length, 3);
+  charts.forEach(chart => {
+    assert.equal(chart.attributes.role, 'img');
+    assert.match(chart.attributes['aria-labelledby'], /dashboard-.+-trend-title/);
+    assert.equal(findDescendants(chart, node => node.tagName === 'TITLE').length, 1);
+    assert.equal(findDescendants(chart, node => node.tagName === 'DESC').length, 1);
+  });
+  const moodChart = charts.find(chart => chart.dataset.dashboardMetric === 'mood');
+  assert.match(findDescendants(moodChart, node => node.tagName === 'DESC')[0].textContent,
+    /Missing dates are shown as gaps/);
+  assert.equal(findDescendants(moodChart, node => node.className === 'dashboard-trend-line').length, 1);
+  assert.equal(findDescendants(moodChart, node => node.className === 'dashboard-trend-line')[0]
+    .attributes['data-dashboard-segment'], '2');
+  assert.equal(findDescendants(moodChart, node => node.className === 'dashboard-trend-point').length, 4);
+  assert.ok(findDescendants(dashboard, node =>
+    node.className === 'dashboard-trend-point' && node.attributes['data-value'] === '0'
+  ).length >= 2);
+  assert.equal(findDescendants(dashboard, node =>
+    node.className === 'dashboard-trend-point' && node.attributes.tabindex !== undefined
+  ).length, 0);
+
+  const exactTables = findDescendants(
+    dashboard, node => node.className === 'dashboard-trend-data-table'
+  );
+  assert.equal(exactTables.length, 3);
+  exactTables.forEach(table => {
+    assert.equal(table.children[0].tagName, 'CAPTION');
+    assert.equal(table.children.find(child => child.tagName === 'TBODY').children.length, 7);
+  });
+  const sleepTable = exactTables[1];
+  const sleepRows = sleepTable.children.find(child => child.tagName === 'TBODY').children;
+  assert.equal(sleepRows[0].children[1].textContent, '0 h');
+  assert.equal(sleepRows[2].children[1].textContent, '— Missing');
+
+  const recentTable = findDescendants(
+    dashboard, node => node.className === 'dashboard-recent-table'
+  )[0];
+  const recentRows = recentTable.children.find(child => child.tagName === 'TBODY').children;
+  assert.deepEqual(recentRows.map(row => row.dataset.entryDate), [
+    '2025-06-07', '2025-06-04', '2025-06-02', '2025-06-01',
+  ]);
+  assert.equal(recentRows[0].children[0].tagName, 'TH');
+  assert.equal(recentRows[0].children[0].attributes.scope, 'row');
+  assert.equal(recentRows[0].children.length, 5);
+  const historyAction = recentRows[0].children[4].children[0];
+  assert.equal(historyAction.dataset.historyDate, '2025-06-07');
+  assert.equal(historyAction.attributes['aria-label'], 'Show entry for 2025-06-07 in History');
+  assert.equal(JSON.stringify(model), original);
+  assert.equal(renderer.elements.get('trend-chart-list').children.length, 0);
+});
+
+test('dashboard renderer shows neutral empty states and null averages', () => {
+  const renderer = makeViews();
+  const model = renderer.sandbox.buildDashboardModel([], '2025-06-07');
+  const host = new Element('dashboard-host');
+
+  renderer.views.renderDashboard(host, model);
+
+  const dashboard = host.children[0];
+  const cards = findDescendants(dashboard, node => node.className === 'dashboard-summary-card');
+  assert.deepEqual(cards.map(card => card.children[1].textContent), ['0 / 7', '—', '—', '—']);
+  assert.equal(findDescendants(
+    dashboard, node => node.className === 'dashboard-today-status'
+  )[0].textContent, 'No entry saved for today.');
+  assert.equal(findDescendants(dashboard, node => node.className === 'trend-empty-label').length, 3);
+  assert.equal(findDescendants(dashboard, node => node.className === 'dashboard-trend-line').length, 0);
+  assert.equal(findDescendants(dashboard, node => node.className === 'dashboard-trend-point').length, 0);
+  assert.equal(findDescendants(
+    dashboard, node => node.className === 'dashboard-empty-state'
+  )[0].textContent, 'No entries were saved in this reporting period.');
+  assert.equal(findDescendants(dashboard, node => node.className === 'dashboard-recent-table').length, 0);
+});
+
+test('dashboard renderer describes shortened boundary ranges and single zero observations', () => {
+  const renderer = makeViews();
+  const model = renderer.sandbox.buildDashboardModel([
+    { date: '0000-01-01', mood: 3, sleep: 0, water: 0 },
+  ], '0000-01-03');
+  const original = JSON.stringify(model);
+  const host = new Element('dashboard-host');
+
+  renderer.views.renderDashboard(host, model);
+
+  const dashboard = host.children[0];
+  const reportingRange = findDescendants(
+    dashboard, node => node.className === 'dashboard-reporting-range'
+  )[0];
+  assert.match(reportingRange.textContent, /Most recent 3 available calendar days ending today/);
+  assert.match(reportingRange.textContent, /0000/);
+  const cards = findDescendants(dashboard, node => node.className === 'dashboard-summary-card');
+  assert.deepEqual(cards.map(card => card.children[1].textContent), [
+    '1 / 3', '3.0', '0.0 h', '0.0 L',
+  ]);
+  assert.equal(findDescendants(dashboard, node => node.className === 'dashboard-trend-point').length, 3);
+  assert.equal(findDescendants(dashboard, node => node.className === 'dashboard-trend-line').length, 0);
+  assert.equal(JSON.stringify(model), original);
 });
 
 test('all exact-data renderers place tables in a described scroll region', () => {
@@ -2294,13 +2450,16 @@ test('failed bulk-resolved merge preserves choices for a later retry', async () 
 
 test('confirmed merge saves once after revalidation and preserves explicit choices', async () => {
   const app = makeApp();
+  const today = localDateKey();
   let saveCalls = 0;
   let savedCandidate;
   app.api.storageAdapter = { async saveEntries(candidate) { saveCalls += 1; savedCandidate = candidate; return { ok: true }; } };
+  app.sandbox.render = app.realRender;
+  app.api.setHistoryView('dashboard');
   await selectMergePreview(app, importFile(backupText([
     { date: '2025-06-10', mood: 5, sleep: 8, water: 2.1 },
     { date: '2025-06-11', mood: 2, sleep: 0, water: 0 },
-    { date: '2025-06-12', mood: 1, sleep: 0, water: 0 },
+    { date: today, mood: 1, sleep: 0, water: 0 },
   ])));
   const controls = app.elements.get('merge-preview-conflict-controls');
   const first = controls.querySelectorAll('[data-merge-conflict-date="2025-06-10"]')[0];
@@ -2311,12 +2470,16 @@ test('confirmed merge saves once after revalidation and preserves explicit choic
 
   assert.equal(saveCalls, 1);
   assert.deepEqual(JSON.parse(JSON.stringify(savedCandidate)), [
-    { date: '2025-06-12', mood: 1, sleep: 0, water: 0 },
+    { date: today, mood: 1, sleep: 0, water: 0 },
     { date: '2025-06-11', mood: 2, sleep: 0, water: 0 },
     { date: '2025-06-10', mood: 4, sleep: 7.5, water: 2.1 },
   ]);
   assert.equal(app.api.pendingMergePreview, null);
   assert.match(app.elements.get('backup-status').textContent, /Backup merged/);
+  const dashboardCards = findDescendants(
+    app.elements.get('dashboard-container'), node => node.className === 'dashboard-summary-card'
+  );
+  assert.equal(dashboardCards[0].children[1].textContent, '1 / 7');
 });
 
 test('no-op merge avoids storage and changed current data refreshes choices before saving', async () => {
@@ -2496,6 +2659,7 @@ test('confirmed replacement waits for save, blocks repeated restores, and refres
     },
   };
   app.sandbox.render = app.realRender;
+  app.api.setHistoryView('dashboard');
   app.api.calendarYear = new Date().getFullYear();
   app.api.calendarMonthIndex = new Date().getMonth();
   app.confirms.push(true);
@@ -2526,6 +2690,10 @@ test('confirmed replacement waits for save, blocks repeated restores, and refres
   assert.match(app.elements.get('backup-status').textContent, /Backup restored\. 1 entry is now saved/);
   assert.equal(app.elements.get('import-backup-btn').focused, true);
   assert.equal(app.elements.get('stat-count').textContent, 1);
+  const dashboardCards = findDescendants(
+    app.elements.get('dashboard-container'), node => node.className === 'dashboard-summary-card'
+  );
+  assert.equal(dashboardCards[0].children[1].textContent, '1 / 7');
   assert.equal(findCalendarDateButton(app, today).className.includes('has-entry'), true);
   assert.ok(trendCard(app, 'mood'));
   assert.equal(app.elements.get('entries-container').children.length, 1);
@@ -2706,6 +2874,9 @@ test('calendar marks saved entries and date selection shows read-only saved or e
 test('History and Trends view switch shows the rendered charts and returns to Calendar', () => {
   const app = makeApp();
   renderHistoryTrendsForApp(app);
+  assert.equal(app.api.historyView, 'calendar');
+  assert.equal(app.elements.get('history-view-calendar').attributes['aria-pressed'], 'true');
+  assert.equal(app.elements.get('history-dashboard-panel').hidden, true);
   const chartsButton = app.elements.get('history-view-charts');
   chartsButton.className = 'history-view-btn';
   chartsButton.dataset.historyView = 'charts';
@@ -2722,6 +2893,156 @@ test('History and Trends view switch shows the rendered charts and returns to Ca
   app.api.handleHistoryTrendsClick({ target: calendarButton });
   assert.equal(app.api.historyView, 'calendar');
   assert.equal(app.elements.get('history-calendar-panel').hidden, false);
+});
+
+test('Dashboard view uses current committed entries without changing forms, filters, charts, or storage', () => {
+  const app = makeApp();
+  const today = localDateKey();
+  const earlier = app.sandbox.addCalendarDays(today, -2);
+  app.api.entries = [
+    { date: today, mood: 4, sleep: 0, water: 0 },
+    { date: earlier, mood: 2, sleep: 8, water: 2 },
+  ];
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.api.setTrendDayCount(7);
+  applyHistoryRange(app, earlier, today);
+  app.elements.get('entry-date').value = app.sandbox.addCalendarDays(today, 1);
+  app.radios[4].checked = true;
+  app.api.setValueControlValues(9.5, 2.7);
+  const appliedHistoryBefore = JSON.stringify(app.api.appliedHistoryRange);
+
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('history-view-dashboard') });
+
+  assert.equal(app.api.historyView, 'dashboard');
+  assert.equal(app.elements.get('history-dashboard-panel').hidden, false);
+  assert.equal(app.elements.get('history-calendar-panel').hidden, true);
+  assert.equal(app.elements.get('history-charts-panel').hidden, true);
+  assert.equal(app.elements.get('history-view-dashboard').attributes['aria-pressed'], 'true');
+  const dashboard = app.elements.get('dashboard-container').children[0];
+  const cards = findDescendants(dashboard, node => node.className === 'dashboard-summary-card');
+  assert.deepEqual(cards.map(card => [card.children[0].textContent, card.children[1].textContent]), [
+    ['Recorded days', '2 / 7'],
+    ['Average Mood', '3.0'],
+    ['Average Sleep', '4.0 h'],
+    ['Average Water', '1.0 L'],
+  ]);
+  assert.match(findDescendants(dashboard, node => node.className === 'dashboard-reporting-range')[0].textContent, /ending today/);
+  assert.equal(findDescendants(dashboard, node => node.className === 'dashboard-trend-point').length, 6);
+  assert.equal(app.api.trendMode, 'preset');
+  assert.equal(app.api.trendDayCount, 7);
+  assert.equal(JSON.stringify(app.api.appliedHistoryRange), appliedHistoryBefore);
+  assert.equal(app.elements.get('entry-date').value, app.sandbox.addCalendarDays(today, 1));
+  assert.equal(app.radios[4].checked, true);
+  assert.equal(app.elements.get('entry-sleep').value, 9.5);
+  assert.equal(app.elements.get('entry-water').value, 2.7);
+  assert.equal(saveCalls, 0);
+
+  app.api.handleHistoryTrendsClick({ target: findDescendants(dashboard, node =>
+    node.className === 'btn-neutral dashboard-shortcut' && node.dataset.dashboardAction === 'charts'
+  )[0] });
+  assert.equal(app.api.historyView, 'charts');
+  assert.equal(app.api.trendDayCount, 7);
+  app.api.handleHistoryTrendsClick({ target: app.elements.get('history-view-calendar') });
+  assert.equal(app.api.historyView, 'calendar');
+  assert.equal(JSON.stringify(app.api.appliedHistoryRange), appliedHistoryBefore);
+});
+
+test('Dashboard recent entries reuse exact-date History navigation and shortcuts', () => {
+  const app = makeApp();
+  const today = localDateKey();
+  app.api.entries = [{ date: today, mood: 4, sleep: 0, water: 0 }];
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  app.elements.get('entry-date').value = app.sandbox.addCalendarDays(today, 1);
+  app.radios[2].checked = true;
+  app.api.setValueControlValues(7.5, 1.8);
+  app.api.setHistoryView('dashboard');
+  const dashboard = app.elements.get('dashboard-container').children[0];
+  const historyAction = findDescendants(dashboard, node => node.className === 'btn-neutral dashboard-history-action')[0];
+
+  app.api.handleHistoryTrendsClick({ target: historyAction });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(app.api.appliedHistoryRange)), {
+    startDate: today, endDate: today,
+  });
+  assert.deepEqual(historyRowDates(app), [today]);
+  const focusedEdit = findDescendants(app.elements.get('entries-container'), node =>
+    node.className === 'btn-edit' && node.dataset.date === today
+  )[0];
+  assert.equal(focusedEdit.focused, true);
+  assert.equal(app.api.editingDate, null);
+  assert.equal(app.elements.get('entry-date').value, app.sandbox.addCalendarDays(today, 1));
+  assert.equal(app.radios[2].checked, true);
+  assert.equal(app.elements.get('entry-sleep').value, 7.5);
+  assert.equal(app.elements.get('entry-water').value, 1.8);
+  assert.equal(saveCalls, 0);
+
+  const historyShortcut = findDescendants(dashboard, node =>
+    node.className === 'btn-neutral dashboard-shortcut' && node.dataset.dashboardAction === 'history'
+  )[0];
+  app.api.handleHistoryTrendsClick({ target: historyShortcut });
+  assert.equal(app.elements.get('entries-section').scrolled, true);
+  assert.equal(app.elements.get('entries-heading').focused, true);
+
+  app.api.entries = [];
+  app.api.handleHistoryTrendsClick({ target: historyAction });
+  const missingMessage = findDescendants(app.elements.get('app-error'), node => node.tagName === 'P')[0];
+  assert.match(missingMessage.textContent, /no longer available/);
+  assert.equal(saveCalls, 0);
+});
+
+test('Dashboard refreshes only after a successful committed entry save', async () => {
+  const app = makeApp();
+  const today = localDateKey();
+  app.api.entries = [];
+  app.sandbox.render = app.realRender;
+  app.api.setHistoryView('dashboard');
+  const recordedDays = () => findDescendants(
+    app.elements.get('dashboard-container'), node => node.className === 'dashboard-summary-card'
+  )[0].children[1].textContent;
+  assert.equal(recordedDays(), '0 / 7');
+
+  app.elements.get('entry-date').value = today;
+  app.radios[3].checked = true;
+  app.api.setValueControlValues(0, 0);
+  app.api.storageAdapter = { async saveEntries() { return { ok: false }; } };
+  await submit(app);
+  assert.equal(recordedDays(), '0 / 7');
+
+  app.api.storageAdapter = { async saveEntries() { return { ok: true }; } };
+  await submit(app);
+  assert.equal(recordedDays(), '1 / 7');
+  assert.equal(app.api.historyView, 'dashboard');
+});
+
+test('Dashboard refreshes after committed deletion, Undo, and erase-all operations', async () => {
+  const app = makeApp();
+  const today = localDateKey();
+  const earlier = app.sandbox.addCalendarDays(today, -1);
+  app.api.entries = [
+    { date: today, mood: 4, sleep: 0, water: 0 },
+    { date: earlier, mood: 2, sleep: 8, water: 2 },
+  ];
+  app.sandbox.render = app.realRender;
+  app.api.setHistoryView('dashboard');
+  const recordedDays = () => findDescendants(
+    app.elements.get('dashboard-container'), node => node.className === 'dashboard-summary-card'
+  )[0].children[1].textContent;
+  assert.equal(recordedDays(), '2 / 7');
+
+  const deleteButton = new Element('dashboard-delete');
+  deleteButton.className = 'btn-delete';
+  deleteButton.dataset.date = earlier;
+  await app.api.handleTableClick({ target: deleteButton });
+  assert.equal(recordedDays(), '1 / 7');
+
+  await app.api.handleUndoDeletion();
+  assert.equal(recordedDays(), '2 / 7');
+
+  await app.api.handleEraseAll();
+  assert.equal(recordedDays(), '0 / 7');
+  assert.equal(app.api.historyView, 'dashboard');
 });
 
 test('charts default to 30 inclusive calendar days with fixed metric scales', () => {

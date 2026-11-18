@@ -569,6 +569,299 @@ test('Electron E2E: charts show local-date values, gaps, zeroes, and successful 
   }
 });
 
+test('Electron E2E: opens the live Dashboard, refreshes it, and navigates a recent entry', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+
+    assert.equal(await window.locator('#history-view-calendar').getAttribute('aria-pressed'), 'true');
+    assert.equal(await window.locator('#history-dashboard-panel').isHidden(), true);
+
+    const todayEntry = { date: localDateKey(0), mood: 4, sleep: 0, water: 0 };
+    const earlierEntry = { date: localDateKey(-2), mood: 2, sleep: 8, water: 2 };
+    const addedEntry = { date: localDateKey(-1), mood: 5, sleep: 6, water: 1 };
+    await createEntryThroughForm(window, earlierEntry);
+    await createEntryThroughForm(window, todayEntry);
+
+    await window.locator('#history-view-charts').click();
+    await window.locator('[data-trend-days="7"]').click();
+    assert.equal(await window.locator('[data-trend-days="7"]').getAttribute('aria-pressed'), 'true');
+
+    await window.locator('#history-view-dashboard').click();
+    await window.locator('#history-dashboard-panel').waitFor({ state: 'visible', timeout: 15_000 });
+    const summaryValue = label => window.locator('.dashboard-summary-card')
+      .filter({ hasText: label }).locator('dd');
+    await summaryValue('Recorded days').filter({ hasText: '2 / 7' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await summaryValue('Average Mood').textContent(), '3.0');
+    assert.equal(await summaryValue('Average Sleep').textContent(), '4.0 h');
+    assert.equal(await summaryValue('Average Water').textContent(), '1.0 L');
+    assert.match(await window.locator('.dashboard-reporting-range').textContent(), /ending today/);
+
+    await createEntryThroughForm(window, addedEntry);
+    await summaryValue('Recorded days').filter({ hasText: '3 / 7' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#history-view-dashboard').getAttribute('aria-pressed'), 'true');
+
+    const recentRow = window.locator(`.dashboard-recent-table tbody tr[data-entry-date="${earlierEntry.date}"]`);
+    await recentRow.getByRole('button', { name: `Show entry for ${earlierEntry.date} in History` }).click();
+    await assertHistoryRow(window, earlierEntry);
+    assert.equal(await window.locator('#history-from-date').inputValue(), earlierEntry.date);
+    assert.equal(await window.locator('#history-to-date').inputValue(), earlierEntry.date);
+    assert.equal(await window.locator(`#entries-container .btn-edit[data-date="${earlierEntry.date}"]`)
+      .evaluate(element => document.activeElement === element), true);
+
+    await window.getByRole('button', { name: 'View detailed charts' }).click();
+    await window.locator('#history-charts-panel').waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('[data-trend-days="7"]').getAttribute('aria-pressed'), 'true');
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: Dashboard stays within narrow viewports with collapsed and expanded data', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    for (const entry of [
+      { date: localDateKey(-2), mood: 2, sleep: 0, water: 0 },
+      { date: localDateKey(-1), mood: 4, sleep: 8, water: 2 },
+      { date: localDateKey(0), mood: 5, sleep: 6, water: 1 },
+    ]) await createEntryThroughForm(window, entry);
+    await window.locator('#history-view-dashboard').click();
+    await window.locator('#history-dashboard-panel').waitFor({ state: 'visible', timeout: 15_000 });
+
+    const measure = () => window.evaluate(() => {
+      const root = document.documentElement;
+      const viewportWidth = root.clientWidth;
+      const overflowing = Array.from(document.body.querySelectorAll('*')).map(element => {
+        const rect = element.getBoundingClientRect();
+        return {
+          tag: element.tagName,
+          id: element.id,
+          className: typeof element.className === 'string' ? element.className : '',
+          left: Math.round(rect.left * 10) / 10,
+          right: Math.round(rect.right * 10) / 10,
+          width: Math.round(rect.width * 10) / 10,
+          scrollWidth: element.scrollWidth,
+          clientWidth: element.clientWidth,
+        };
+      }).filter(item => item.right > viewportWidth + 1 || item.left < -1);
+      return {
+        clientWidth: viewportWidth,
+        scrollWidth: root.scrollWidth,
+        overflowing: overflowing.slice(0, 12),
+      };
+    });
+
+    for (const width of [320, 375, 420, 1024]) {
+      await window.setViewportSize({ width, height: 900 });
+      const collapsed = await measure();
+      assert.ok(collapsed.scrollWidth <= collapsed.clientWidth,
+        `Collapsed Dashboard overflowed at ${width}px: ${JSON.stringify(collapsed)}`);
+
+      await window.locator('.dashboard-trend-data').evaluateAll(details => {
+        details.forEach(detail => { detail.open = true; });
+      });
+      const expanded = await measure();
+      assert.ok(expanded.scrollWidth <= expanded.clientWidth,
+        `Expanded Dashboard overflowed at ${width}px: ${JSON.stringify(expanded)}`);
+      await window.locator('.dashboard-trend-data').evaluateAll(details => {
+        details.forEach(detail => { detail.open = false; });
+      });
+    }
+
+    await window.setViewportSize({ width: 320, height: 900 });
+    const recentScroll = window.locator('.dashboard-recent-table-scroll');
+    const dateHeader = recentScroll.locator('thead th').first();
+    const moodHeader = recentScroll.locator('thead th').nth(1);
+    const before = {
+      date: (await dateHeader.boundingBox()).x,
+      mood: (await moodHeader.boundingBox()).x,
+    };
+    await recentScroll.evaluate(element => { element.scrollLeft = element.scrollWidth; });
+    const after = {
+      date: (await dateHeader.boundingBox()).x,
+      mood: (await moodHeader.boundingBox()).x,
+    };
+    assert.ok(Math.abs(after.date - before.date) < 1, 'Sticky Dashboard Date column moved horizontally.');
+    assert.ok(after.mood < before.mood, 'Dashboard table columns did not scroll horizontally.');
+
+    const recentActions = window.locator('.dashboard-history-action');
+    for (let index = 0; index < await recentActions.count(); index++) {
+      const action = recentActions.nth(index);
+      const targetDate = await action.getAttribute('data-history-date');
+      await recentScroll.evaluate(element => { element.scrollLeft = 0; });
+      await action.focus();
+      const geometry = await window.evaluate(() => {
+        const wrapper = document.querySelector('.dashboard-recent-table-scroll').getBoundingClientRect();
+        const focused = document.activeElement.getBoundingClientRect();
+        return {
+          scrollLeft: document.querySelector('.dashboard-recent-table-scroll').scrollLeft,
+          left: focused.left,
+          right: focused.right,
+          wrapperLeft: wrapper.left,
+          wrapperRight: wrapper.right,
+        };
+      });
+      assert.ok(geometry.scrollLeft > 0, `Focusing the ${targetDate} action did not scroll its table.`);
+      assert.ok(geometry.left >= geometry.wrapperLeft - 1 && geometry.right <= geometry.wrapperRight + 1,
+        `The ${targetDate} action was not fully visible after keyboard focus.`);
+      await window.keyboard.press('Enter');
+      assert.equal(await window.locator('#history-from-date').inputValue(), targetDate);
+      assert.equal(await window.locator(`#entries-container .btn-edit[data-date="${targetDate}"]`)
+        .evaluate(element => document.activeElement === element), true);
+    }
+
+    await window.setViewportSize({ width: 1024, height: 900 });
+    await window.locator('.dashboard-trend-data').first().evaluate(detail => { detail.open = true; });
+    const cardHeights = await window.locator('.dashboard-trend-card')
+      .evaluateAll(cards => cards.map(card => card.getBoundingClientRect().height));
+    assert.ok(cardHeights[0] > cardHeights[1] && cardHeights[1] === cardHeights[2],
+      `Dashboard trend cards did not retain natural heights: ${cardHeights.join(', ')}`);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: Dashboard keyboard flow and accessibility tree remain complete', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    const entry = { date: localDateKey(0), mood: 4, sleep: 0, water: 0 };
+    await createEntryThroughForm(window, entry);
+    await window.setViewportSize({ width: 320, height: 900 });
+
+    await window.locator('#history-view-calendar').focus();
+    await window.keyboard.press('Tab');
+    assert.equal(await window.evaluate(() => document.activeElement.id), 'history-view-dashboard');
+    const dashboardFocus = await window.locator('#history-view-dashboard').evaluate(element => {
+      const style = getComputedStyle(element);
+      return { style: style.outlineStyle, width: Number.parseFloat(style.outlineWidth) };
+    });
+    assert.notEqual(dashboardFocus.style, 'none');
+    assert.ok(dashboardFocus.width >= 2);
+    await window.keyboard.press('Enter');
+    await window.locator('#history-dashboard-panel').waitFor({ state: 'visible', timeout: 15_000 });
+
+    await window.locator('#history-view-charts').focus();
+    await window.keyboard.press('Space');
+    assert.equal(await window.locator('#history-view-charts').getAttribute('aria-pressed'), 'true');
+    await window.locator('#history-view-dashboard').focus();
+    await window.keyboard.press('Enter');
+    assert.equal(await window.locator('#history-view-dashboard').getAttribute('aria-pressed'), 'true');
+
+    const hiddenViewFocusable = await window.locator('#history-charts-panel').evaluate(panel =>
+      Array.from(panel.querySelectorAll('button, input, select, summary, [tabindex]'))
+        .filter(element => element.getClientRects().length > 0).length
+    );
+    assert.equal(hiddenViewFocusable, 0);
+
+    const chartsShortcut = window.getByRole('button', { name: 'View detailed charts' });
+    await chartsShortcut.focus();
+    await window.keyboard.press('Enter');
+    assert.equal(await window.locator('#history-view-charts').getAttribute('aria-pressed'), 'true');
+    await window.locator('#history-view-dashboard').focus();
+    await window.keyboard.press('Space');
+
+    const historyShortcut = window.getByRole('button', { name: 'View Entry History' });
+    await historyShortcut.focus();
+    await window.keyboard.press('Enter');
+    assert.equal(await window.evaluate(() => document.activeElement.id), 'entries-heading');
+
+    const disclosure = window.locator('.dashboard-trend-data').first();
+    const disclosureSummary = disclosure.locator('summary');
+    await disclosureSummary.focus();
+    await window.keyboard.press('Enter');
+    assert.equal(await disclosure.getAttribute('open'), '');
+    await window.keyboard.press('Space');
+    assert.equal(await disclosure.getAttribute('open'), null);
+
+    const recentScroll = window.locator('.dashboard-recent-table-scroll');
+    await recentScroll.evaluate(element => { element.scrollLeft = 0; });
+    const recentAction = window.getByRole('button', { name: `Show entry for ${entry.date} in History` });
+    await recentAction.focus();
+    const focusedActionGeometry = await window.evaluate(() => {
+      const wrapper = document.querySelector('.dashboard-recent-table-scroll').getBoundingClientRect();
+      const action = document.activeElement.getBoundingClientRect();
+      return {
+        scrollLeft: document.querySelector('.dashboard-recent-table-scroll').scrollLeft,
+        actionLeft: action.left,
+        actionRight: action.right,
+        wrapperLeft: wrapper.left,
+        wrapperRight: wrapper.right,
+        viewportWidth: document.documentElement.clientWidth,
+        documentWidth: document.documentElement.scrollWidth,
+      };
+    });
+    assert.ok(focusedActionGeometry.scrollLeft > 0);
+    assert.ok(focusedActionGeometry.actionLeft >= focusedActionGeometry.wrapperLeft - 1);
+    assert.ok(focusedActionGeometry.actionRight <= focusedActionGeometry.wrapperRight + 1);
+    assert.ok(focusedActionGeometry.documentWidth <= focusedActionGeometry.viewportWidth);
+    await window.keyboard.press('Enter');
+    assert.equal(await window.locator(`#entries-container .btn-edit[data-date="${entry.date}"]`)
+      .evaluate(element => document.activeElement === element), true);
+
+    await disclosure.evaluate(detail => { detail.open = true; });
+
+    const cdp = await window.context().newCDPSession(window);
+    await cdp.send('Accessibility.enable');
+    const tree = await cdp.send('Accessibility.getFullAXTree');
+    const accessibleNodes = tree.nodes.filter(node => !node.ignored).map(node => ({
+      role: node.role && node.role.value,
+      name: node.name && node.name.value,
+      description: node.description && node.description.value,
+    }));
+    const hasAccessibleNode = (role, text) => accessibleNodes.some(node =>
+      node.role === role && ((node.name || '') + ' ' + (node.description || '')).includes(text)
+    );
+    assert.equal(hasAccessibleNode('group', 'History and Trends view'), true);
+    assert.equal(hasAccessibleNode('button', 'Dashboard'), true);
+    assert.equal(hasAccessibleNode('heading', 'Personal dashboard'), true);
+    assert.equal(hasAccessibleNode('image', 'Mood dashboard trend'), true);
+    assert.equal(hasAccessibleNode('image', 'Sleep dashboard trend'), true);
+    assert.equal(hasAccessibleNode('image', 'Water dashboard trend'), true);
+    assert.equal(hasAccessibleNode('table', 'Mood values for the dashboard reporting period'), true);
+    assert.equal(hasAccessibleNode('table', 'Entries saved during the dashboard reporting period'), true);
+    assert.equal(hasAccessibleNode('button', `Show entry for ${entry.date} in History`), true);
+    assert.ok(accessibleNodes.some(node => (node.name || '').includes('Most recent seven calendar days ending today')));
+    assert.ok(accessibleNodes.some(node => (node.name || '').includes('Entry saved for today')));
+    await cdp.detach();
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
 test('Electron E2E: explores single-period daily and aggregated chart points', { timeout: 75_000 }, async () => {
   const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
   const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);

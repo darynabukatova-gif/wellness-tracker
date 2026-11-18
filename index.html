@@ -202,6 +202,14 @@
           aria-pressed="true"
           aria-controls="history-calendar-panel"
         >Calendar</button>
+        <button
+          type="button"
+          id="history-view-dashboard"
+          class="history-view-btn"
+          data-history-view="dashboard"
+          aria-pressed="false"
+          aria-controls="history-dashboard-panel"
+        >Dashboard</button>
       </div>
 
       <div id="history-charts-panel" hidden>
@@ -346,6 +354,10 @@
         </div>
         <div id="calendar-grid" class="calendar-grid" aria-label="Monthly wellness calendar"></div>
         <div id="calendar-details" class="calendar-details" aria-live="polite"></div>
+      </div>
+
+      <div id="history-dashboard-panel" hidden>
+        <div id="dashboard-container"></div>
       </div>
     </section>
 

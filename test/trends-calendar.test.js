@@ -21,6 +21,7 @@ const {
   comparePeriodStatistics,
   buildTrendSeries,
   buildTrendSeriesForRange,
+  buildDashboardModel,
   buildMonthComparisonSeries,
   buildYearComparisonSeries,
   buildAggregatedYearSeries,
@@ -797,6 +798,161 @@ test('buildTrendSeriesForRange supports historical ranges, gaps, zeroes, and doe
   assert.equal(JSON.stringify(entries), original);
   assert.throws(
     () => buildTrendSeriesForRange(entries, 'mood', '2020-01-05', '2020-01-01'),
+    error => error.name === 'RangeError'
+  );
+});
+
+test('buildDashboardModel reuses period statistics and daily trend semantics for a partial week', () => {
+  const entries = [
+    entry('2025-03-08', 4, 8, 2),
+    entry('2025-03-03', 3, 6, 1.5),
+    entry('2025-02-28', 2, 7, 1),
+    entry('2025-03-07', 5, 0, 0),
+    entry('2025-03-01', 1, 9, 3),
+  ];
+  const original = JSON.stringify(entries);
+  const model = buildDashboardModel(entries, '2025-03-07');
+
+  assert.deepEqual(JSON.parse(JSON.stringify(model.reportingRange)), {
+    startDate: '2025-03-01', endDate: '2025-03-07', calendarDayCount: 7,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(model.activity)), {
+    recordedDayCount: 3, unrecordedDayCount: 4,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(model.today)), {
+    date: '2025-03-07', hasEntry: true,
+  });
+  assert.equal(model.statistics.metrics.mood.average, 3);
+  assert.equal(model.statistics.metrics.sleep.average, 5);
+  assert.equal(model.statistics.metrics.water.average, 1.5);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(model.statistics)),
+    JSON.parse(JSON.stringify(calculatePeriodStatistics(entries, '2025-03-01', '2025-03-07')))
+  );
+  ['mood', 'sleep', 'water'].forEach(metric => {
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(model.trends[metric])),
+      JSON.parse(JSON.stringify(buildTrendSeriesForRange(
+        entries, metric, '2025-03-01', '2025-03-07'
+      )))
+    );
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(model.trends.sleep.points)), [
+    { date: '2025-03-01', value: 9 },
+    { date: '2025-03-02', value: null },
+    { date: '2025-03-03', value: 6 },
+    { date: '2025-03-04', value: null },
+    { date: '2025-03-05', value: null },
+    { date: '2025-03-06', value: null },
+    { date: '2025-03-07', value: 0 },
+  ]);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(model.recentEntries.map(item => item.date))),
+    ['2025-03-07', '2025-03-03', '2025-03-01']
+  );
+
+  model.recentEntries[0].mood = 1;
+  model.trends.mood.points[0].value = 99;
+  assert.equal(JSON.stringify(entries), original);
+});
+
+test('buildDashboardModel crosses calendar months, years, and leap day correctly', () => {
+  const yearBoundary = buildDashboardModel([
+    entry('2024-12-28', 2, 7, 1),
+    entry('2025-01-03', 4, 8, 2),
+  ], '2025-01-03');
+  assert.equal(yearBoundary.reportingRange.startDate, '2024-12-28');
+  assert.equal(yearBoundary.reportingRange.endDate, '2025-01-03');
+  assert.equal(yearBoundary.activity.recordedDayCount, 2);
+  assert.equal(yearBoundary.trends.mood.points[0].date, '2024-12-28');
+  assert.equal(yearBoundary.trends.mood.points.at(-1).date, '2025-01-03');
+
+  const leapBoundary = buildDashboardModel([
+    entry('2024-02-29', 5, 0, 0),
+  ], '2024-03-03');
+  assert.equal(leapBoundary.reportingRange.startDate, '2024-02-26');
+  assert.deepEqual(JSON.parse(JSON.stringify(leapBoundary.trends.water.points[3])), {
+    date: '2024-02-29', value: 0,
+  });
+  assert.equal(leapBoundary.statistics.metrics.sleep.average, 0);
+});
+
+test('buildDashboardModel clamps only at the lower supported date boundary', () => {
+  const lower = buildDashboardModel([
+    entry('0000-01-03', 4, 0, 0),
+    entry('0000-01-01', 2, 6, 1),
+  ], '0000-01-03');
+  assert.deepEqual(JSON.parse(JSON.stringify(lower.reportingRange)), {
+    startDate: '0000-01-01', endDate: '0000-01-03', calendarDayCount: 3,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(lower.activity)), {
+    recordedDayCount: 2, unrecordedDayCount: 1,
+  });
+
+  const upper = buildDashboardModel([
+    entry('9999-12-31', 5, 8, 2.5),
+  ], '9999-12-31');
+  assert.equal(upper.reportingRange.startDate, '9999-12-25');
+  assert.equal(upper.reportingRange.endDate, '9999-12-31');
+  assert.equal(upper.today.hasEntry, true);
+});
+
+test('buildDashboardModel distinguishes empty, absent, one-day, and complete coverage', () => {
+  const empty = buildDashboardModel([], '2026-11-18');
+  assert.equal(empty.activity.recordedDayCount, 0);
+  assert.equal(empty.activity.unrecordedDayCount, 7);
+  assert.equal(empty.today.hasEntry, false);
+  assert.equal(empty.statistics.metrics.mood.average, null);
+  assert.ok(empty.trends.water.points.every(point => point.value === null));
+  assert.deepEqual(JSON.parse(JSON.stringify(empty.recentEntries)), []);
+
+  const outsideOnly = buildDashboardModel([
+    entry('2026-11-11', 2, 7, 1),
+    entry('2026-11-19', 5, 9, 2.5),
+  ], '2026-11-18');
+  assert.equal(outsideOnly.activity.recordedDayCount, 0);
+  assert.equal(outsideOnly.today.hasEntry, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(outsideOnly.recentEntries)), []);
+
+  const oneDay = buildDashboardModel([
+    entry('2026-11-18', 3, 0, 0),
+  ], '2026-11-18');
+  assert.equal(oneDay.activity.recordedDayCount, 1);
+  assert.equal(oneDay.activity.unrecordedDayCount, 6);
+  assert.equal(oneDay.today.hasEntry, true);
+  assert.equal(oneDay.statistics.metrics.sleep.average, 0);
+  assert.equal(oneDay.statistics.metrics.water.average, 0);
+
+  const allDates = Array.from({ length: 7 }, (_, index) =>
+    entry(addCalendarDays('2026-11-12', index), (index % 5) + 1, index * 0.5, index * 0.1)
+  ).reverse();
+  const complete = buildDashboardModel(allDates, '2026-11-18');
+  assert.equal(complete.activity.recordedDayCount, 7);
+  assert.equal(complete.activity.unrecordedDayCount, 0);
+  assert.equal(complete.recentEntries.length, 7);
+  assert.equal(complete.recentEntries[0].date, '2026-11-18');
+  assert.equal(complete.recentEntries.at(-1).date, '2026-11-12');
+});
+
+test('buildDashboardModel rejects invalid dates and saved-entry collections', () => {
+  const valid = [entry('2026-11-18', 3, 7, 1.5)];
+  assert.throws(
+    () => buildDashboardModel(null, '2026-11-18'),
+    error => error.name === 'TypeError'
+  );
+  assert.throws(
+    () => buildDashboardModel(valid, '2026-02-30'),
+    error => error.name === 'RangeError'
+  );
+  assert.throws(
+    () => buildDashboardModel([entry('2026-02-30', 3, 7, 1.5)], '2026-11-18'),
+    error => error.name === 'RangeError'
+  );
+  assert.throws(
+    () => buildDashboardModel([
+      entry('2026-11-18', 3, 7, 1.5),
+      entry('2026-11-18', 4, 8, 2),
+    ], '2026-11-18'),
     error => error.name === 'RangeError'
   );
 });

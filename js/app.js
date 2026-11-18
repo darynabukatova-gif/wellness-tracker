@@ -1397,10 +1397,11 @@
     function renderHistoryTrendsForCurrentState() {
       clearTrendPointSelections();
       const chartDisplay = getActiveTrendDisplay();
+      const today = localDateString(new Date());
       renderHistoryTrends(entries, {
         activeView: historyView,
         trendDayCount,
-        trendEndDate: localDateString(new Date()),
+        trendEndDate: today,
         trendMode,
         customTrendType,
         customTrendDraftStart,
@@ -1424,13 +1425,25 @@
         chartDisplay,
         statisticsDisplay: getActiveTrendStatistics(chartDisplay),
         calendar: getCalendarRenderState(false),
+        dashboardModel: historyView === 'dashboard'
+          ? buildDashboardModel(entries, today)
+          : null,
       });
     }
 
     function setHistoryView(view) {
-      if (view !== 'charts' && view !== 'calendar') return;
+      if (view !== 'charts' && view !== 'calendar' && view !== 'dashboard') return;
       historyView = view;
       renderHistoryTrendsForCurrentState();
+    }
+
+    function showEntryHistorySection() {
+      const section = document.getElementById('entries-section');
+      const heading = document.getElementById('entries-heading');
+      if (section && typeof section.scrollIntoView === 'function') {
+        section.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      }
+      if (heading && typeof heading.focus === 'function') heading.focus();
     }
 
     function setTrendDayCount(dayCount) {
@@ -2125,9 +2138,12 @@
       const point = event.target.closest('[data-interactive-point="true"]');
       const explorer = event.target.closest('.trend-chart-explorer');
       const historyAction = event.target.closest('.trend-point-history-action');
+      const dashboardHistoryAction = event.target.closest('.dashboard-history-action');
+      const dashboardShortcut = event.target.closest('.dashboard-shortcut');
       const tooltip = event.target.closest('.trend-point-tooltip');
       const seriesSelect = event.target.closest('.trend-comparison-series-select');
-      if (!point && !explorer && !historyAction && !tooltip && !seriesSelect) {
+      if (!point && !explorer && !historyAction && !dashboardHistoryAction &&
+          !dashboardShortcut && !tooltip && !seriesSelect) {
         closePinnedTrendTooltips();
       }
 
@@ -2146,6 +2162,23 @@
         const result = showEntryInHistory(historyAction.dataset.historyDate);
         if (!result.ok && typeof showAppError === 'function') {
           showAppError('That entry is no longer available in Entry History.');
+        }
+        return;
+      }
+
+      if (dashboardHistoryAction) {
+        const result = showEntryInHistory(dashboardHistoryAction.dataset.historyDate);
+        if (!result.ok && typeof showAppError === 'function') {
+          showAppError('That entry is no longer available in Entry History.');
+        }
+        return;
+      }
+
+      if (dashboardShortcut) {
+        if (dashboardShortcut.dataset.dashboardAction === 'charts') {
+          setHistoryView('charts');
+        } else if (dashboardShortcut.dataset.dashboardAction === 'history') {
+          showEntryHistorySection();
         }
         return;
       }
