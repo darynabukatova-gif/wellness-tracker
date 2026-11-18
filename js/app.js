@@ -44,6 +44,7 @@
     const HISTORY_PAGE_SIZE = 25;
     const selectedTrendPoints = { mood: null, sleep: null, water: null };
     let pendingImport = null;
+    let pendingMergePreview = null;
     let importReading = false;
     let pendingUndoEntry = null;
     const MAX_BACKUP_FILE_BYTES = 5 * 1024 * 1024;
@@ -259,10 +260,22 @@
       selectTrendPoint(point, false);
     }
 
+    function isWithinTrendPointInteraction(target, metric) {
+      if (!target || typeof target.closest !== 'function') return false;
+      const point = target.closest('[data-interactive-point="true"]');
+      if (point && point.dataset.metric === metric) return true;
+      const tooltip = target.closest('.trend-point-tooltip');
+      return Boolean(tooltip && tooltip.dataset.metric === metric);
+    }
+
     function handleHistoryTrendsPointerOut(event) {
       const point = event.target.closest('[data-interactive-point="true"]');
-      if (!point) return;
-      hideTrendPointTooltip(point.dataset.metric);
+      const tooltip = event.target.closest('.trend-point-tooltip');
+      const metric = point
+        ? point.dataset.metric
+        : (tooltip ? tooltip.dataset.metric : null);
+      if (!metric || isWithinTrendPointInteraction(event.relatedTarget, metric)) return;
+      hideTrendPointTooltip(metric);
     }
 
     function getStorageAdapter() {
@@ -301,6 +314,8 @@
       [
         '#entry-date', '#save-btn', '#cancel-edit-btn', '#erase-all-btn',
         '#export-backup-btn', '#import-backup-btn', '#import-backup-input',
+        '#preview-merge-backup-btn', '#merge-backup-input', '#merge-backup-btn', '#cancel-merge-preview-btn',
+        '#merge-keep-all-existing-btn', '#merge-use-all-backup-btn',
         '#entry-sleep', '#entry-water', '#sleep-minus', '#sleep-plus',
         '#water-minus', '#water-plus', '#copy-previous-values-btn',
         '#edit-existing-entry-btn', '#undo-delete-btn'
@@ -320,6 +335,40 @@
       const replaceImportButton = document.getElementById('replace-import-btn');
       if (replaceImportButton) {
         replaceImportButton.disabled = !pendingImport || busy || locked || importReading;
+      }
+      const mergeButton = document.getElementById('merge-backup-btn');
+      const cancelMergeButton = document.getElementById('cancel-merge-preview-btn');
+      if (mergeButton) {
+        let mergeCandidate = null;
+        if (pendingMergePreview && !disabled) {
+          try {
+            mergeCandidate = buildBackupMergeCandidate(
+              entries,
+              pendingMergePreview.backup.entries,
+              pendingMergePreview.conflictResolutions
+            );
+          } catch (error) {
+            mergeCandidate = null;
+          }
+        }
+        mergeButton.disabled = !mergeCandidate || !mergeCandidate.ok || disabled;
+      }
+      if (cancelMergeButton) {
+        cancelMergeButton.disabled = !pendingMergePreview || busy || locked || importReading;
+      }
+      const previousMergePageButton = document.getElementById('merge-preview-new-prev');
+      const nextMergePageButton = document.getElementById('merge-preview-new-next');
+      if (pendingMergePreview && !disabled) {
+        const pageState = paginateEntries(
+          pendingMergePreview.analysis.newEntries,
+          pendingMergePreview.newEntriesPage,
+          25
+        );
+        if (previousMergePageButton) previousMergePageButton.disabled = !pageState.hasPreviousPage;
+        if (nextMergePageButton) nextMergePageButton.disabled = !pageState.hasNextPage;
+      } else {
+        if (previousMergePageButton) previousMergePageButton.disabled = true;
+        if (nextMergePageButton) nextMergePageButton.disabled = true;
       }
       if (!disabled) {
         updateSleepControl();
@@ -686,6 +735,7 @@
         }
         entries = candidate.entries;
         pendingUndoEntry = null;
+        invalidateMergePreview();
         render();
         showUndoStatus('Entry for ' + restoredDate + ' restored.', false);
         restored = true;
@@ -715,6 +765,13 @@
 
     function clearBackupStatus() {
       document.getElementById('backup-status').textContent = '';
+    }
+
+    function invalidateMergePreview() {
+      if (!pendingMergePreview) return;
+      pendingMergePreview = null;
+      renderMergePreview(null);
+      showBackupStatus('Merge preview closed because saved entries changed.');
     }
 
     function handleExportBackup() {
@@ -787,6 +844,21 @@
       preview.hidden = false;
     }
 
+    function readBackupFile(file) {
+      if (typeof file.size === 'number' && file.size > MAX_BACKUP_FILE_BYTES) {
+        return Promise.resolve({ ok: false, error: 'Backup file is too large. Choose a JSON backup smaller than 5 MiB.' });
+      }
+      if (typeof file.text !== 'function') {
+        return Promise.resolve({ ok: false, error: 'This browser cannot read the selected backup file.' });
+      }
+      return file.text().then(function (text) {
+        const result = parseBackupDocument(text);
+        return result.ok ? result : { ok: false, error: 'Could not validate the backup file: ' + result.error };
+      }).catch(function () {
+        return { ok: false, error: 'Could not read the selected backup file. Your saved entries have not changed.' };
+      });
+    }
+
     function handleImportBackup() {
       if (isMutationBlocked()) return;
       clearBackupError();
@@ -807,26 +879,14 @@
         resetImportFileInput();
         return;
       }
-      if (typeof file.size === 'number' && file.size > MAX_BACKUP_FILE_BYTES) {
-        showBackupError('Backup file is too large. Choose a JSON backup smaller than 5 MiB.');
-        resetImportFileInput();
-        return;
-      }
-      if (typeof file.text !== 'function') {
-        showBackupError('This browser cannot read the selected backup file.');
-        resetImportFileInput();
-        return;
-      }
-
       importReading = true;
       clearBackupError();
       clearBackupStatus();
       updateMutatingControls();
       try {
-        const text = await file.text();
-        const result = parseBackupDocument(text);
+        const result = await readBackupFile(file);
         if (!result.ok) {
-          showBackupError('Could not validate the backup file: ' + result.error);
+          showBackupError(result.error);
           return;
         }
         if (locked || busy || pendingImport !== null) return;
@@ -838,6 +898,210 @@
         importReading = false;
         resetImportFileInput();
         updateMutatingControls();
+      }
+    }
+
+    function handlePreviewMergeBackup() {
+      if (isMutationBlocked()) return;
+      clearBackupError();
+      clearBackupStatus();
+      const input = document.getElementById('merge-backup-input');
+      input.value = '';
+      input.click();
+    }
+
+    function getCommittedEntriesSignature(sourceEntries) {
+      return JSON.stringify(sortByDateDesc(copyImportedEntries(sourceEntries)));
+    }
+
+    function renderCurrentMergePreview() {
+      if (!pendingMergePreview) {
+        renderMergePreview(null);
+        return;
+      }
+      let candidate = null;
+      const newEntriesPagination = paginateEntries(
+        pendingMergePreview.analysis.newEntries,
+        pendingMergePreview.newEntriesPage,
+        25
+      );
+      pendingMergePreview.newEntriesPage = newEntriesPagination.page;
+      try {
+        candidate = buildBackupMergeCandidate(
+          entries,
+          pendingMergePreview.backup.entries,
+          pendingMergePreview.conflictResolutions
+        );
+      } catch (error) {
+        candidate = null;
+      }
+      renderMergePreview(
+        pendingMergePreview.analysis,
+        pendingMergePreview.backup.exportedAt,
+        pendingMergePreview.conflictResolutions,
+        candidate,
+        newEntriesPagination
+      );
+    }
+
+    async function handleMergeBackupFileChange(event) {
+      const input = event.target;
+      const file = input && input.files ? input.files[0] : null;
+      if (!file) return;
+      if (isMutationBlocked()) {
+        input.value = '';
+        return;
+      }
+
+      importReading = true;
+      clearBackupError();
+      clearBackupStatus();
+      updateMutatingControls();
+      try {
+        const result = await readBackupFile(file);
+        if (!result.ok) {
+          showBackupError(result.error);
+          return;
+        }
+        if (locked || busy) return;
+        pendingMergePreview = {
+          backup: result.backup,
+          analysis: analyzeBackupMerge(entries, result.backup.entries),
+          conflictResolutions: {},
+          currentEntriesSnapshot: copyImportedEntries(entries),
+          newEntriesPage: 1,
+        };
+        renderCurrentMergePreview();
+      } catch (error) {
+        showBackupError('Could not prepare the merge preview. Your saved entries have not changed.');
+      } finally {
+        importReading = false;
+        input.value = '';
+        updateMutatingControls();
+      }
+    }
+
+    function handleCancelMergePreview() {
+      if (!pendingMergePreview || busy || locked || importReading) return;
+      pendingMergePreview = null;
+      renderMergePreview(null);
+      clearBackupError();
+      clearBackupStatus();
+      document.getElementById('merge-backup-input').value = '';
+      document.getElementById('preview-merge-backup-btn').focus();
+    }
+
+    function handleMergeResolutionChange(event) {
+      if (!pendingMergePreview || isMutationBlocked()) return;
+      const input = event.target.closest('input[data-merge-conflict-date]');
+      if (!input || !input.dataset.mergeConflictDate) return;
+      pendingMergePreview.conflictResolutions[input.dataset.mergeConflictDate] = input.value;
+      renderCurrentMergePreview();
+    }
+
+    function handleMergeBulkResolution(event) {
+      if (!pendingMergePreview || isMutationBlocked()) return false;
+      const button = event.target.closest('button[data-merge-bulk-resolution]');
+      if (!button) return false;
+      const resolution = button.dataset.mergeBulkResolution;
+      if (resolution !== 'keep-existing' && resolution !== 'use-backup') return false;
+      pendingMergePreview.analysis.conflicts.forEach(function (conflict) {
+        pendingMergePreview.conflictResolutions[conflict.date] = resolution;
+      });
+      renderCurrentMergePreview();
+      return true;
+    }
+
+    function handleMergePreviewClick(event) {
+      if (!pendingMergePreview || isMutationBlocked()) return;
+      if (handleMergeBulkResolution(event)) return;
+      const pageButton = event.target.closest('[data-merge-new-page]');
+      if (!pageButton) return;
+      const currentPage = pendingMergePreview.newEntriesPage;
+      pendingMergePreview.newEntriesPage = pageButton.dataset.mergeNewPage === 'next'
+        ? currentPage + 1 : currentPage - 1;
+      renderCurrentMergePreview();
+    }
+
+    async function handleMergeBackup() {
+      if (busy || locked || importReading || !pendingMergePreview || !storageAdapter) return;
+
+      const previewAtConfirmation = pendingMergePreview;
+      const currentSignature = getCommittedEntriesSignature(entries);
+      const previewSignature = getCommittedEntriesSignature(previewAtConfirmation.currentEntriesSnapshot);
+      if (currentSignature !== previewSignature) {
+        previewAtConfirmation.analysis = analyzeBackupMerge(entries, previewAtConfirmation.backup.entries);
+        previewAtConfirmation.conflictResolutions = {};
+        previewAtConfirmation.currentEntriesSnapshot = copyImportedEntries(entries);
+        renderCurrentMergePreview();
+        showBackupError('Saved entries changed while this preview was open. Review the refreshed merge preview before continuing.');
+        return;
+      }
+
+      setBusyState(true);
+      let merged = false;
+      try {
+        let candidate = buildBackupMergeCandidate(
+          entries,
+          previewAtConfirmation.backup.entries,
+          previewAtConfirmation.conflictResolutions
+        );
+        if (!candidate.ok) {
+          showBackupError('Resolve every backup conflict before merging.');
+          return;
+        }
+        const validationError = validateStoredEntries(candidate.entries);
+        if (validationError) {
+          showBackupError('The merge candidate is invalid: ' + validationError);
+          return;
+        }
+        if (!candidate.hasChanges) {
+          pendingMergePreview = null;
+          renderMergePreview(null);
+          clearBackupError();
+          showBackupStatus('No changes needed. Your saved entries already match the selected merge choices.');
+          return;
+        }
+
+        if (candidate.counts.replaced > 0 && !window.confirm(
+          'Merge this backup and replace ' + candidate.counts.replaced +
+          ' existing ' + (candidate.counts.replaced === 1 ? 'entry' : 'entries') +
+          ' with the explicitly selected backup values? New entries will be added and unrelated entries will remain.'
+        )) return;
+
+        // Reconstruct immediately after confirmation so the persisted
+        // candidate is still derived from the current committed collection.
+        candidate = buildBackupMergeCandidate(
+          entries,
+          previewAtConfirmation.backup.entries,
+          previewAtConfirmation.conflictResolutions
+        );
+        if (!candidate.ok) {
+          showBackupError('Saved entries changed while this merge was being confirmed. Review the refreshed preview.');
+          return;
+        }
+
+        const saved = await storageAdapter.saveEntries(candidate.entries);
+        if (!saved || !saved.ok) {
+          showBackupError('Could not merge the backup — storage may be unavailable. Your saved entries have not changed.');
+          return;
+        }
+
+        entries = candidate.entries;
+        pendingUndoEntry = null;
+        pendingMergePreview = null;
+        renderMergePreview(null);
+        clearUndoStatus();
+        clearBackupError();
+        render();
+        showBackupStatus('Backup merged. Added ' + candidate.counts.added + ', replaced ' +
+          candidate.counts.replaced + ', and kept ' + candidate.counts.unchanged + ' unchanged.');
+        merged = true;
+      } catch (error) {
+        showBackupError('Could not merge the backup — storage may be unavailable. Your saved entries have not changed.');
+      } finally {
+        setBusyState(false);
+        if (merged) document.getElementById('preview-merge-backup-btn').focus();
       }
     }
 
@@ -901,6 +1165,7 @@
 
         entries = candidate;
         pendingUndoEntry = null;
+        invalidateMergePreview();
         clearUndoStatus();
         pendingImport = null;
         resetImportFileInput();
@@ -2231,11 +2496,28 @@
       document.getElementById('import-backup-input')
         .addEventListener('change', handleImportFileChange);
 
+      document.getElementById('preview-merge-backup-btn')
+        .addEventListener('click', handlePreviewMergeBackup);
+
+      document.getElementById('merge-backup-input')
+        .addEventListener('change', handleMergeBackupFileChange);
+
+      document.getElementById('merge-preview')
+        .addEventListener('change', handleMergeResolutionChange);
+      document.getElementById('merge-preview')
+        .addEventListener('click', handleMergePreviewClick);
+
       document.getElementById('cancel-import-btn')
         .addEventListener('click', handleCancelImport);
 
       document.getElementById('replace-import-btn')
         .addEventListener('click', handleReplaceImport);
+
+      document.getElementById('cancel-merge-preview-btn')
+        .addEventListener('click', handleCancelMergePreview);
+
+      document.getElementById('merge-backup-btn')
+        .addEventListener('click', handleMergeBackup);
 
       document.getElementById('entry-sleep').addEventListener('input', function () {
         if (isMutationBlocked()) return;
@@ -2351,6 +2633,7 @@
           }
 
           entries = updated;
+          invalidateMergePreview();
           exitEditMode();
           render();
           focusEditedEntry = true;
@@ -2408,6 +2691,7 @@
         }
 
         entries = updated;
+        invalidateMergePreview();
         clearFormError();
         event.target.reset();
         document.getElementById('entry-date').value = localDateString(new Date());
@@ -2498,6 +2782,7 @@
         }
         entries = updated;
         pendingUndoEntry = deletedEntry;
+        invalidateMergePreview();
         clearTableError();
         if (editingDate === dateToDelete) exitEditMode();
         render();
@@ -2549,6 +2834,7 @@
 
         entries = [];
         pendingUndoEntry = null;
+        invalidateMergePreview();
         clearUndoStatus();
         clearTableError();
         exitEditMode();

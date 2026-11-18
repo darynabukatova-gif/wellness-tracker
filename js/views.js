@@ -44,6 +44,184 @@
       }
     }
 
+    function formatMergeMetricValue(metric, value) {
+      if (metric === 'sleep') return String(value) + ' h';
+      if (metric === 'water') return String(value) + ' L';
+      return String(value);
+    }
+
+    /**
+     * renderMergePreview(analysis, exportedAt, conflictResolutions, candidate, newEntriesPagination)
+     *
+     * Renders only the supplied, read-only backup merge analysis. It does not
+     * choose conflict values, construct a merged collection, or access state.
+     */
+    function renderMergePreview(analysis, exportedAt, conflictResolutions, candidate, newEntriesPagination) {
+      const preview = document.getElementById('merge-preview');
+      if (!preview) return;
+      conflictResolutions = conflictResolutions || {};
+      const summary = document.getElementById('merge-preview-summary');
+      const dateRange = document.getElementById('merge-preview-date-range');
+      const exportedAtElement = document.getElementById('merge-preview-exported-at');
+      const newEmpty = document.getElementById('merge-preview-new-empty');
+      const newScroll = document.getElementById('merge-preview-new-scroll');
+      const newBody = document.querySelector('#merge-preview-new-table tbody');
+      const newPagination = document.getElementById('merge-preview-new-pagination');
+      const newPageSummary = document.getElementById('merge-preview-new-page-summary');
+      const newPageStatus = document.getElementById('merge-preview-new-page-status');
+      const newPrevious = document.getElementById('merge-preview-new-prev');
+      const newNext = document.getElementById('merge-preview-new-next');
+      const identicalHeading = document.getElementById('merge-preview-identical-heading');
+      const identicalList = document.getElementById('merge-preview-identical-list');
+      const conflictsEmpty = document.getElementById('merge-preview-conflicts-empty');
+      const conflictScroll = document.getElementById('merge-preview-conflicts-scroll');
+      const conflictBody = document.querySelector('#merge-preview-conflicts-table tbody');
+      const bulkControls = document.getElementById('merge-preview-bulk-controls');
+      const conflictControls = document.getElementById('merge-preview-conflict-controls');
+      const resolutionStatus = document.getElementById('merge-preview-resolution-status');
+      const finalSummary = document.getElementById('merge-preview-final-summary');
+      const mergeButton = document.getElementById('merge-backup-btn');
+
+      if (!analysis) {
+        preview.hidden = true;
+        summary.textContent = '';
+        dateRange.textContent = '';
+        exportedAtElement.textContent = '';
+        newBody.replaceChildren();
+        conflictBody.replaceChildren();
+        bulkControls.hidden = true;
+        conflictControls.replaceChildren();
+        resolutionStatus.textContent = '';
+        finalSummary.textContent = '';
+        mergeButton.disabled = true;
+        newPagination.hidden = true;
+        newPageSummary.textContent = '';
+        newPageStatus.textContent = '';
+        return;
+      }
+
+      preview.hidden = false;
+      summary.textContent = 'Backup contains ' + analysis.totalImportedCount + ' ' +
+        (analysis.totalImportedCount === 1 ? 'entry' : 'entries') + ': ' +
+        analysis.counts.new + ' new, ' + analysis.counts.identical + ' identical, and ' +
+        analysis.counts.conflicting + ' conflicting.';
+      dateRange.textContent = analysis.importedDateRange
+        ? 'Imported date range: ' + analysis.importedDateRange.startDate + ' to ' + analysis.importedDateRange.endDate + '.'
+        : 'The backup contains no dates.';
+      exportedAtElement.textContent = exportedAt ? 'Backup exported at ' + exportedAt + '.' : '';
+
+      newBody.replaceChildren();
+      const page = newEntriesPagination || paginateEntries(analysis.newEntries, 1, 25);
+      const visibleNewEntries = page.entries;
+      visibleNewEntries.forEach(function (entry) {
+        const row = document.createElement('tr');
+        [entry.date, String(entry.mood), formatMergeMetricValue('sleep', entry.sleep),
+          formatMergeMetricValue('water', entry.water)].forEach(function (value) {
+          const cell = document.createElement('td');
+          cell.textContent = value;
+          row.appendChild(cell);
+        });
+        newBody.appendChild(row);
+      });
+      newScroll.hidden = analysis.newEntries.length === 0;
+      newEmpty.textContent = analysis.newEntries.length === 0
+        ? 'No new entries would be added.'
+        : '';
+      newPagination.hidden = page.totalPages <= 1;
+      if (page.totalEntries > 0) {
+        const firstItem = ((page.page - 1) * page.pageSize) + 1;
+        const lastItem = firstItem + page.entries.length - 1;
+        newPageSummary.textContent = 'Showing ' + firstItem + '–' + lastItem +
+          ' of ' + page.totalEntries + ' new entries.';
+      } else {
+        newPageSummary.textContent = '';
+      }
+      newPageStatus.textContent = page.totalPages > 1
+        ? 'Page ' + page.page + ' of ' + page.totalPages
+        : '';
+      newPrevious.disabled = !page.hasPreviousPage;
+      newNext.disabled = !page.hasNextPage;
+
+      identicalHeading.textContent = 'Identical entries (' + analysis.counts.identical + ')';
+      identicalList.textContent = analysis.identicalEntries.length === 0
+        ? 'No identical entries.'
+        : analysis.identicalEntries.map(function (entry) { return entry.date; }).join(', ');
+
+      conflictBody.replaceChildren();
+      analysis.conflicts.forEach(function (conflict) {
+        ['mood', 'sleep', 'water'].forEach(function (metric) {
+          const row = document.createElement('tr');
+          const values = [
+            conflict.date,
+            metric.charAt(0).toUpperCase() + metric.slice(1),
+            formatMergeMetricValue(metric, conflict.existingEntry[metric]),
+            formatMergeMetricValue(metric, conflict.importedEntry[metric]),
+          ];
+          values.forEach(function (value) {
+            const cell = document.createElement('td');
+            cell.textContent = value;
+            row.appendChild(cell);
+          });
+          conflictBody.appendChild(row);
+        });
+      });
+      conflictScroll.hidden = analysis.conflicts.length === 0;
+      bulkControls.hidden = analysis.conflicts.length === 0;
+      conflictsEmpty.textContent = analysis.conflicts.length === 0
+        ? 'No conflicting entries require a decision.'
+        : 'Both saved and backup values are shown. No version has been selected.';
+
+      conflictControls.replaceChildren();
+      analysis.conflicts.forEach(function (conflict) {
+        const fieldset = document.createElement('fieldset');
+        fieldset.className = 'merge-conflict-choice';
+        const legend = document.createElement('legend');
+        legend.textContent = 'Resolution for ' + conflict.date;
+        fieldset.appendChild(legend);
+
+        [['keep-existing', 'Keep existing saved values'], ['use-backup', 'Use backup values']]
+          .forEach(function (choice, index) {
+            const id = 'merge-conflict-' + conflict.date + '-' + index;
+            const label = document.createElement('label');
+            const input = document.createElement('input');
+            input.type = 'radio';
+            input.name = 'merge-conflict-' + conflict.date;
+            input.id = id;
+            input.value = choice[0];
+            input.dataset.mergeConflictDate = conflict.date;
+            input.checked = conflictResolutions[conflict.date] === choice[0];
+            label.htmlFor = id;
+            label.appendChild(input);
+            const text = document.createElement('span');
+            text.textContent = choice[1];
+            label.appendChild(text);
+            fieldset.appendChild(label);
+          });
+        conflictControls.appendChild(fieldset);
+      });
+
+      const resolvedCount = analysis.conflicts.filter(function (conflict) {
+        return conflictResolutions[conflict.date] === 'keep-existing' ||
+          conflictResolutions[conflict.date] === 'use-backup';
+      }).length;
+      resolutionStatus.textContent = analysis.conflicts.length === 0
+        ? 'No conflicts need resolution.'
+        : resolvedCount + ' of ' + analysis.conflicts.length + ' conflicts resolved.';
+      if (!candidate || !candidate.ok) {
+        finalSummary.textContent = analysis.conflicts.length === 0
+          ? 'The merge is ready to review.'
+          : 'Resolve every conflict before confirming the merge.';
+        mergeButton.disabled = true;
+      } else {
+        finalSummary.textContent = 'Merge summary: add ' + candidate.counts.added +
+          ' new entries, leave ' + candidate.counts.identical + ' identical entries unchanged, keep ' +
+          candidate.counts.keptExisting + ' conflicting entries, and replace ' +
+          candidate.counts.replaced + ' conflicting entries, for ' + candidate.entries.length +
+          ' entries total. Unrelated existing entries remain.';
+        mergeButton.disabled = false;
+      }
+    }
+
     /**
      * renderTable(historyState)
      *
@@ -383,6 +561,7 @@
       details.id = 'trend-point-details-' + config.metric;
       details.hidden = true;
       details.setAttribute('aria-live', 'polite');
+      details.dataset.metric = config.metric;
       details.dataset.pointType = pointType;
       card.appendChild(details);
     }
@@ -1452,8 +1631,9 @@
 
     function formatStatisticDifference(value, unit) {
       if (value === null) return '—';
-      if (value === 0) return '0' + (unit ? ' ' + unit : '');
-      return (value > 0 ? '+' : '−') + Math.abs(value).toFixed(1) +
+      const rounded = Number(value.toFixed(1));
+      if (rounded === 0) return '0' + (unit ? ' ' + unit : '');
+      return (rounded > 0 ? '+' : '−') + Math.abs(rounded).toFixed(1) +
         (unit ? ' ' + unit : '');
     }
 
@@ -1469,12 +1649,18 @@
       row.appendChild(cell);
     }
 
-    function appendStatisticsTable(container, className, captionText, headers, rows) {
+    function appendStatisticsTable(container, className, captionText, headers, rows, headingText) {
+      const heading = document.createElement('p');
+      heading.className = 'trend-statistics-table-heading';
+      heading.textContent = headingText || captionText;
+      container.appendChild(heading);
+
       const frame = document.createElement('div');
       frame.className = 'trend-statistics-table-wrap';
       const table = document.createElement('table');
       table.className = 'trend-statistics-table ' + className;
       const caption = document.createElement('caption');
+      caption.className = 'sr-only';
       caption.textContent = captionText;
       table.appendChild(caption);
       const thead = document.createElement('thead');
@@ -1605,10 +1791,6 @@
       const summary = document.createElement('summary');
       summary.textContent = 'Show minimum and maximum values';
       extremes.appendChild(summary);
-      const extremesHeading = document.createElement('h4');
-      extremesHeading.className = 'trend-statistics-table-heading';
-      extremesHeading.textContent = 'Minimum and maximum values';
-      extremes.appendChild(extremesHeading);
       appendStatisticsTable(
         extremes,
         'trend-comparison-statistics-extremes-table',
@@ -1624,7 +1806,8 @@
           ['Water', formatStatisticValue(first.metrics.water.minimum, 'L'),
             formatStatisticValue(first.metrics.water.maximum, 'L'), formatStatisticValue(second.metrics.water.minimum, 'L'),
             formatStatisticValue(second.metrics.water.maximum, 'L')],
-        ]
+        ],
+        'Minimum and maximum values'
       );
       details.appendChild(extremes);
     }

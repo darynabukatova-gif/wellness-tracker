@@ -394,8 +394,10 @@
       <div class="backup-actions">
         <button type="button" id="export-backup-btn">Export backup</button>
         <button type="button" id="import-backup-btn">Import backup</button>
+        <button type="button" id="preview-merge-backup-btn">Preview merge from backup</button>
       </div>
       <input id="import-backup-input" type="file" accept=".json,application/json" hidden>
+      <input id="merge-backup-input" type="file" accept=".json,application/json" hidden>
       <p id="backup-error" class="table-error" role="alert"></p>
       <p id="backup-status" class="backup-status" role="status"></p>
       <div id="import-preview" class="import-preview" aria-live="polite" hidden>
@@ -405,6 +407,60 @@
         <div class="backup-actions">
           <button type="button" id="replace-import-btn" class="btn-danger">Replace all entries</button>
           <button type="button" id="cancel-import-btn">Cancel import</button>
+        </div>
+      </div>
+      <div id="merge-preview" class="merge-preview" aria-live="polite" hidden>
+        <h3 id="merge-preview-heading">Merge preview</h3>
+        <p id="merge-preview-readonly" class="backup-note">Read-only preview. No changes have been saved.</p>
+        <p id="merge-preview-summary"></p>
+        <p id="merge-preview-date-range" class="backup-note"></p>
+        <p id="merge-preview-exported-at" class="backup-note"></p>
+
+        <section aria-labelledby="merge-preview-new-heading">
+          <h4 id="merge-preview-new-heading">New entries</h4>
+          <p id="merge-preview-new-empty" class="backup-note"></p>
+          <div class="merge-preview-table-scroll" id="merge-preview-new-scroll">
+            <table id="merge-preview-new-table">
+              <caption class="sr-only">Entries present in the backup but not in the current saved data</caption>
+              <thead><tr><th scope="col">Date</th><th scope="col">Mood</th><th scope="col">Sleep</th><th scope="col">Water</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div id="merge-preview-new-pagination" class="merge-preview-pagination" hidden>
+            <span id="merge-preview-new-page-summary" role="status" aria-live="polite"></span>
+            <button type="button" id="merge-preview-new-prev" class="btn-neutral" data-merge-new-page="previous">Previous page</button>
+            <span id="merge-preview-new-page-status"></span>
+            <button type="button" id="merge-preview-new-next" class="btn-neutral" data-merge-new-page="next">Next page</button>
+          </div>
+        </section>
+
+        <details id="merge-preview-identical-details">
+          <summary id="merge-preview-identical-heading">Identical entries</summary>
+          <p id="merge-preview-identical-list" class="backup-note"></p>
+        </details>
+
+        <section aria-labelledby="merge-preview-conflicts-heading">
+          <h4 id="merge-preview-conflicts-heading">Conflicting entries</h4>
+          <p id="merge-preview-conflicts-empty" class="backup-note"></p>
+          <div class="merge-preview-table-scroll" id="merge-preview-conflicts-scroll">
+            <table id="merge-preview-conflicts-table">
+              <caption class="sr-only">Current and backup values for entries with matching dates</caption>
+              <thead><tr><th scope="col">Date</th><th scope="col">Metric</th><th scope="col">Existing</th><th scope="col">Backup</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div id="merge-preview-bulk-controls" class="merge-preview-bulk-controls" hidden>
+            <p id="merge-preview-bulk-help" class="backup-note">Bulk actions only select conflict choices; you can still change each date below.</p>
+            <button type="button" id="merge-keep-all-existing-btn" class="btn-neutral" aria-describedby="merge-preview-bulk-help" data-merge-bulk-resolution="keep-existing">Keep all existing</button>
+            <button type="button" id="merge-use-all-backup-btn" class="btn-neutral" aria-describedby="merge-preview-bulk-help" data-merge-bulk-resolution="use-backup">Use all backup</button>
+          </div>
+          <div id="merge-preview-conflict-controls" class="merge-preview-conflict-controls"></div>
+        </section>
+        <p id="merge-preview-resolution-status" class="backup-note" role="status" aria-live="polite"></p>
+        <p id="merge-preview-final-summary" class="merge-preview-final-summary"></p>
+        <div class="backup-actions">
+          <button type="button" id="merge-backup-btn">Merge backup</button>
+          <button type="button" id="cancel-merge-preview-btn" class="btn-neutral">Cancel preview</button>
         </div>
       </div>
     </section>

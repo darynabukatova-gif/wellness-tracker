@@ -98,8 +98,8 @@ function makeApp() {
   ['entry-date', 'entry-date-prev', 'entry-date-next', 'entry-date-status',
    'copy-previous-values-btn', 'edit-existing-entry-btn', 'entry-sleep', 'entry-water', 'form-heading', 'save-btn',
    'cancel-edit-btn', 'form-error', 'table-error', 'undo-delete-status', 'undo-delete-message', 'undo-delete-btn', 'erase-all-btn', 'export-backup-btn', 'import-backup-btn',
-   'import-backup-input', 'cancel-import-btn', 'replace-import-btn', 'backup-error', 'backup-status', 'import-preview',
-   'import-preview-summary', 'import-preview-exported-at', 'import-preview-warning',
+   'import-backup-input', 'merge-backup-input', 'preview-merge-backup-btn', 'merge-backup-btn', 'cancel-merge-preview-btn', 'backup-error', 'backup-status', 'import-preview', 'merge-preview', 'merge-preview-summary', 'merge-preview-date-range', 'merge-preview-exported-at', 'merge-preview-new-empty', 'merge-preview-new-scroll', 'merge-preview-new-pagination', 'merge-preview-new-page-summary', 'merge-preview-new-page-status', 'merge-preview-new-prev', 'merge-preview-new-next', 'merge-preview-identical-heading', 'merge-preview-identical-list', 'merge-preview-conflicts-empty', 'merge-preview-conflicts-scroll', 'merge-preview-bulk-controls', 'merge-preview-bulk-help', 'merge-keep-all-existing-btn', 'merge-use-all-backup-btn', 'merge-preview-conflict-controls', 'merge-preview-resolution-status', 'merge-preview-final-summary', 'merge-preview-new-table', 'merge-preview-conflicts-table',
+   'import-preview-summary', 'import-preview-exported-at', 'import-preview-warning', 'cancel-import-btn', 'replace-import-btn',
    'entries-container', 'entries-heading', 'entry-form', 'app-error', 'sleep-value',
    'history-filter-form', 'history-from-date', 'history-to-date', 'show-history-btn',
    'clear-history-filters-btn', 'history-filter-error', 'history-status',
@@ -131,6 +131,13 @@ function makeApp() {
    'trend-period-90'].forEach(id => {
     elements.set(id, new Element(id));
   });
+  ['merge-preview-new-table', 'merge-preview-conflicts-table'].forEach(id => {
+    elements.get(id).appendChild(new Element('tbody'));
+  });
+  elements.get('merge-preview-new-prev').dataset.mergeNewPage = 'previous';
+  elements.get('merge-preview-new-next').dataset.mergeNewPage = 'next';
+  elements.get('merge-keep-all-existing-btn').dataset.mergeBulkResolution = 'keep-existing';
+  elements.get('merge-use-all-backup-btn').dataset.mergeBulkResolution = 'use-backup';
   elements.get('trend-custom-date-range-controls').hidden = false;
   elements.get('trend-custom-month-controls').hidden = true;
   elements.get('trend-custom-year-controls').hidden = true;
@@ -246,6 +253,12 @@ function makeApp() {
           button.dataset && button.dataset.calendarAction === 'create'
         ) || null;
       }
+      if (selector === '#merge-preview-new-table tbody') {
+        return elements.get('merge-preview-new-table').children[0];
+      }
+      if (selector === '#merge-preview-conflicts-table tbody') {
+        return elements.get('merge-preview-conflicts-table').children[0];
+      }
       if (selector.startsWith('#')) return elements.get(selector.slice(1)) || null;
       return null;
     },
@@ -297,7 +310,7 @@ function makeApp() {
     },
   };
   vm.createContext(sandbox);
-  const source = appSource + '\nthis.__api = { init, render, renderHistoryTrends, renderHistoryTrendsForCurrentState, renderCharts, renderComparisonCharts, renderAggregatedComparisonCharts, renderTrendPointDetails, positionTrendPointTooltip, repositionOpenTrendTooltips, renderCalendar, renderCalendarForCurrentState, renderCalendarDetails, renderHistoryTable, getHistoryRenderState, getActiveTrendDisplay, getActiveTrendStatistics, applyHistoryDateRange, showEntryInHistory, handleHistoryFilterSubmit, invalidateAppliedHistoryRange, handleClearHistoryFilters, changeHistoryPage, initializeHistoryDateDefaults, handleUndoDeletion, ensureCalendarMonth, normalizeCalendarSelection, setHistoryView, setTrendDayCount, getChartPeriodDefaults, getMonthNavigationState, getYearNavigationState, navigateTrendMonthDraft, navigateTrendYearDraft, swapComparisonTrendDrafts, compareWithPreviousTrendDraft, setComparisonToPreviousAndCurrent, selectCustomTrendRange, selectTrendComparison, resolveCustomTrendPeriod, resolveComparisonPeriod, handleCustomTrendTypeChange, handleCustomTrendDraftInput, handleCustomTrendResolutionChange, handleCustomTrendSubmit, handleComparisonTrendTypeChange, handleComparisonTrendDraftInput, handleComparisonTrendResolutionChange, handleComparisonTrendSubmit, changeCalendarMonth, handleHistoryTrendsClick, handleTrendPointKeydown, handleTrendPointSeriesChange, handleHistoryTrendsPointerOver, handleHistoryTrendsPointerOut, closePinnedTrendTooltips, selectTrendPoint, moveTrendPointSelection, selectFirstTrendPoint, handleEntryDateInput, navigateEntryDate, copyPreviousValues, updateEntryDateControls, hasUnsavedFormChanges, enterNewEntryModeForDate, enterEditMode, exitEditMode, handleFormSubmit, handleTableClick, handleEraseAll, handleExportBackup, handleImportBackup, handleImportFileChange, handleCancelImport, handleReplaceImport, adjustValueControl, resetValueControls, setValueControlValues, updateSleepControl, updateWaterControl, setBusyState, lockApp, getStorageAdapter, get entries() { return entries; }, get editingDate() { return editingDate; }, get sleepSelected() { return sleepSelected; }, get waterSelected() { return waterSelected; }, get busy() { return busy; }, get locked() { return locked; }, get pendingImport() { return pendingImport; }, get importReading() { return importReading; }, get historyView() { return historyView; }, get trendDayCount() { return trendDayCount; }, get trendMode() { return trendMode; }, get customTrendType() { return customTrendType; }, get customTrendDraftStart() { return customTrendDraftStart; }, get customTrendDraftEnd() { return customTrendDraftEnd; }, get customTrendDraftMonth() { return customTrendDraftMonth; }, get customTrendDraftYear() { return customTrendDraftYear; }, get customTrendDraftResolution() { return customTrendDraftResolution; }, get appliedCustomTrendRange() { return appliedCustomTrendRange; }, get comparisonTrendType() { return comparisonTrendType; }, get comparisonTrendDraftFirst() { return comparisonTrendDraftFirst; }, get comparisonTrendDraftSecond() { return comparisonTrendDraftSecond; }, get comparisonTrendDraftResolution() { return comparisonTrendDraftResolution; }, get appliedTrendComparison() { return appliedTrendComparison; }, get appliedHistoryRange() { return appliedHistoryRange; }, get historyPage() { return historyPage; }, get pendingUndoEntry() { return pendingUndoEntry; }, get calendarYear() { return calendarYear; }, get calendarMonthIndex() { return calendarMonthIndex; }, get selectedCalendarDate() { return selectedCalendarDate; }, set entries(value) { entries = value; }, set editingDate(value) { editingDate = value; }, set storageAdapter(value) { storageAdapter = value; }, set calendarYear(value) { calendarYear = value; }, set calendarMonthIndex(value) { calendarMonthIndex = value; }, set selectedCalendarDate(value) { selectedCalendarDate = value; } };';
+  const source = appSource + '\nthis.__api = { init, render, renderMergePreview, renderHistoryTrends, renderHistoryTrendsForCurrentState, renderCharts, renderComparisonCharts, renderAggregatedComparisonCharts, renderTrendPointDetails, positionTrendPointTooltip, repositionOpenTrendTooltips, renderCalendar, renderCalendarForCurrentState, renderCalendarDetails, renderHistoryTable, getHistoryRenderState, getActiveTrendDisplay, getActiveTrendStatistics, applyHistoryDateRange, showEntryInHistory, handleHistoryFilterSubmit, invalidateAppliedHistoryRange, handleClearHistoryFilters, changeHistoryPage, initializeHistoryDateDefaults, handleUndoDeletion, ensureCalendarMonth, normalizeCalendarSelection, setHistoryView, setTrendDayCount, getChartPeriodDefaults, getMonthNavigationState, getYearNavigationState, navigateTrendMonthDraft, navigateTrendYearDraft, swapComparisonTrendDrafts, compareWithPreviousTrendDraft, setComparisonToPreviousAndCurrent, selectCustomTrendRange, selectTrendComparison, resolveCustomTrendPeriod, resolveComparisonPeriod, handleCustomTrendTypeChange, handleCustomTrendDraftInput, handleCustomTrendResolutionChange, handleCustomTrendSubmit, handleComparisonTrendTypeChange, handleComparisonTrendDraftInput, handleComparisonTrendResolutionChange, handleComparisonTrendSubmit, changeCalendarMonth, handleHistoryTrendsClick, handleTrendPointKeydown, handleTrendPointSeriesChange, handleHistoryTrendsPointerOver, handleHistoryTrendsPointerOut, closePinnedTrendTooltips, selectTrendPoint, moveTrendPointSelection, selectFirstTrendPoint, handleEntryDateInput, navigateEntryDate, copyPreviousValues, updateEntryDateControls, hasUnsavedFormChanges, enterNewEntryModeForDate, enterEditMode, exitEditMode, handleFormSubmit, handleTableClick, handleEraseAll, handleExportBackup, handleImportBackup, handleImportFileChange, handlePreviewMergeBackup, handleMergeBackupFileChange, handleMergeResolutionChange, handleMergePreviewClick, handleMergeBackup, handleCancelMergePreview, handleCancelImport, handleReplaceImport, adjustValueControl, resetValueControls, setValueControlValues, updateSleepControl, updateWaterControl, setBusyState, lockApp, getStorageAdapter, get entries() { return entries; }, get editingDate() { return editingDate; }, get sleepSelected() { return sleepSelected; }, get waterSelected() { return waterSelected; }, get busy() { return busy; }, get locked() { return locked; }, get pendingImport() { return pendingImport; }, get pendingMergePreview() { return pendingMergePreview; }, get importReading() { return importReading; }, get historyView() { return historyView; }, get trendDayCount() { return trendDayCount; }, get trendMode() { return trendMode; }, get customTrendType() { return customTrendType; }, get customTrendDraftStart() { return customTrendDraftStart; }, get customTrendDraftEnd() { return customTrendDraftEnd; }, get customTrendDraftMonth() { return customTrendDraftMonth; }, get customTrendDraftYear() { return customTrendDraftYear; }, get customTrendDraftResolution() { return customTrendDraftResolution; }, get appliedCustomTrendRange() { return appliedCustomTrendRange; }, get comparisonTrendType() { return comparisonTrendType; }, get comparisonTrendDraftFirst() { return comparisonTrendDraftFirst; }, get comparisonTrendDraftSecond() { return comparisonTrendDraftSecond; }, get comparisonTrendDraftResolution() { return comparisonTrendDraftResolution; }, get appliedTrendComparison() { return appliedTrendComparison; }, get appliedHistoryRange() { return appliedHistoryRange; }, get historyPage() { return historyPage; }, get pendingUndoEntry() { return pendingUndoEntry; }, get calendarYear() { return calendarYear; }, get calendarMonthIndex() { return calendarMonthIndex; }, get selectedCalendarDate() { return selectedCalendarDate; }, set entries(value) { entries = value; }, set editingDate(value) { editingDate = value; }, set storageAdapter(value) { storageAdapter = value; }, set calendarYear(value) { calendarYear = value; }, set calendarMonthIndex(value) { calendarMonthIndex = value; }, set selectedCalendarDate(value) { selectedCalendarDate = value; } };';
   new vm.Script(coreSource + '\n' + viewsSource + '\n' + source).runInContext(sandbox);
   const realRender = sandbox.render;
   sandbox.render = () => {};
@@ -362,6 +375,12 @@ async function selectImport(app, file) {
   const input = app.elements.get('import-backup-input');
   input.files = file ? [file] : [];
   await app.api.handleImportFileChange({ target: input });
+}
+
+async function selectMergePreview(app, file) {
+  const input = app.elements.get('merge-backup-input');
+  input.files = file ? [file] : [];
+  await app.api.handleMergeBackupFileChange({ target: input });
 }
 
 function renderTableIntoMock(app) {
@@ -1450,6 +1469,58 @@ test('comparison statistics renderer shows second-minus-first differences and em
   assert.equal(extremes.children[2].className, 'trend-statistics-table-wrap');
 });
 
+test('comparison statistics rounds display-only negative zero to neutral zero and keeps headings outside scroll regions', () => {
+  const renderer = makeViews();
+  renderer.views.renderComparisonStatistics({
+    type: 'comparison', firstPeriodLabel: '2024', secondPeriodLabel: '2025',
+    statistics: {
+      firstPeriod: {
+        recordedDayCount: 1, calendarDayCount: 366,
+        metrics: {
+          mood: { average: 3, minimum: 3, maximum: 3 },
+          sleep: { average: 8, minimum: 8, maximum: 8 },
+          water: { average: 2, minimum: 2, maximum: 2 },
+        },
+      },
+      secondPeriod: {
+        recordedDayCount: 1, calendarDayCount: 365,
+        metrics: {
+          mood: { average: 2.96, minimum: 2.96, maximum: 2.96 },
+          sleep: { average: 7.96, minimum: 7.96, maximum: 7.96 },
+          water: { average: 2.04, minimum: 2.04, maximum: 2.04 },
+        },
+      },
+      differences: {
+        recordedDayCount: 0,
+        metrics: {
+          mood: { average: -0.04 },
+          sleep: { average: -0.04 },
+          water: { average: 0.04 },
+        },
+      },
+    },
+  });
+
+  const section = renderer.elements.get('trend-statistics');
+  const disclosure = section.children[0];
+  const tables = findDescendants(disclosure, node => node.tagName === 'TABLE');
+  const averageRows = tables[1].children.find(node => node.tagName === 'TBODY').children;
+  assert.equal(averageRows[0].children[3].textContent, '0');
+  assert.equal(averageRows[1].children[3].textContent, '0 h');
+  assert.equal(averageRows[2].children[3].textContent, '0 L');
+
+  const headings = findDescendants(disclosure, node => node.className === 'trend-statistics-table-heading');
+  assert.equal(headings.length, 3);
+  assert.equal(headings[0].parentNode, disclosure);
+  assert.equal(headings[1].parentNode, disclosure);
+  const extremes = findDescendants(disclosure, node => node.className === 'trend-statistics-extremes')[0];
+  assert.equal(headings[2].parentNode, extremes);
+  headings.forEach(heading => {
+    const next = heading.parentNode.children[heading.parentNode.children.indexOf(heading) + 1];
+    assert.equal(next.className, 'trend-statistics-table-wrap');
+  });
+});
+
 test('statistics disclosures start collapsed and preserve state across rerenders', () => {
   const renderer = makeViews();
   const period = {
@@ -2029,6 +2100,264 @@ test('import preview handles a valid empty backup explicitly', async () => {
   assert.match(app.elements.get('import-preview-summary').textContent, /0 entries\. No entries in backup/);
   assert.match(app.elements.get('import-preview-warning').textContent, /empty backup would remove all existing entries/);
   assert.equal(app.api.entries.length, 2);
+});
+
+test('merge preview classifies entries, shows conflicts, and never writes data', async () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  const original = JSON.stringify(app.api.entries);
+  await selectMergePreview(app, importFile(backupText([
+    { date: '2025-06-10', mood: 5, sleep: 7.5, water: 2.1 },
+    { date: '2025-06-11', mood: 3, sleep: 6, water: 1.8 },
+    { date: '2025-06-12', mood: 1, sleep: 0, water: 0 },
+  ])));
+
+  assert.ok(app.api.pendingMergePreview);
+  assert.equal(app.elements.get('merge-preview').hidden, false);
+  assert.match(app.elements.get('merge-preview-summary').textContent, /3 entries: 1 new, 1 identical, and 1 conflicting/);
+  assert.match(app.elements.get('merge-preview-date-range').textContent, /2025-06-10 to 2025-06-12/);
+  assert.match(app.elements.get('merge-preview-conflicts-empty').textContent, /Both saved and backup values/);
+  assert.equal(app.elements.get('merge-preview-new-table').children[0].children.length, 1);
+  assert.equal(app.elements.get('merge-preview-new-pagination').hidden, true);
+  assert.equal(app.elements.get('merge-preview-conflicts-table').children[0].children.length, 3);
+  assert.equal(app.elements.get('merge-preview-new-table').children[0].children[0].children[2].textContent, '0 h');
+  assert.equal(JSON.stringify(app.api.entries), original);
+  assert.equal(saveCalls, 0);
+});
+
+test('merge preview paginates all new entries without changing conflict choices', async () => {
+  const app = makeApp();
+  const importedEntries = Array.from({ length: 51 }, (_, index) => ({
+    date: app.sandbox.addCalendarDays('2025-01-01', index),
+    mood: (index % 5) + 1,
+    sleep: (index % 9) * 0.5,
+    water: (index % 10) / 10,
+  }));
+  importedEntries.push({ date: '2025-06-10', mood: 5, sleep: 8, water: 2.1 });
+
+  await selectMergePreview(app, importFile(backupText(importedEntries)));
+
+  assert.equal(app.elements.get('merge-preview-new-table').children[0].children.length, 25);
+  assert.equal(app.elements.get('merge-preview-new-page-summary').textContent,
+    'Showing 1–25 of 51 new entries.');
+  assert.equal(app.elements.get('merge-preview-new-page-status').textContent, 'Page 1 of 3');
+  assert.equal(app.elements.get('merge-preview-new-prev').disabled, true);
+  assert.equal(app.elements.get('merge-preview-new-next').disabled, false);
+
+  const conflictInput = app.elements.get('merge-preview-conflict-controls')
+    .querySelectorAll('[data-merge-conflict-date="2025-06-10"]')[0];
+  app.api.handleMergeResolutionChange({ target: { closest() { return conflictInput; } } });
+  assert.equal(app.api.pendingMergePreview.conflictResolutions['2025-06-10'], 'keep-existing');
+
+  const pageClick = button => ({ target: { closest() { return button; } } });
+  app.api.handleMergePreviewClick(pageClick(app.elements.get('merge-preview-new-next')));
+  assert.equal(app.api.pendingMergePreview.newEntriesPage, 2);
+  assert.equal(app.elements.get('merge-preview-new-table').children[0].children.length, 25);
+  assert.equal(app.elements.get('merge-preview-new-page-summary').textContent,
+    'Showing 26–50 of 51 new entries.');
+  assert.equal(app.api.pendingMergePreview.conflictResolutions['2025-06-10'], 'keep-existing');
+
+  app.api.handleMergePreviewClick(pageClick(app.elements.get('merge-preview-new-next')));
+  assert.equal(app.elements.get('merge-preview-new-table').children[0].children.length, 1);
+  assert.equal(app.elements.get('merge-preview-new-page-summary').textContent,
+    'Showing 51–51 of 51 new entries.');
+  assert.equal(app.elements.get('merge-preview-new-page-status').textContent, 'Page 3 of 3');
+  assert.equal(app.elements.get('merge-preview-new-next').disabled, true);
+
+  app.api.handleMergePreviewClick(pageClick(app.elements.get('merge-preview-new-prev')));
+  assert.equal(app.api.pendingMergePreview.newEntriesPage, 2);
+  assert.equal(app.elements.get('merge-preview-new-prev').disabled, false);
+});
+
+test('empty merge preview and cancellation preserve entries and pending Undo', async () => {
+  const app = makeApp();
+  await selectMergePreview(app, importFile(backupText([])));
+  assert.ok(app.api.pendingMergePreview);
+  assert.match(app.elements.get('merge-preview-summary').textContent, /0 entries: 0 new, 0 identical, and 0 conflicting/);
+  assert.equal(app.elements.get('merge-preview-new-scroll').hidden, true);
+  assert.equal(app.elements.get('merge-preview-new-pagination').hidden, true);
+  assert.equal(app.elements.get('merge-preview-bulk-controls').hidden, true);
+  app.api.handleCancelMergePreview();
+  assert.equal(app.api.pendingMergePreview, null);
+  assert.equal(app.elements.get('merge-preview').hidden, true);
+  assert.equal(app.api.entries.length, 2);
+  assert.equal(app.elements.get('preview-merge-backup-btn').focused, true);
+});
+
+test('successful mutations invalidate merge preview while failed saves preserve it', async () => {
+  const app = makeApp();
+  await selectMergePreview(app, importFile(backupText([
+    { date: '2025-06-12', mood: 5, sleep: 8, water: 2 },
+  ])));
+  assert.ok(app.api.pendingMergePreview);
+
+  app.api.storageAdapter = { async saveEntries() { return { ok: false }; } };
+  app.elements.get('entry-date').value = '2025-06-12';
+  app.radios[2].checked = true;
+  app.api.setValueControlValues(8, 2);
+  await submit(app);
+  assert.ok(app.api.pendingMergePreview);
+
+  app.api.storageAdapter = { async saveEntries() { return { ok: true }; } };
+  app.elements.get('entry-date').value = '2025-06-12';
+  app.radios[4].checked = true;
+  await submit(app);
+  assert.equal(app.api.pendingMergePreview, null);
+  assert.equal(app.elements.get('merge-preview').hidden, true);
+});
+
+test('merge conflict choices remain unresolved until explicitly selected and enable a final summary', async () => {
+  const app = makeApp();
+  await selectMergePreview(app, importFile(backupText([
+    { date: '2025-06-10', mood: 5, sleep: 8, water: 2.1 },
+    { date: '2025-06-11', mood: 2, sleep: 0, water: 0 },
+    { date: '2025-06-12', mood: 1, sleep: 0, water: 0 },
+  ])));
+
+  assert.equal(app.elements.get('merge-backup-btn').disabled, true);
+  assert.match(app.elements.get('merge-preview-resolution-status').textContent, /0 of 2 conflicts resolved/);
+  const firstInput = app.elements.get('merge-preview-conflict-controls')
+    .querySelectorAll('[data-merge-conflict-date="2025-06-10"]')[0];
+  const secondInput = app.elements.get('merge-preview-conflict-controls')
+    .querySelectorAll('[data-merge-conflict-date="2025-06-11"]')[1];
+  app.api.handleMergeResolutionChange({ target: { closest() { return firstInput; } } });
+  assert.equal(app.elements.get('merge-backup-btn').disabled, true);
+  app.api.handleMergeResolutionChange({ target: { closest() { return secondInput; } } });
+  assert.equal(app.elements.get('merge-backup-btn').disabled, false);
+  assert.match(app.elements.get('merge-preview-resolution-status').textContent, /2 of 2 conflicts resolved/);
+  assert.match(app.elements.get('merge-preview-final-summary').textContent, /add 1 new entries, leave 0 identical entries unchanged, keep 1 conflicting entries, and replace 1 conflicting entries/);
+});
+
+test('bulk merge conflict choices apply to every conflict and still allow individual overrides', async () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  await selectMergePreview(app, importFile(backupText([
+    { date: '2025-06-10', mood: 5, sleep: 8, water: 2.1 },
+    { date: '2025-06-11', mood: 2, sleep: 0, water: 0 },
+    { date: '2025-06-12', mood: 1, sleep: 0, water: 0 },
+  ])));
+
+  const controls = app.elements.get('merge-preview-conflict-controls');
+  const keepAll = app.elements.get('merge-keep-all-existing-btn');
+  const useAll = app.elements.get('merge-use-all-backup-btn');
+  const click = button => ({ target: { closest() { return button; } } });
+  assert.equal(app.elements.get('merge-preview-bulk-controls').hidden, false);
+
+  app.api.handleMergePreviewClick(click(keepAll));
+  assert.equal(controls.querySelectorAll('[data-merge-conflict-date="2025-06-10"]')[0].checked, true);
+  assert.equal(controls.querySelectorAll('[data-merge-conflict-date="2025-06-11"]')[0].checked, true);
+  assert.match(app.elements.get('merge-preview-resolution-status').textContent, /2 of 2 conflicts resolved/);
+  assert.equal(app.elements.get('merge-backup-btn').disabled, false);
+  assert.equal(saveCalls, 0);
+
+  app.api.handleMergePreviewClick(click(useAll));
+  assert.equal(controls.querySelectorAll('[data-merge-conflict-date="2025-06-10"]')[1].checked, true);
+  assert.equal(controls.querySelectorAll('[data-merge-conflict-date="2025-06-11"]')[1].checked, true);
+  assert.match(app.elements.get('merge-preview-final-summary').textContent, /keep 0 conflicting entries, and replace 2 conflicting entries/);
+
+  const firstKeepExisting = controls.querySelectorAll('[data-merge-conflict-date="2025-06-10"]')[0];
+  app.api.handleMergeResolutionChange({ target: { closest() { return firstKeepExisting; } } });
+  assert.match(app.elements.get('merge-preview-final-summary').textContent, /keep 1 conflicting entries, and replace 1 conflicting entries/);
+  assert.equal(saveCalls, 0);
+
+  await selectMergePreview(app, importFile(backupText([
+    { date: '2025-06-10', mood: 5, sleep: 8, water: 2.1 },
+    { date: '2025-06-11', mood: 2, sleep: 0, water: 0 },
+  ])));
+  assert.equal(app.elements.get('merge-preview-conflict-controls')
+    .querySelectorAll('[data-merge-conflict-date="2025-06-10"]')[0].checked, false);
+  app.api.handleCancelMergePreview();
+});
+
+test('failed bulk-resolved merge preserves choices for a later retry', async () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: false }; } };
+  await selectMergePreview(app, importFile(backupText([
+    { date: '2025-06-10', mood: 5, sleep: 8, water: 2.1 },
+  ])));
+  const useAll = app.elements.get('merge-use-all-backup-btn');
+  app.api.handleMergePreviewClick({ target: { closest() { return useAll; } } });
+  await app.api.handleMergeBackup();
+  assert.equal(saveCalls, 1);
+  assert.ok(app.api.pendingMergePreview);
+  assert.equal(app.api.pendingMergePreview.conflictResolutions['2025-06-10'], 'use-backup');
+  assert.equal(app.elements.get('merge-backup-btn').disabled, false);
+
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  await app.api.handleMergeBackup();
+  assert.equal(saveCalls, 2);
+  assert.equal(app.api.pendingMergePreview, null);
+});
+
+test('confirmed merge saves once after revalidation and preserves explicit choices', async () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  let savedCandidate;
+  app.api.storageAdapter = { async saveEntries(candidate) { saveCalls += 1; savedCandidate = candidate; return { ok: true }; } };
+  await selectMergePreview(app, importFile(backupText([
+    { date: '2025-06-10', mood: 5, sleep: 8, water: 2.1 },
+    { date: '2025-06-11', mood: 2, sleep: 0, water: 0 },
+    { date: '2025-06-12', mood: 1, sleep: 0, water: 0 },
+  ])));
+  const controls = app.elements.get('merge-preview-conflict-controls');
+  const first = controls.querySelectorAll('[data-merge-conflict-date="2025-06-10"]')[0];
+  const second = controls.querySelectorAll('[data-merge-conflict-date="2025-06-11"]')[1];
+  app.api.handleMergeResolutionChange({ target: { closest() { return first; } } });
+  app.api.handleMergeResolutionChange({ target: { closest() { return second; } } });
+  await app.api.handleMergeBackup();
+
+  assert.equal(saveCalls, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(savedCandidate)), [
+    { date: '2025-06-12', mood: 1, sleep: 0, water: 0 },
+    { date: '2025-06-11', mood: 2, sleep: 0, water: 0 },
+    { date: '2025-06-10', mood: 4, sleep: 7.5, water: 2.1 },
+  ]);
+  assert.equal(app.api.pendingMergePreview, null);
+  assert.match(app.elements.get('backup-status').textContent, /Backup merged/);
+});
+
+test('no-op merge avoids storage and changed current data refreshes choices before saving', async () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  await selectMergePreview(app, importFile(backupText([
+    { date: '2025-06-10', mood: 4, sleep: 7.5, water: 2.1 },
+    { date: '2025-06-11', mood: 3, sleep: 6, water: 1.8 },
+  ])));
+  assert.equal(app.elements.get('merge-backup-btn').disabled, false);
+  await app.api.handleMergeBackup();
+  assert.equal(saveCalls, 0);
+  assert.equal(app.api.pendingMergePreview, null);
+  assert.match(app.elements.get('backup-status').textContent, /No changes needed/);
+
+  await selectMergePreview(app, importFile(backupText([
+    { date: '2025-06-10', mood: 5, sleep: 8, water: 2.1 },
+  ])));
+  app.api.entries = app.api.entries.concat([{ date: '2025-06-12', mood: 1, sleep: 0, water: 0 }]);
+  await app.api.handleMergeBackup();
+  assert.equal(saveCalls, 0);
+  assert.match(app.elements.get('backup-error').textContent, /Saved entries changed/);
+  assert.equal(app.api.pendingMergePreview.conflictResolutions['2025-06-10'], undefined);
+});
+
+test('failed merge preserves the preview and choices for retry', async () => {
+  const app = makeApp();
+  let saveCalls = 0;
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: false }; } };
+  await selectMergePreview(app, importFile(backupText([
+    { date: '2025-06-12', mood: 1, sleep: 0, water: 0 },
+  ])));
+  await app.api.handleMergeBackup();
+  assert.equal(saveCalls, 1);
+  assert.ok(app.api.pendingMergePreview);
+  assert.match(app.elements.get('backup-error').textContent, /Could not merge/);
+  app.api.storageAdapter = { async saveEntries() { saveCalls += 1; return { ok: true }; } };
+  await app.api.handleMergeBackup();
+  assert.equal(saveCalls, 2);
+  assert.equal(app.api.pendingMergePreview, null);
 });
 
 test('import validation failures, file read failures, and picker cancellation preserve current state and allow retry', async () => {
@@ -3987,8 +4316,11 @@ test('narrow chart detail and comparison statistics layouts keep headings readab
   assert.match(stylesSource, /\.trend-point-details-list\s*\{[\s\S]*?grid-template-columns:\s*max-content minmax\(0, 1fr\)/);
   assert.match(stylesSource, /@media \(max-width: 420px\)[\s\S]*?\.trend-point-details-list\s*\{[\s\S]*?grid-template-columns:\s*1fr/);
   assert.match(stylesSource, /\.trend-point-details-list dd\s*\{[\s\S]*?overflow-wrap:\s*break-word/);
-  assert.match(stylesSource, /\.trend-statistics-table-heading\s*\{[\s\S]*?overflow-wrap:\s*break-word/);
+  assert.match(stylesSource, /\.trend-statistics-table-heading\s*\{[\s\S]*?white-space:\s*normal[\s\S]*?overflow-wrap:\s*break-word/);
   assert.match(stylesSource, /\.trend-statistics-table-wrap\s*\{[\s\S]*?overflow-x:\s*auto/);
+  assert.match(stylesSource, /\.merge-preview-pagination\s*\{[\s\S]*?flex-wrap:\s*wrap/);
+  assert.match(stylesSource, /@media \(max-width: 420px\)[\s\S]*?\.merge-preview-pagination span:first-child\s*\{[\s\S]*?flex-basis:\s*100%/);
+  assert.match(stylesSource, /\.merge-preview-bulk-controls\s*\{[\s\S]*?flex-wrap:\s*wrap/);
 });
 
 test('chart point tooltips hover, pin, dismiss, and remain compact', () => {
@@ -4012,7 +4344,10 @@ test('chart point tooltips hover, pin, dismiss, and remain compact', () => {
   assert.match(findDescendants(tooltip, node => node.tagName === 'DD')[0].textContent, /2025-06-10/);
   assert.equal(findDescendants(tooltip, node => node.className && node.className.includes('trend-point-history-action')).length, 0);
 
-  app.api.handleHistoryTrendsPointerOut({ target: points[0] });
+  app.api.handleHistoryTrendsPointerOut({ target: points[0], relatedTarget: tooltip });
+  assert.equal(tooltip.hidden, false);
+
+  app.api.handleHistoryTrendsPointerOut({ target: tooltip, relatedTarget: new Element('outside') });
   assert.equal(tooltip.hidden, true);
 
   app.api.handleHistoryTrendsClick({ target: points[0] });

@@ -15,6 +15,8 @@ const {
   getEntryByDate,
   findPreviousSavedEntry,
   buildUndoDeletionCandidate,
+  analyzeBackupMerge,
+  buildBackupMergeCandidate,
   calculatePeriodStatistics,
   comparePeriodStatistics,
   buildTrendSeries,
@@ -24,6 +26,7 @@ const {
   buildAggregatedYearSeries,
   buildAggregatedYearComparisonSeries,
   buildCalendarMonth,
+  parseBackupDocument,
 } = require('./helpers.js').loadContext();
 
 function entry(date, mood, sleep, water) {
@@ -336,6 +339,200 @@ test('buildUndoDeletionCandidate rejects invalid deleted entries and current col
   assert.throws(() => buildUndoDeletionCandidate([entry('2025-06-10', 3, 0, 0), entry('2025-06-10', 4, 0, 0)], entry('2025-06-11', 3, 0, 0)), rangeError);
   assert.throws(() => buildUndoDeletionCandidate([entry('2025-06-10', 3, 0, 0), { date: 'bad' }], entry('2025-06-11', 3, 0, 0)), rangeError);
   assert.throws(() => buildUndoDeletionCandidate(null, entry('2025-06-11', 3, 0, 0)), error => error.name === 'TypeError');
+});
+
+test('analyzeBackupMerge classifies new, identical, and conflicting entries deterministically', () => {
+  const existingEntries = [
+    entry('2025-06-12', 4, 7.5, 1.2),
+    entry('2024-02-29', 5, 0, 0),
+    entry('0000-01-01', 1, 24, 3),
+  ];
+  const importedEntries = [
+    entry('2025-06-13', 2, 6, 0),
+    entry('2025-06-12', 4, 7.5, 1.2),
+    entry('2024-02-29', 3, 0, 0),
+    entry('9999-12-31', 5, 0, 0),
+  ];
+  const existingOriginal = JSON.stringify(existingEntries);
+  const importedOriginal = JSON.stringify(importedEntries);
+  const result = analyzeBackupMerge(existingEntries, importedEntries);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    newEntries: [
+      entry('9999-12-31', 5, 0, 0),
+      entry('2025-06-13', 2, 6, 0),
+    ],
+    identicalEntries: [entry('2025-06-12', 4, 7.5, 1.2)],
+    conflicts: [{
+      date: '2024-02-29',
+      existingEntry: entry('2024-02-29', 5, 0, 0),
+      importedEntry: entry('2024-02-29', 3, 0, 0),
+    }],
+    counts: { new: 2, identical: 1, conflicting: 1 },
+    totalImportedCount: 4,
+    importedDateRange: { startDate: '2024-02-29', endDate: '9999-12-31' },
+  });
+  assert.equal(result.newEntries[0] === importedEntries[3], false);
+  assert.equal(result.conflicts[0].existingEntry === existingEntries[1], false);
+  result.newEntries[0].mood = 1;
+  result.conflicts[0].importedEntry.water = 3;
+  assert.equal(JSON.stringify(existingEntries), existingOriginal);
+  assert.equal(JSON.stringify(importedEntries), importedOriginal);
+});
+
+test('analyzeBackupMerge handles empty collections and all-identical or all-new imports', () => {
+  const empty = analyzeBackupMerge([], []);
+  assert.deepEqual(JSON.parse(JSON.stringify(empty)), {
+    newEntries: [], identicalEntries: [], conflicts: [],
+    counts: { new: 0, identical: 0, conflicting: 0 },
+    totalImportedCount: 0, importedDateRange: null,
+  });
+
+  const entries = [entry('2025-01-01', 3, 0, 0), entry('2025-01-02', 4, 8, 2)];
+  const identical = analyzeBackupMerge(entries, entries.slice().reverse());
+  assert.deepEqual(JSON.parse(JSON.stringify(identical.counts)), { new: 0, identical: 2, conflicting: 0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(identical.identicalEntries.map(item => item.date))), ['2025-01-02', '2025-01-01']);
+
+  const allNew = analyzeBackupMerge([], entries);
+  assert.deepEqual(JSON.parse(JSON.stringify(allNew.counts)), { new: 2, identical: 0, conflicting: 0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(allNew.newEntries.map(item => item.date))), ['2025-01-02', '2025-01-01']);
+});
+
+test('analyzeBackupMerge rejects malformed and duplicate collections', () => {
+  const valid = [entry('2025-01-01', 3, 0, 0)];
+  const rangeError = error => error.name === 'RangeError';
+  assert.throws(() => analyzeBackupMerge(null, valid), error => error.name === 'TypeError');
+  assert.throws(() => analyzeBackupMerge(valid, null), error => error.name === 'TypeError');
+  assert.throws(() => analyzeBackupMerge([entry('2025-01-01', 3, 0, 0), entry('2025-01-01', 4, 0, 0)], valid), rangeError);
+  assert.throws(() => analyzeBackupMerge(valid, [entry('2025-02-30', 3, 0, 0)]), rangeError);
+  assert.throws(() => analyzeBackupMerge(valid, [entry('2025-01-02', 6, 0, 0)]), rangeError);
+  assert.throws(() => analyzeBackupMerge(valid, [entry('2025-01-01', 3, 0, 0), entry('2025-01-01', 3, 0, 0)]), rangeError);
+});
+
+test('analyzeBackupMerge compares numeric zero values and supports version-1 backup entries', () => {
+  const current = [entry('2024-02-29', 4, 0, 0)];
+  const backup = {
+    application: 'wellness-tracker',
+    backupVersion: 1,
+    exportedAt: '2026-01-15T12:00:00.000Z',
+    entries: [entry('2024-02-29', 4, 0, 0), entry('0001-01-01', 1, 0, 0)],
+  };
+  const parsed = parseBackupDocument(JSON.stringify(backup));
+  assert.equal(parsed.ok, true);
+  const result = analyzeBackupMerge(current, parsed.backup.entries);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.counts)), { new: 1, identical: 1, conflicting: 0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.importedDateRange)), { startDate: '0001-01-01', endDate: '2024-02-29' });
+});
+
+test('buildBackupMergeCandidate adds new entries, preserves unrelated data, and handles an empty backup', () => {
+  const current = [entry('2025-06-10', 4, 7.5, 2.1)];
+  const imported = [entry('2025-06-12', 1, 0, 0)];
+  const originalCurrent = JSON.stringify(current);
+  const originalImported = JSON.stringify(imported);
+  const result = buildBackupMergeCandidate(current, imported);
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.entries)), [
+    entry('2025-06-12', 1, 0, 0), entry('2025-06-10', 4, 7.5, 2.1),
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.counts)), {
+    added: 1, unchanged: 0, replaced: 0, identical: 0, keptExisting: 0,
+  });
+  assert.equal(result.hasChanges, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(buildBackupMergeCandidate([], []).entries)), []);
+  assert.equal(buildBackupMergeCandidate(current, []).hasChanges, false);
+  assert.equal(JSON.stringify(current), originalCurrent);
+  assert.equal(JSON.stringify(imported), originalImported);
+});
+
+test('buildBackupMergeCandidate detects no-op identical imports without duplication', () => {
+  const current = [entry('2025-06-11', 3, 6, 1.8), entry('2025-06-10', 4, 7.5, 2.1)];
+  const imported = [entry('2025-06-10', 4, 7.5, 2.1), entry('2025-06-11', 3, 6, 1.8)];
+  const result = buildBackupMergeCandidate(current, imported, {});
+
+  assert.equal(result.ok, true);
+  assert.equal(result.hasChanges, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.entries)), current);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.counts)), {
+    added: 0, unchanged: 2, replaced: 0, identical: 2, keptExisting: 0,
+  });
+});
+
+test('buildBackupMergeCandidate applies explicit keep-existing and use-backup conflict choices', () => {
+  const current = [
+    entry('2025-06-12', 4, 7.5, 2.1),
+    entry('2025-06-11', 3, 6, 1.8),
+  ];
+  const imported = [
+    entry('2025-06-12', 5, 8, 2.1),
+    entry('2025-06-11', 2, 0, 0),
+  ];
+  const result = buildBackupMergeCandidate(current, imported, {
+    '2025-06-12': 'keep-existing',
+    '2025-06-11': 'use-backup',
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.entries)), [
+    entry('2025-06-12', 4, 7.5, 2.1),
+    entry('2025-06-11', 2, 0, 0),
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.counts)), {
+    added: 0, unchanged: 1, replaced: 1, identical: 0, keptExisting: 1,
+  });
+  assert.equal(result.hasChanges, true);
+});
+
+test('buildBackupMergeCandidate refuses unresolved, invalid, and unknown conflict resolutions', () => {
+  const current = [entry('2025-06-10', 4, 7.5, 2.1)];
+  const imported = [entry('2025-06-10', 5, 8, 2.1)];
+  const unresolved = buildBackupMergeCandidate(current, imported);
+  assert.deepEqual(JSON.parse(JSON.stringify(unresolved)), {
+    ok: false,
+    reason: 'unresolved-conflicts',
+    unresolvedDates: ['2025-06-10'],
+  });
+  assert.throws(() => buildBackupMergeCandidate(current, imported, {
+    '2025-06-10': 'replace',
+  }), error => error.name === 'RangeError');
+  assert.throws(() => buildBackupMergeCandidate(current, imported, {
+    '2025-06-09': 'keep-existing',
+  }), error => error.name === 'RangeError');
+  assert.throws(() => buildBackupMergeCandidate(current, imported, null), error => error.name === 'TypeError');
+});
+
+test('buildBackupMergeCandidate reanalyzes current data and preserves detached boundary and zero values', () => {
+  const current = [entry('0000-01-01', 1, 0, 0)];
+  const imported = [
+    entry('2024-02-29', 5, 0, 0),
+    entry('9999-12-31', 2, 24, 3),
+  ];
+  const result = buildBackupMergeCandidate(current, imported);
+  assert.equal(result.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.entries.map(item => item.date))), [
+    '9999-12-31', '2024-02-29', '0000-01-01',
+  ]);
+  result.entries[0].sleep = 1;
+  assert.equal(imported[1].sleep, 24);
+
+  const changedCurrent = current.concat([entry('2024-02-29', 1, 1, 0.1)]);
+  const reanalyzed = buildBackupMergeCandidate(changedCurrent, imported);
+  assert.deepEqual(JSON.parse(JSON.stringify(reanalyzed)), {
+    ok: false,
+    reason: 'unresolved-conflicts',
+    unresolvedDates: ['2024-02-29'],
+  });
+});
+
+test('buildBackupMergeCandidate validates collections and preserves inputs on failure', () => {
+  const valid = [entry('2025-01-01', 3, 0, 0)];
+  const rangeError = error => error.name === 'RangeError';
+  assert.throws(() => buildBackupMergeCandidate(null, valid, {}), error => error.name === 'TypeError');
+  assert.throws(() => buildBackupMergeCandidate(valid, [entry('2025-02-30', 3, 0, 0)], {}), rangeError);
+  assert.throws(() => buildBackupMergeCandidate(
+    [entry('2025-01-01', 3, 0, 0), entry('2025-01-01', 4, 0, 0)], valid, {}
+  ), rangeError);
+  assert.throws(() => buildBackupMergeCandidate(valid, [entry('2025-01-01', 3, 0, 0), entry('2025-01-01', 3, 0, 0)], {}), rangeError);
 });
 
 test('calculatePeriodStatistics uses inclusive recorded observations for all metrics without rounding', () => {

@@ -168,6 +168,12 @@ async function selectBackupFile(window, fixturePath) {
   await (await fileChooser).setFiles(fixturePath);
 }
 
+async function selectMergeBackupFile(window, fixturePath) {
+  const fileChooser = window.waitForEvent('filechooser', { timeout: 15_000 });
+  await window.locator('#preview-merge-backup-btn').click();
+  await (await fileChooser).setFiles(fixturePath);
+}
+
 function handleConfirmation(window, verify, accept) {
   return new Promise((resolve, reject) => {
     window.once('dialog', dialog => {
@@ -677,7 +683,10 @@ test('Electron E2E: explores both series in daily and aggregated comparisons', {
       'svg[data-metric="mood"] circle[data-comparison-series="first"][data-date="2024-02-01"]'
     );
     const moodDetails = window.locator('#trend-point-details-mood');
+    await firstMoodPoint.waitFor({ state: 'visible', timeout: 15_000 });
     await firstMoodPoint.hover();
+    await moodDetails.waitFor({ state: 'visible', timeout: 15_000 });
+    await moodDetails.hover();
     await moodDetails.waitFor({ state: 'visible', timeout: 15_000 });
     assert.match(await moodDetails.textContent(), /First period: February 2024/);
     await firstMoodPoint.click();
@@ -866,6 +875,223 @@ test('Electron E2E: previews, rejects, and cancels backup imports without data l
     assert.equal(await window.locator('#import-preview').isHidden(), true);
     await showHistoryRange(window, existingEntry.date, existingEntry.date);
     await assertHistoryRow(window, existingEntry);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: previews a backup merge without changing committed entries', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const existingEntries = [
+    { date: '2025-06-10', mood: 4, sleep: 7.5, water: 2.1 },
+    { date: '2025-06-11', mood: 3, sleep: 6, water: 1.8 },
+  ];
+  const importedEntries = [
+    { date: '2025-06-09', mood: 1, sleep: 0, water: 0 },
+    { date: '2025-06-10', mood: 5, sleep: 8, water: 2.1 },
+    { date: '2025-06-11', mood: 3, sleep: 6, water: 1.8 },
+  ];
+
+  try {
+    const firstApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(firstApplication);
+    const firstWindow = await getReadyWindow(firstApplication);
+    await assertIsolatedUserData(firstApplication, isolatedUserDataDirectory);
+    for (const entry of existingEntries) await createEntryThroughForm(firstWindow, entry);
+
+    const fixturePath = await writeBackupFixture(
+      temporaryDirectory,
+      'merge-preview.json',
+      backupDocument(importedEntries)
+    );
+    await selectMergeBackupFile(firstWindow, fixturePath);
+    await firstWindow.locator('#merge-preview').waitFor({ state: 'visible', timeout: 15_000 });
+    assert.match(await firstWindow.locator('#merge-preview-summary').textContent(),
+      /Backup contains 3 entries: 1 new, 1 identical, and 1 conflicting/);
+    assert.match(await firstWindow.locator('#merge-preview-date-range').textContent(),
+      /2025-06-09 to 2025-06-11/);
+    const conflictRow = firstWindow.locator('#merge-preview-conflicts-table tbody tr').filter({
+      hasText: '2025-06-10',
+    }).filter({ hasText: 'Mood' });
+    await conflictRow.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.deepEqual(await conflictRow.locator('td').allTextContents(), [
+      '2025-06-10', 'Mood', '4', '5',
+    ]);
+    assert.equal(await firstWindow.locator('#merge-preview-new-table tbody tr').count(), 1);
+    assert.match(await firstWindow.locator('#merge-preview-readonly').textContent(), /No changes have been saved/);
+
+    await firstWindow.locator('#cancel-merge-preview-btn').click();
+    await firstWindow.locator('#merge-preview').waitFor({ state: 'hidden', timeout: 15_000 });
+    await showHistoryRange(firstWindow, '2025-06-09', '2025-06-11');
+    assert.equal(await firstWindow.locator('#entries-container tbody tr').count(), 2);
+    await assertHistoryRow(firstWindow, existingEntries[0]);
+
+    await firstApplication.close();
+    applications.pop();
+    const secondApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(secondApplication);
+    const secondWindow = await getReadyWindow(secondApplication);
+    await assertIsolatedUserData(secondApplication, isolatedUserDataDirectory);
+    await showHistoryRange(secondWindow, '2025-06-09', '2025-06-11');
+    assert.equal(await secondWindow.locator('#entries-container tbody tr').count(), 2);
+    await assertHistoryRow(secondWindow, existingEntries[1]);
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: paginates all new entries in the merge preview outside the table scroll region', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const existingEntry = { date: '2025-06-10', mood: 4, sleep: 7.5, water: 2.1 };
+  const newEntries = Array.from({ length: 51 }, (_, index) => {
+    const month = index < 31 ? '01' : '02';
+    const day = String(index < 31 ? index + 1 : index - 30).padStart(2, '0');
+    return {
+      date: `2025-${month}-${day}`,
+      mood: (index % 5) + 1,
+      sleep: (index % 9) * 0.5,
+      water: (index % 10) / 10,
+    };
+  });
+
+  try {
+    const electronApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(electronApplication);
+    const window = await getReadyWindow(electronApplication);
+    await assertIsolatedUserData(electronApplication, isolatedUserDataDirectory);
+    await createEntryThroughForm(window, existingEntry);
+
+    const fixturePath = await writeBackupFixture(
+      temporaryDirectory,
+      'merge-many-new.json',
+      backupDocument(newEntries)
+    );
+    await selectMergeBackupFile(window, fixturePath);
+    await window.locator('#merge-preview').waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#merge-preview-new-table tbody tr').count(), 25);
+    assert.equal(await window.locator('#merge-preview-new-page-summary').textContent(),
+      'Showing 1–25 of 51 new entries.');
+    assert.equal(await window.locator('#merge-preview-new-prev').isDisabled(), true);
+    assert.equal(await window.locator('#merge-preview-new-next').isDisabled(), false);
+
+    await window.setViewportSize({ width: 320, height: 700 });
+    const newTableScroll = window.locator('#merge-preview-new-scroll');
+    const paginationBefore = await window.locator('#merge-preview-new-pagination').boundingBox();
+    await newTableScroll.evaluate(element => {
+      element.scrollLeft = element.scrollWidth;
+      element.scrollTop = element.scrollHeight;
+    });
+    const paginationAfter = await window.locator('#merge-preview-new-pagination').boundingBox();
+    assert.ok(paginationBefore && paginationAfter);
+    assert.ok(Math.abs(paginationBefore.x - paginationAfter.x) < 1);
+    assert.ok(paginationAfter.x >= 0 && paginationAfter.x + paginationAfter.width <= 320);
+
+    await window.locator('#merge-preview-new-next').click();
+    await window.locator('#merge-preview-new-page-summary').filter({
+      hasText: 'Showing 26–50 of 51 new entries.',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#merge-preview-new-table tbody tr').count(), 25);
+    await window.locator('#merge-preview-new-next').click();
+    await window.locator('#merge-preview-new-page-summary').filter({
+      hasText: 'Showing 51–51 of 51 new entries.',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#merge-preview-new-table tbody tr').count(), 1);
+    assert.equal(await window.locator('#merge-preview-new-next').isDisabled(), true);
+    await window.locator('#merge-preview-new-prev').click();
+    await window.locator('#merge-preview-new-page-summary').filter({
+      hasText: 'Showing 26–50 of 51 new entries.',
+    }).waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await window.locator('#merge-preview-new-prev').isDisabled(), false);
+
+    await window.locator('#cancel-merge-preview-btn').click();
+    await window.locator('#merge-preview').waitFor({ state: 'hidden', timeout: 15_000 });
+  } catch (error) {
+    testFailure = error;
+    throw error;
+  } finally {
+    await finishIsolatedTest(applications, temporaryDirectory, testFailure);
+  }
+});
+
+test('Electron E2E: resolves and persists an explicit backup merge', { timeout: 90_000 }, async () => {
+  const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), E2E_DIRECTORY_PREFIX));
+  const isolatedUserDataDirectory = await fsp.realpath(temporaryDirectory);
+  const applications = [];
+  let testFailure;
+  const existingEntries = [
+    { date: '2025-06-10', mood: 4, sleep: 7.5, water: 2.1 },
+    { date: '2025-06-11', mood: 3, sleep: 6, water: 1.8 },
+  ];
+  const importedEntries = [
+    { date: '2025-06-09', mood: 1, sleep: 0, water: 0 },
+    { date: '2025-06-10', mood: 5, sleep: 8, water: 2.1 },
+    { date: '2025-06-11', mood: 2, sleep: 0, water: 0 },
+  ];
+
+  try {
+    const firstApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(firstApplication);
+    const firstWindow = await getReadyWindow(firstApplication);
+    await assertIsolatedUserData(firstApplication, isolatedUserDataDirectory);
+    for (const entry of existingEntries) await createEntryThroughForm(firstWindow, entry);
+    const fixturePath = await writeBackupFixture(
+      temporaryDirectory,
+      'merge-resolved.json',
+      backupDocument(importedEntries)
+    );
+    await selectMergeBackupFile(firstWindow, fixturePath);
+    await firstWindow.locator('#merge-preview').waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await firstWindow.locator('#merge-backup-btn').isDisabled(), true);
+
+    await firstWindow.locator('#merge-keep-all-existing-btn').click();
+    const allKeepExisting = await firstWindow.locator('input[data-merge-conflict-date][value="keep-existing"]')
+      .evaluateAll(inputs => inputs.every(input => input.checked));
+    assert.equal(allKeepExisting, true);
+    await firstWindow.locator('input[data-merge-conflict-date="2025-06-11"][value="use-backup"]').check();
+    assert.match(await firstWindow.locator('#merge-preview-resolution-status').textContent(), /2 of 2 conflicts resolved/);
+    await firstWindow.locator('#merge-backup-btn').waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await firstWindow.locator('#merge-backup-btn').isDisabled(), false);
+    assert.match(await firstWindow.locator('#merge-preview-final-summary').textContent(), /add 1 new entries/);
+    assert.match(await firstWindow.locator('#merge-preview-final-summary').textContent(), /replace 1 conflicting entries/);
+
+    const confirmationHandled = handleConfirmation(
+      firstWindow,
+      dialog => {
+        assert.equal(dialog.type(), 'confirm');
+        assert.match(dialog.message(), /replace 1 existing entry/);
+      },
+      true
+    );
+    await Promise.all([confirmationHandled, firstWindow.locator('#merge-backup-btn').click()]);
+    await firstWindow.locator('#backup-status').filter({ hasText: 'Backup merged.' })
+      .waitFor({ state: 'visible', timeout: 15_000 });
+    await showHistoryRange(firstWindow, '2025-06-09', '2025-06-11');
+    await assertHistoryRow(firstWindow, importedEntries[0]);
+    await assertHistoryRow(firstWindow, existingEntries[0]);
+    await assertHistoryRow(firstWindow, importedEntries[2]);
+
+    await firstApplication.close();
+    applications.pop();
+    const secondApplication = await launchIsolatedElectron(isolatedUserDataDirectory);
+    applications.push(secondApplication);
+    const secondWindow = await getReadyWindow(secondApplication);
+    await assertIsolatedUserData(secondApplication, isolatedUserDataDirectory);
+    await showHistoryRange(secondWindow, '2025-06-09', '2025-06-11');
+    await assertHistoryRow(secondWindow, importedEntries[0]);
+    await assertHistoryRow(secondWindow, existingEntries[0]);
+    await assertHistoryRow(secondWindow, importedEntries[2]);
   } catch (error) {
     testFailure = error;
     throw error;
@@ -1853,12 +2079,30 @@ test('Electron E2E: displays applied period and comparison statistics from commi
     await window.locator('#trend-statistics').filter({ hasText: 'Comparison statistics' })
       .waitFor({ state: 'visible', timeout: 15_000 });
     const comparisonDisclosure = window.locator('#trend-statistics > details.trend-statistics-disclosure');
-    await comparisonDisclosure.locator('summary').first().click();
+    if (await comparisonDisclosure.getAttribute('open') === null) {
+      await comparisonDisclosure.locator('summary').first().click();
+    }
     assert.match(await window.locator('#trend-statistics').textContent(), /Differences are second period minus first period/);
     const comparisonTables = window.locator('#trend-statistics table');
     const comparisonRows = comparisonTables.nth(1).locator('tbody tr');
     assert.deepEqual(await comparisonRows.nth(1).locator('th, td').allTextContents(), ['Sleep', '4.0 h', '6.0 h', '+2.0 h']);
     assert.deepEqual(await comparisonRows.nth(2).locator('th, td').allTextContents(), ['Water', '1.0 L', '1.0 L', '0 L']);
+
+    await comparisonDisclosure.locator('.trend-statistics-extremes summary').click();
+    const statisticsHeadings = window.locator('#trend-statistics .trend-statistics-table-heading');
+    const statisticsFrames = window.locator('#trend-statistics .trend-statistics-table-wrap');
+    assert.equal(await statisticsHeadings.count(), 3);
+    assert.equal(await statisticsFrames.count(), 3);
+    await window.setViewportSize({ width: 320, height: 700 });
+    for (let index = 0; index < 3; index += 1) {
+      const headingBefore = await statisticsHeadings.nth(index).boundingBox();
+      const frame = statisticsFrames.nth(index);
+      await frame.evaluate(element => { element.scrollLeft = element.scrollWidth; });
+      const headingAfter = await statisticsHeadings.nth(index).boundingBox();
+      assert.ok(headingBefore && headingAfter);
+      assert.ok(Math.abs(headingBefore.x - headingAfter.x) < 1);
+      assert.ok(headingAfter.x >= 0 && headingAfter.x + headingAfter.width <= 320);
+    }
   } catch (error) {
     testFailure = error;
     throw error;

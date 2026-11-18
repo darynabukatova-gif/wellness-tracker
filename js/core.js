@@ -602,6 +602,177 @@
       return { ok: true, entries: sortByDateDesc(candidate) };
     }
 
+    /**
+     * analyzeBackupMerge(existingEntries, importedEntries)
+     *
+     * Classifies a validated backup against the current saved collection
+     * without choosing a conflict resolution or constructing a merged list.
+     * Every returned entry is detached and category ordering is deterministic.
+     *
+     * @returns {{newEntries: Array, identicalEntries: Array, conflicts: Array,
+     *            counts: Object, totalImportedCount: number,
+     *            importedDateRange: Object|null}}
+     * @throws {TypeError|RangeError} When either collection is invalid.
+     */
+    function analyzeBackupMerge(existingEntries, importedEntries) {
+      if (!Array.isArray(existingEntries) || !Array.isArray(importedEntries)) {
+        throw new TypeError('Backup merge collections must be arrays.');
+      }
+
+      const existingError = validateStoredEntries(existingEntries);
+      if (existingError) {
+        throw new RangeError('Existing entries are invalid: ' + existingError);
+      }
+      const importedError = validateStoredEntries(importedEntries);
+      if (importedError) {
+        throw new RangeError('Imported entries are invalid: ' + importedError);
+      }
+
+      const existingByDate = Object.create(null);
+      existingEntries.forEach(function (entry) {
+        existingByDate[entry.date] = entry;
+      });
+
+      const newEntries = [];
+      const identicalEntries = [];
+      const conflicts = [];
+      importedEntries.forEach(function (importedEntry) {
+        const existingEntry = existingByDate[importedEntry.date];
+        if (!existingEntry) {
+          newEntries.push(copyEntry(importedEntry));
+          return;
+        }
+        if (existingEntry.mood === importedEntry.mood &&
+            existingEntry.sleep === importedEntry.sleep &&
+            existingEntry.water === importedEntry.water) {
+          identicalEntries.push(copyEntry(importedEntry));
+          return;
+        }
+        conflicts.push({
+          date: importedEntry.date,
+          existingEntry: copyEntry(existingEntry),
+          importedEntry: copyEntry(importedEntry),
+        });
+      });
+
+      const orderedNewEntries = sortByDateDesc(newEntries);
+      const orderedIdenticalEntries = sortByDateDesc(identicalEntries);
+      conflicts.sort(function (first, second) {
+        if (second.date > first.date) return 1;
+        if (second.date < first.date) return -1;
+        return 0;
+      });
+
+      const importedDates = importedEntries.map(function (entry) { return entry.date; }).sort();
+      return {
+        newEntries: orderedNewEntries,
+        identicalEntries: orderedIdenticalEntries,
+        conflicts: conflicts,
+        counts: {
+          new: orderedNewEntries.length,
+          identical: orderedIdenticalEntries.length,
+          conflicting: conflicts.length,
+        },
+        totalImportedCount: importedEntries.length,
+        importedDateRange: importedDates.length === 0 ? null : {
+          startDate: importedDates[0],
+          endDate: importedDates[importedDates.length - 1],
+        },
+      };
+    }
+
+    /**
+     * buildBackupMergeCandidate(currentEntries, importedEntries, conflictResolutions)
+     *
+     * Revalidates and reanalyzes both collections, then builds a detached
+     * newest-first candidate only when every conflicting date has an explicit
+     * resolution. It never mutates either source collection.
+     *
+     * @returns {{ok: true, entries: Array, counts: Object, hasChanges: boolean}|
+     *            {ok: false, reason: string, unresolvedDates: Array}}
+     * @throws {TypeError|RangeError} When collections or resolutions are invalid.
+     */
+    function buildBackupMergeCandidate(currentEntries, importedEntries, conflictResolutions) {
+      if (!Array.isArray(currentEntries) || !Array.isArray(importedEntries)) {
+        throw new TypeError('Backup merge collections must be arrays.');
+      }
+      if (conflictResolutions === undefined) conflictResolutions = {};
+      if (conflictResolutions === null || typeof conflictResolutions !== 'object' ||
+          Array.isArray(conflictResolutions)) {
+        throw new TypeError('Conflict resolutions must be an object.');
+      }
+
+      // analyzeBackupMerge performs the schema and duplicate-date validation
+      // and recomputes classifications against the current collection.
+      const analysis = analyzeBackupMerge(currentEntries, importedEntries);
+      const conflictDates = Object.create(null);
+      analysis.conflicts.forEach(function (conflict) {
+        conflictDates[conflict.date] = true;
+      });
+
+      Object.keys(conflictResolutions).forEach(function (date) {
+        if (!conflictDates[date]) {
+          throw new RangeError('Conflict resolution supplied for a non-conflicting date: ' + date + '.');
+        }
+        const choice = conflictResolutions[date];
+        if (choice !== 'keep-existing' && choice !== 'use-backup') {
+          throw new RangeError('Invalid conflict resolution for ' + date + '.');
+        }
+      });
+
+      const unresolvedDates = analysis.conflicts
+        .filter(function (conflict) {
+          return !Object.prototype.hasOwnProperty.call(conflictResolutions, conflict.date);
+        })
+        .map(function (conflict) { return conflict.date; });
+      if (unresolvedDates.length > 0) {
+        return {
+          ok: false,
+          reason: 'unresolved-conflicts',
+          unresolvedDates: unresolvedDates,
+        };
+      }
+
+      const candidateByDate = Object.create(null);
+      currentEntries.forEach(function (entry) {
+        candidateByDate[entry.date] = copyEntry(entry);
+      });
+      let added = 0;
+      let replaced = 0;
+      let identical = analysis.identicalEntries.length;
+      let keptExisting = 0;
+
+      analysis.newEntries.forEach(function (entry) {
+        candidateByDate[entry.date] = copyEntry(entry);
+        added += 1;
+      });
+      analysis.conflicts.forEach(function (conflict) {
+        if (conflictResolutions[conflict.date] === 'use-backup') {
+          candidateByDate[conflict.date] = copyEntry(conflict.importedEntry);
+          replaced += 1;
+        } else {
+          keptExisting += 1;
+        }
+      });
+
+      const candidate = sortByDateDesc(Object.keys(candidateByDate).map(function (date) {
+        return candidateByDate[date];
+      }));
+      const hasChanges = added > 0 || replaced > 0;
+      return {
+        ok: true,
+        entries: candidate,
+        counts: {
+          added: added,
+          unchanged: identical + keptExisting,
+          replaced: replaced,
+          identical: identical,
+          keptExisting: keptExisting,
+        },
+        hasChanges: hasChanges,
+      };
+    }
+
     function calculateMetricStatistics(entries, metric) {
       if (entries.length === 0) {
         return { average: null, minimum: null, maximum: null };
